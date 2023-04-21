@@ -62,7 +62,20 @@ class CheckpointManager:
         shutil.copy(path, self.latest_ckpt_path)
         log.debug('Model (epoch: {}) saved.'.format(epoch))
 
-    def resume_from_checkpoint(self, resume_ckpt, model, device=None, strict=True, optimizer=None):
+
+    def drop_modules(self, state_dict, drop_list):
+        r"""Drops modules in drop_list from state_dict.
+        """
+
+        new_state_dict = {}
+
+        for key in state_dict.keys():
+            for drop in drop_list:
+                if not key.startswith(drop):
+                    new_state_dict[key] = state_dict[key]
+        return new_state_dict
+
+    def resume_from_checkpoint(self, resume_ckpt, model, device=None, strict=True, optimizer=None, drop_list=None):
         r"""Loads model weights from :obj:`resume_ckpt`.
 
         Args:
@@ -82,7 +95,10 @@ class CheckpointManager:
         assert not isinstance(model, torch.nn.parallel.DistributedDataParallel), \
             "Weights need to be loaded before model is distributed."
         
-        model.load_state_dict(checkpoint['model'], strict=strict)
+        state_dict = checkpoint['model']
+        if drop_list is not None:
+            state_dict = self.drop_modules(state_dict, drop_list)
+        model.load_state_dict(state_dict, strict=strict and drop_list is None)
 
         # load optimizier state
         if 'optimizer' in checkpoint and checkpoint['optimizer'] is not None and optimizer is not None:

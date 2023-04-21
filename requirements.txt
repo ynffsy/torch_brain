@@ -18,3 +18,5 @@ setuptools~=60.2.0
 bokeh~=3.0.3
 PyYAML~=6.0
 rich==13.3.2
+torch-optimizer==0.3.0
+xformers==0.0.18

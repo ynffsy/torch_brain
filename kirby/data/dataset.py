@@ -113,6 +113,14 @@ class Dataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.filenames)
 
+    def few_shot(self, num_samples, shuffle=True):
+        if shuffle:
+            indices = torch.randperm(len(self))
+        else:
+            indices = torch.arange(len(self))
+        self.filenames = [self.filenames[i] for i in indices[:num_samples]]
+        return self
+
 
 def next_multiple_of_8(x):
     remainder = x % 8
