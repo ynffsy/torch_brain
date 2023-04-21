@@ -56,5 +56,5 @@ python3 test.py --ckpt_path runs/Apr20_22-44-40_bmedyer-gpu3/perceiver-chewie-la
 # Finetuning
 To finetune a model:
 ```
-python3 finetune.py --ckpt_path weights/perceiver-chewie-latest.pt --eval_epochs 100
+python3 finetune.py --ckpt_path weights/perceiver-chewie-latest.pt --eval_epochs 100 --base_lr 1e-3 --num_samples 32 --batch_size 32
 ```
