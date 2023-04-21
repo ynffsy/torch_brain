@@ -114,6 +114,7 @@ class Dataset(torch.utils.data.Dataset):
         return len(self.filenames)
 
     def few_shot(self, num_samples, shuffle=True):
+        assert num_samples <= len(self), f'Cannot sample {num_samples} from dataset of length {len(self)}'
         if shuffle:
             indices = torch.randperm(len(self))
         else:
