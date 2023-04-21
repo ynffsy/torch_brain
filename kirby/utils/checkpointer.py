@@ -70,9 +70,9 @@ class CheckpointManager:
         new_state_dict = {}
 
         for key in state_dict.keys():
-            for drop in drop_list:
-                if not key.startswith(drop):
-                    new_state_dict[key] = state_dict[key]
+            if any(key.startswith(drop) for drop in drop_list):
+                continue
+            new_state_dict[key] = state_dict[key]
         return new_state_dict
 
     def resume_from_checkpoint(self, resume_ckpt, model, device=None, strict=True, optimizer=None, drop_list=None):
