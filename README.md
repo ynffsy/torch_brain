@@ -3,8 +3,9 @@ Poyo!
 
 # Installation
 - Python 3.8 (need to test other versions)
-- PyTorch 2.0
+- PyTorch 2.0.0
 - CUDA 11.3 - 11.7 
+- xformers is optional, but recommended for training with memory efficient attention
 
 ### Add this package to your python path
 ```
@@ -58,3 +59,7 @@ To finetune a model:
 ```
 python3 finetune.py --ckpt_path weights/perceiver-chewie-latest.pt --eval_epochs 100 --base_lr 1e-3 --num_samples 32 --batch_size 32
 ```
+
+
+# todo
+- [ ] Memory efficient attention is only used for self-attention. Need to implement for cross-attention.
