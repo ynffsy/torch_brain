@@ -163,6 +163,16 @@ class RotarySelfAttention(nn.Module):
         return out
 
 
+class Embedding(nn.Embedding): 
+    def __init__(self, *args, init_scale=0.02, **kwargs,):
+        self.init_scale = init_scale
+        super().__init__(*args, **kwargs)
+        
+    def reset_parameters(self) -> None:
+        torch.nn.init.normal_(self.weight, mean=0, std=self.init_scale)
+        self._fill_padding_idx_with_zero()
+
+
 class PerceiverNM(nn.Module):
     def __init__(
             self,
@@ -186,10 +196,10 @@ class PerceiverNM(nn.Module):
         use_memory_efficient_attn = use_memory_efficient_attn and xops is not None
 
         # Embeddings
-        self.unit_emb = nn.Embedding(max_num_units, dim)
-        self.spike_type_emb = nn.Embedding(4, dim)
-        self.task_emb = nn.Embedding(num_tasks, dim)
-        self.latent_emb = nn.Embedding(num_latents, dim)
+        self.unit_emb = Embedding(max_num_units, dim)
+        self.spike_type_emb = Embedding(4, dim)
+        self.task_emb = Embedding(num_tasks, dim)
+        self.latent_emb = Embedding(num_latents, dim)
         self.rotary_emb = RotaryEmbedding(dim_head)
 
         self.dropout = nn.Dropout(p=lin_dropout)

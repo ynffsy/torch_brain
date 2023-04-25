@@ -8,7 +8,7 @@ from einops import repeat
 
 class Dataset(torch.utils.data.Dataset):
     extension = '.pt'
-    pattern = re.compile(r'^([\w\d]+)_\d+\.pt$')
+    pattern = re.compile(r'^(.*)_\d+\.pt$')
 
     def __init__(self, root, split, include=None, transform=None):
         super().__init__()

@@ -20,3 +20,4 @@ PyYAML~=6.0
 rich==13.3.2
 torch-optimizer==0.3.0
 xformers==0.0.16 ; extra == 'optional'
+absl-py==1.2.0
