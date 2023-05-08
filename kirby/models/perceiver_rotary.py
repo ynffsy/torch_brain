@@ -35,7 +35,9 @@ class RotaryEmbedding(nn.Module):
         super().__init__()
         # inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
         inv_freq = torch.zeros(dim // 2)
-        inv_freq[:dim // 4] = 1.0 / (t_min * ((t_max / t_min) ** (torch.arange(0, dim // 2, 2).float() / dim)))
+        inv_freq[:dim // 4] = 2 * torch.pi / (t_min * ((t_max / t_min) ** (torch.arange(0, dim // 2, 2).float() / dim)))
+
+        # t_min * ((t_max / t_min) ** (torch.arange(0, rotated_dims, 2).float() / rotated_dims))
         self.register_buffer("inv_freq", inv_freq)
 
     def forward(self, timestamps):
@@ -237,12 +239,12 @@ class PerceiverNM(nn.Module):
         for i in range(depth):
             self.proc_layers.append(nn.ModuleList([
                 RotarySelfAttention(dim=dim, heads=self_heads, dropout=atn_dropout, dim_head=dim_head, 
-                                    use_memory_efficient_attn=use_memory_efficient_attn, rotate_value=True),
+                                    use_memory_efficient_attn=use_memory_efficient_attn, rotate_value=False),
                 nn.Sequential(nn.LayerNorm(dim), FeedForward(dim=dim, dropout=ffn_dropout))
             ]))
 
         # Decoding transformer (q-task query, kv-latent)
-        self.dec_atn = RotaryCrossAttention(dim=dim, heads=cross_heads, dropout=atn_dropout, dim_head=dim_head, rotate_value=False)
+        self.dec_atn = RotaryCrossAttention(dim=dim, heads=cross_heads, dropout=atn_dropout, dim_head=dim_head, rotate_value=True)
         self.dec_ffn = nn.Sequential(
             nn.LayerNorm(dim),
             FeedForward(dim=dim, dropout=ffn_dropout)
