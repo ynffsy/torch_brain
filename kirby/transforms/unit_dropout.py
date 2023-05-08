@@ -9,11 +9,12 @@ log = logging(header='UNIT DROPOUT', header_color='cyan')
 
 
 class UnitCustomDistribution:
-    def __init__(self, min_units=20, mode_units=100, max_units=300, peak=4, M=10, max_attempts=100, seed=None):
+    def __init__(self, min_units=20, mode_units=100, max_units=300, clip_units=300, peak=4, M=10, max_attempts=100, seed=None):
         super().__init__()
         self.min_units = min_units
         self.mode_units = mode_units
         self.max_units = max_units
+        self.clip_units = clip_units
         self.peak = peak
         self.M = M
         self.max_attempts = max_attempts
@@ -34,12 +35,12 @@ class UnitCustomDistribution:
 
     def sample(self, num_units):
         if num_units < self.min_units:
-            log.warning(f"Requested {num_units} units, but minimum is {self.min_units}")
+            # log.warning(f"Requested {num_units} units, but minimum is {self.min_units}")
             return num_units
         # uses rejection sampling
         num_attempts = 0
         while True:
-            x = self.min_units + self.rng.uniform() * (num_units - self.min_units)  # Sample from the proposal distribution
+            x = self.min_units + self.rng.uniform() * (self.clip_units - self.min_units)  # Sample from the proposal distribution
             u = self.rng.uniform()
             if u <= self.unnormalized_density_function(x) / (self.M * self.proposal_distribution(x)):
                 return x

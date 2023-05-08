@@ -31,13 +31,15 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 class RotaryEmbedding(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim, t_min=1e-4, t_max=4.0):
         super().__init__()
-        inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
+        # inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
+        inv_freq = torch.zeros(dim // 2)
+        inv_freq[:dim // 4] = 1.0 / (t_min * ((t_max / t_min) ** (torch.arange(0, dim // 2, 2).float() / dim)))
         self.register_buffer("inv_freq", inv_freq)
 
     def forward(self, timestamps):
-        freqs = torch.einsum('..., f -> ... f', 1000 * timestamps, self.inv_freq)
+        freqs = torch.einsum('..., f -> ... f', timestamps, self.inv_freq)
         freqs = repeat(freqs, '... n -> ... (n r)', r = 2)
         return freqs
 
@@ -58,7 +60,7 @@ def apply_rotary_pos_emb(freqs, x, dim=2):
 
 
 class RotaryCrossAttention(nn.Module):
-    def __init__(self, dim, context_dim=None, heads=8, dim_head=64, dropout=0.0):
+    def __init__(self, dim, context_dim=None, heads=8, dim_head=64, dropout=0.0, rotate_value=False):
         super().__init__()
 
         inner_dim = dim_head * heads
@@ -66,6 +68,7 @@ class RotaryCrossAttention(nn.Module):
         self.scale = dim_head ** -0.5
         self.heads = heads
         self.dropout = dropout
+        self.rotate_value = rotate_value
 
         # build networks
         self.norm = nn.LayerNorm(dim)
@@ -90,11 +93,16 @@ class RotaryCrossAttention(nn.Module):
         # apply rotary embeddings
         q = apply_rotary_pos_emb(rotary_pos_emb_query, q, dim=1)
         k = apply_rotary_pos_emb(rotary_pos_emb_context, k, dim=1)
+        if self.rotate_value:
+            v = apply_rotary_pos_emb(rotary_pos_emb_context, v, dim=1)
 
         # attention mask
         attn_mask = rearrange(attn_mask, 'b n -> b () () n') if attn_mask is not None else None
         # perform attention, by default will use the optimal attention implementation
         out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, dropout_p=self.dropout)
+
+        if self.rotate_value:
+            out = apply_rotary_pos_emb(-rotary_pos_emb_query, out, dim=1)
 
         # project back to output
         out = rearrange(out, 'b h n d -> b n (h d)')
@@ -103,7 +111,7 @@ class RotaryCrossAttention(nn.Module):
 
 
 class RotarySelfAttention(nn.Module):
-    def __init__(self, dim, heads=8, dim_head=64, dropout=0.0, use_memory_efficient_attn=True):
+    def __init__(self, dim, heads=8, dim_head=64, dropout=0.0, use_memory_efficient_attn=True, rotate_value=False):
         super().__init__()
 
         inner_dim = dim_head * heads
@@ -111,6 +119,7 @@ class RotarySelfAttention(nn.Module):
         self.heads = heads
         self.dropout = dropout
         self.use_memory_efficient_attn = use_memory_efficient_attn
+        self.rotate_value = rotate_value
         
         # build networks
         self.norm = nn.LayerNorm(dim)
@@ -133,12 +142,17 @@ class RotarySelfAttention(nn.Module):
             # apply rotary embeddings
             q = apply_rotary_pos_emb(rotary_pos_emb, q) 
             k = apply_rotary_pos_emb(rotary_pos_emb, k)
+            if self.rotate_value:
+                v = apply_rotary_pos_emb(rotary_pos_emb, v)
 
             attn_mask = repeat(attn_mask, 'b m -> b h n m', h=self.heads, n=q.size(1)) if attn_mask is not None else None
             attn_bias = attn_mask.float().masked_fill(attn_mask, float("-inf")) if attn_mask is not None else None
             
             # scaling is done by default
             out = xops.memory_efficient_attention(q, k, v, attn_bias=attn_bias, p=self.dropout)
+
+            if self.rotate_value:
+                out = apply_rotary_pos_emb(-rotary_pos_emb, out)
 
             # project back to output
             out = rearrange(out, 'b n h d -> b n (h d)')
@@ -151,11 +165,17 @@ class RotarySelfAttention(nn.Module):
             # apply rotary embeddings
             q = apply_rotary_pos_emb(rotary_pos_emb, q, dim=1)
             k = apply_rotary_pos_emb(rotary_pos_emb, k, dim=1)
+            if self.rotate_value:
+                v = apply_rotary_pos_emb(rotary_pos_emb, v, dim=1)
+            
 
             # attention mask
             attn_mask = rearrange(attn_mask, 'b n -> b () () n') if attn_mask is not None else None
             # perform attention, by default will use the optimal attention implementation
             out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, dropout_p=self.dropout)
+
+            if self.rotate_value:
+                out = apply_rotary_pos_emb(-rotary_pos_emb, out, dim=1)
 
             # project back to output
             out = rearrange(out, 'b h n d -> b n (h d)')
@@ -189,6 +209,7 @@ class PerceiverNM(nn.Module):
             lin_dropout=0.4,
             atn_dropout=0.0,
             num_tasks=1,
+            emb_init_scale=0.02,
             use_memory_efficient_attn=True,
     ):
         super().__init__()
@@ -196,16 +217,16 @@ class PerceiverNM(nn.Module):
         use_memory_efficient_attn = use_memory_efficient_attn and xops is not None
 
         # Embeddings
-        self.unit_emb = Embedding(max_num_units, dim)
-        self.spike_type_emb = Embedding(4, dim)
-        self.task_emb = Embedding(num_tasks, dim)
-        self.latent_emb = Embedding(num_latents, dim)
+        self.unit_emb = Embedding(max_num_units, dim, init_scale=emb_init_scale)
+        self.spike_type_emb = Embedding(4, dim, init_scale=emb_init_scale)
+        self.task_emb = Embedding(num_tasks, dim, init_scale=emb_init_scale)
+        self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
         self.rotary_emb = RotaryEmbedding(dim_head)
 
         self.dropout = nn.Dropout(p=lin_dropout)
 
         # Encoding transformer (q-latent, kv-input spikes)
-        self.enc_atn = RotaryCrossAttention(dim=dim, heads=cross_heads, dropout=atn_dropout, dim_head=dim_head)
+        self.enc_atn = RotaryCrossAttention(dim=dim, heads=cross_heads, dropout=atn_dropout, dim_head=dim_head, rotate_value=True)
         self.enc_ffn = nn.Sequential(
             nn.LayerNorm(dim),
             FeedForward(dim=dim, dropout=ffn_dropout)
@@ -216,12 +237,12 @@ class PerceiverNM(nn.Module):
         for i in range(depth):
             self.proc_layers.append(nn.ModuleList([
                 RotarySelfAttention(dim=dim, heads=self_heads, dropout=atn_dropout, dim_head=dim_head, 
-                                    use_memory_efficient_attn=use_memory_efficient_attn),
+                                    use_memory_efficient_attn=use_memory_efficient_attn, rotate_value=True),
                 nn.Sequential(nn.LayerNorm(dim), FeedForward(dim=dim, dropout=ffn_dropout))
             ]))
 
         # Decoding transformer (q-task query, kv-latent)
-        self.dec_atn = RotaryCrossAttention(dim=dim, heads=cross_heads, dropout=atn_dropout, dim_head=dim_head)
+        self.dec_atn = RotaryCrossAttention(dim=dim, heads=cross_heads, dropout=atn_dropout, dim_head=dim_head, rotate_value=False)
         self.dec_ffn = nn.Sequential(
             nn.LayerNorm(dim),
             FeedForward(dim=dim, dropout=ffn_dropout)

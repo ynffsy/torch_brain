@@ -27,8 +27,9 @@ def make_directory(path, prompt_if_exists=False):
         logging.info('Directory [u]{}[/u] already exists.'.format(path))
         if not prompt_if_exists:
             return
-        tree = get_dir_tree(path)
-        print(tree)
+        
+        # tree = get_dir_tree(path)
+        # print(tree)
 
         rm_dir = Confirm.ask("Do you want to delete the folder? "
                              "[bold red blink]This will permanently remove its contents.[/bold red blink]",

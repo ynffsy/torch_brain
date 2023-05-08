@@ -4,13 +4,19 @@ from collections import OrderedDict
 
 import torch
 from einops import repeat
+import numpy as np
+
+from kirby.utils import logging
+
+
+log = logging(header='DATASET', header_color='red')
 
 
 class Dataset(torch.utils.data.Dataset):
     extension = '.pt'
     pattern = re.compile(r'^(.*)_\d+\.pt$')
 
-    def __init__(self, root, split, include=None, transform=None):
+    def __init__(self, root, split, include=None, transform=None, sequence_len_file=None):
         super().__init__()
         self.root = root
 
@@ -29,6 +35,8 @@ class Dataset(torch.utils.data.Dataset):
         self.filenames, self.session_ids = self.look_for_files()
 
         self.session_id_tokens = dict(zip(self.session_ptr.keys(), range(len(self.session_ptr))))
+        
+        self.sequence_len_file = sequence_len_file
 
     def __parse_include_arg(self, include):
         session = None
@@ -121,6 +129,17 @@ class Dataset(torch.utils.data.Dataset):
             indices = torch.arange(len(self))
         self.filenames = [self.filenames[i] for i in indices[:num_samples]]
         return self
+
+    def get_sequence_len(self):
+        if self.sequence_len_file is None:
+            # warn that compute can be slow
+            # also if transform is used, this will be wrong
+            log.warn('Computing sequence lengths can be slow, consider specifying a sequence length file')
+            sequence_len = np.array([len(data.spikes) for data in self])
+        else:
+            # load npy file
+            sequence_len = np.load(self.sequence_len_file)
+        return sequence_len
 
 
 def next_multiple_of_8(x):
