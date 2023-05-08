@@ -35,7 +35,7 @@ class RotaryEmbedding(nn.Module):
         super().__init__()
         # inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
         inv_freq = torch.zeros(dim // 2)
-        inv_freq[:dim // 4] = 2 * torch.pi / (t_min * ((t_max / t_min) ** (torch.arange(0, dim // 2, 2).float() / dim)))
+        inv_freq[:dim // 4] = 2 * torch.pi / (t_min * ((t_max / t_min) ** (torch.arange(0, dim // 2, 2).float() / (dim // 2))))
 
         # t_min * ((t_max / t_min) ** (torch.arange(0, rotated_dims, 2).float() / rotated_dims))
         self.register_buffer("inv_freq", inv_freq)
@@ -47,9 +47,10 @@ class RotaryEmbedding(nn.Module):
 
 
 def rotate_half(x):
-    x_even = x[..., ::2]
-    x_odd = x[..., 1::2]
-    return torch.cat((-x_odd, x_even), dim=-1)
+    x = rearrange(x, '... (d r) -> ... d r', r = 2)	
+    x1, x2 = x.unbind(dim = -1)	
+    x = torch.stack((-x2, x1), dim = -1)	
+    return rearrange(x, '... d r -> ... (d r)')
 
 
 def apply_rotary_pos_emb(freqs, x, dim=2):
