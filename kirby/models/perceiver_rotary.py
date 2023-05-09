@@ -240,12 +240,12 @@ class PerceiverNM(nn.Module):
         for i in range(depth):
             self.proc_layers.append(nn.ModuleList([
                 RotarySelfAttention(dim=dim, heads=self_heads, dropout=atn_dropout, dim_head=dim_head, 
-                                    use_memory_efficient_attn=use_memory_efficient_attn, rotate_value=False),
+                                    use_memory_efficient_attn=use_memory_efficient_attn, rotate_value=True),
                 nn.Sequential(nn.LayerNorm(dim), FeedForward(dim=dim, dropout=ffn_dropout))
             ]))
 
         # Decoding transformer (q-task query, kv-latent)
-        self.dec_atn = RotaryCrossAttention(dim=dim, heads=cross_heads, dropout=atn_dropout, dim_head=dim_head, rotate_value=True)
+        self.dec_atn = RotaryCrossAttention(dim=dim, heads=cross_heads, dropout=atn_dropout, dim_head=dim_head, rotate_value=False)
         self.dec_ffn = nn.Sequential(
             nn.LayerNorm(dim),
             FeedForward(dim=dim, dropout=ffn_dropout)
