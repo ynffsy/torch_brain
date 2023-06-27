@@ -133,3 +133,6 @@ dmypy.json
 
 # Tensorboard
 runs/
+
+# Data
+*.mat

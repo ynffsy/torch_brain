@@ -20,7 +20,7 @@ class Dataset(torch.utils.data.Dataset):
         super().__init__()
         self.root = root
 
-        assert split in ['train', 'valid', 'test']
+        assert split in ['train', 'valid', 'test', 'finetune']
         self.split = split
 
         assert include is not None, 'Please specify the datasets to include'
@@ -128,7 +128,16 @@ class Dataset(torch.utils.data.Dataset):
         else:
             indices = torch.arange(len(self))
         self.filenames = [self.filenames[i] for i in indices[:num_samples]]
+        self.session_ids = [self.session_ids[i] for i in indices[:num_samples]]
         return self
+
+    def augment_for_batchsize(self, batch_size: int):
+        curr_len = len(self)
+        if curr_len < batch_size:
+            self.filenames = self.filenames * (1 + ((batch_size-1) // curr_len))
+            self.session_ids = self.session_ids * (1 + ((batch_size-1) // curr_len))
+        return self
+        
 
     def get_sequence_len(self):
         if self.sequence_len_file is None:
