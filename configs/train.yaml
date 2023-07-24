@@ -1,0 +1,35 @@
+# Path: configs/train.yaml
+defaults:
+  - _self_
+  - model: poyo_single_session.yaml
+
+train_datasets:
+  - "Perich, Miller/Chewie_20161013_CO_FF_BL_001_stripped"
+
+val_datasets:
+  - "Perich, Miller/Chewie_20161013_CO_FF_BL_001_stripped"
+
+behavior_type_weight:
+  RANDOM: 0.1
+  HOLD: 0.1
+  CENTER_OUT_REACH: 5.0
+  CENTER_OUT_RETURN: 1.0
+  INVALID: 0.1
+
+train_transforms:
+  - _target_: kirby.transforms.RandomCrop
+    crop_len: 1.0
+
+data_root: ./data
+seed: 42
+batch_size: 32
+eval_epochs: 10
+epochs: 10
+ckpt_path: None
+base_lr: 1.5625e-5
+# Fraction of epochs to warmup for.
+pct_start: 0.5
+num_workers: 4
+log_dir: ./logs
+# Set to True for multi-gpu training
+distributed: False
