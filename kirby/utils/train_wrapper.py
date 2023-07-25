@@ -35,9 +35,7 @@ class TrainWrapper(LightningModule):
         self.scheduler = scheduler
 
     def configure_optimizers(self):
-        return (
-            self.optimizer
-        )  # [self.optimizer], [{"scheduler": self.scheduler, "interval": "step"}]
+        return [self.optimizer], [{"scheduler": self.scheduler, "interval": "step"}]
 
     def setup(self, stage=None):
         # Make specific loggers available.
@@ -66,16 +64,15 @@ class TrainWrapper(LightningModule):
         loss = loss * data["output_weight"].unsqueeze(-1)
         loss = loss.sum() / (data["output_weight"].sum())
 
-        self.log("train/loss", loss, prog_bar=True)
-
-        return loss
+        self.log("train_loss", loss, prog_bar=True)
+        
+        return {"loss": loss}
 
     def on_train_epoch_end(self):
-        return
         for tag, value in self.model.named_parameters():
             if value.grad is not None:
-                self.log(f"grads/mean_{tag}", value.grad.cpu().mean())
-                self.log(f"grads/std_{tag}", value.grad.cpu().std())
+                self.log(f"grads/mean_{tag}", value.grad.cpu().mean(), sync_dist=True)
+                self.log(f"grads/std_{tag}", value.grad.cpu().std(), sync_dist=True)
 
     def validation_step(self, data, data_idx):
         # Necessary to trick PyTorch Lightning into running the custom validator.

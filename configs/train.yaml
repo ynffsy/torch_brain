@@ -31,5 +31,4 @@ base_lr: 1.5625e-5
 pct_start: 0.5
 num_workers: 4
 log_dir: ./logs
-# Set to True for multi-gpu training
-distributed: False
+name: poyo_single_session

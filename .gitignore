@@ -142,3 +142,5 @@ scripts/logs
 scripts/outputs
 .milatools-profile
 .vscode/*
+.hydra
+wandb
