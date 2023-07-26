@@ -25,10 +25,12 @@ seed: 42
 batch_size: 32
 eval_epochs: 10
 epochs: 10
-ckpt_path: None
 base_lr: 1.5625e-5
 # Fraction of epochs to warmup for.
 pct_start: 0.5
 num_workers: 4
 log_dir: ./logs
 name: poyo_single_session
+# Where to resume from. Could be null (yaml for None, meaning train from 
+# scratch) or a fully qualified path to the .ckpt file.
+ckpt_path: null
