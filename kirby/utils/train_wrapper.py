@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import Optional
 
 import lightning.pytorch.loggers as pl_loggers
 import numpy as np
@@ -23,12 +24,12 @@ class TrainWrapper(LightningModule):
     def __init__(
         self,
         model: nn.Module,
-        optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler.LRScheduler,
+        optimizer: Optional[torch.optim.Optimizer] = None,
+        scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
     ):
         super().__init__()
 
-        self.save_hyperparameters(ignore=["model", "optimizer", "scheduler"])
+        self.save_hyperparameters(ignore=["optimizer", "scheduler"])
 
         self.model = model
         self.optimizer = optimizer
@@ -70,6 +71,8 @@ class TrainWrapper(LightningModule):
 
     def on_train_epoch_end(self):
         for tag, value in self.model.named_parameters():
+            self.log(f"vals/mean_{tag}", value.cpu().mean(), sync_dist=True)
+            self.log(f"vals/std_{tag}", value.cpu().std(), sync_dist=True)
             if value.grad is not None:
                 self.log(f"grads/mean_{tag}", value.grad.cpu().mean(), sync_dist=True)
                 self.log(f"grads/std_{tag}", value.grad.cpu().std(), sync_dist=True)
