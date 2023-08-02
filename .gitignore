@@ -136,3 +136,11 @@ runs/
 
 # Data
 *.mat
+
+scripts/lightning_logs
+scripts/logs
+scripts/outputs
+.milatools-profile
+.vscode/*
+.hydra
+wandb
