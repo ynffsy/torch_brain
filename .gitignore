@@ -144,3 +144,5 @@ scripts/outputs
 .vscode/*
 .hydra
 wandb
+notebooks/artifacts/*
+.snakemake
