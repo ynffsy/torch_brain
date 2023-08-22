@@ -28,3 +28,4 @@ wandb~=0.15
 tabulate~=0.9
 zenodo-get~=1.4.0
 pympler~=1.0.1
+msgpack~=1.0.5
