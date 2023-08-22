@@ -1,3 +1,4 @@
+from typing import Dict, List
 import os
 import re
 from collections import OrderedDict
@@ -6,6 +7,7 @@ import numpy as np
 import torch
 from einops import repeat
 
+from kirby.data import Data
 from kirby.utils import logging
 
 log = logging(header="DATASET", header_color="red")
@@ -191,7 +193,7 @@ class Collate:
         self.reweight = reweight
         self.sequence_length = sequence_length
 
-    def __call__(self, batch):
+    def __call__(self, batch: List[Data]) -> Dict[str, torch.Tensor | List]:
         # make spike tensors
         num_tokens = [len(data.spikes) + len(data.units.id) * 2 for data in batch]
         max_num_tokens = next_multiple_of_8(max(num_tokens))
@@ -316,64 +318,3 @@ class Collate:
             session_id=session_id,
         )
         return data
-
-
-def prepare_sample(data, step=1.0 / 8, num_latents_per_step=16):
-    # prepare input
-    num_input_tokens = len(data.spikes) + len(data.units.id) * 2
-    spike_timestamps = torch.zeros((num_input_tokens), dtype=torch.float32)
-    spike_unit = torch.zeros((num_input_tokens), dtype=torch.long)
-    spike_type = torch.zeros((num_input_tokens), dtype=torch.long)
-    spikes = data.spikes
-    spike_timestamps[: len(data.spikes)] = data.spikes.timestamps
-    spike_unit[: len(data.spikes)] = data.spikes.unit_id
-    units = data.units.id
-    start, end = data.start, data.end
-    start, end = 0.0, end - start
-    spike_timestamps[len(spikes) : len(spikes) + len(units)] = start
-    spike_timestamps[len(spikes) + len(units) : len(spikes) + len(units) * 2] = end
-    spike_unit[len(spikes) : len(spikes) + len(units)] = units
-    spike_unit[len(spikes) + len(units) : len(spikes) + len(units) * 2] = units
-    spike_type[len(spikes) : len(spikes) + len(units)] = 1
-    spike_type[len(spikes) + len(units) : len(spikes) + len(units) * 2] = 2
-
-    # prepare output
-    output_timestamps = data.behavior.timestamps
-    output_values = data.behavior.hand_vel
-    output_stage = (
-        data.behavior.type
-        if hasattr(data.behavior, "type")
-        else data.behavior.behavior_type
-    )
-
-    # prepare latent
-    sequence_length = data.end - data.start
-    latent_timestamps = torch.arange(0, sequence_length, step) + step / 2
-    latent_ids = torch.arange(num_latents_per_step, dtype=torch.long)
-    num_timestamps = len(latent_timestamps)
-    latent_timestamps = repeat(latent_timestamps, "t -> (t u)", u=len(latent_ids))
-    latent_ids = repeat(latent_ids, "u -> (t u)", t=num_timestamps)
-
-    # session id
-    session_id = data.session_id
-    task_id = (
-        torch.ones(len(output_timestamps), dtype=torch.long) * data.session_id_token
-    )
-
-    data = dict(
-        spike_timestamps=spike_timestamps,
-        spike_unit=spike_unit,
-        spike_type=spike_type,
-        mask=None,
-        output_timestamps=output_timestamps,
-        output_values=output_values,
-        output_weight=None,
-        output_mask=None,
-        output_stage=output_stage,
-        task_id=task_id,
-        latent_timestamps=latent_timestamps,
-        latent_id=latent_ids,
-        input_mask=None,
-        session_id=session_id,
-    )
-    return data
