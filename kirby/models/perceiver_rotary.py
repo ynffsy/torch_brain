@@ -256,24 +256,25 @@ class PerceiverNM(nn.Module):
 
     def forward(
             self,
-            spike_unit_id,         # (B, N_in)
-            spike_timestamps,      # (B, N_in)
-            spike_id,              # (B, N_in)
-            input_mask,            # (B, N_in)
-            latent_id,             # (B, N_latent)
-            latent_timestamps,     # (B, N_latent)
-            query_timestamps,      # (B, N_out)
-            task_id,               # (B)
+            spike_unit=None,            # (B, N_in)
+            spike_timestamps=None,      # (B, N_in)
+            spike_type=None,            # (B, N_in)
+            input_mask=None,            # (B, N_in)
+            latent_id=None,             # (B, N_latent)
+            latent_timestamps=None,     # (B, N_latent)
+            output_timestamps=None,     # (B, N_out)
+            task_id=None,               # (B)
+            **kwargs
     ):
         # create embeddings
-        x_input = self.unit_emb(spike_unit_id) + self.spike_type_emb(spike_id)
+        x_input = self.unit_emb(spike_unit) + self.spike_type_emb(spike_type)
         latents = self.latent_emb(latent_id)
         x_output = self.task_emb(task_id)
 
         # compute timestamp embeddings
         spike_timestamp_emb = self.rotary_emb(spike_timestamps)
         latent_timestamp_emb = self.rotary_emb(latent_timestamps)
-        query_timestamp_emb = self.rotary_emb(query_timestamps)
+        query_timestamp_emb = self.rotary_emb(output_timestamps)
 
         # Encoder
         latents = latents + self.enc_atn(latents, x_input, latent_timestamp_emb, spike_timestamp_emb, input_mask)
