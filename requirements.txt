@@ -29,3 +29,4 @@ tabulate~=0.9
 zenodo-get~=1.4.0
 pympler~=1.0.1
 msgpack~=1.0.5
+snakemake~=7.32.3
