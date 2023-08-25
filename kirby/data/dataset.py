@@ -2,7 +2,7 @@ import os
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import torch
@@ -180,7 +180,7 @@ class Collate:
         self.reweight = reweight
         self.sequence_length = sequence_length
 
-    def __call__(self, batch: List[Data]) -> Dict[str, torch.Tensor | List]:
+    def __call__(self, batch: List[Data]) -> Dict[str, Union[torch.Tensor, List]]:
         # make spike tensors
         num_tokens = [len(data.spikes) + len(data.units.unit_name) * 2 for data in batch]
         max_num_tokens = next_multiple_of_8(max(num_tokens))
