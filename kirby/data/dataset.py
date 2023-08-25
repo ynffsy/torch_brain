@@ -1,22 +1,22 @@
-from typing import Dict, List
 import os
 import re
 from collections import OrderedDict
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
+import yaml
 from einops import repeat
 
 from kirby.data import Data
+from kirby.taxonomy import StringIntEnum
 from kirby.utils import logging
 
 log = logging(header="DATASET", header_color="red")
 
 
 class Dataset(torch.utils.data.Dataset):
-    extension = ".pt"
-    pattern = re.compile(r"^(.*)_\d+\.pt$")
-
     def __init__(
         self, root, split, include=None, transform=None, sequence_len_file=None
     ):
@@ -26,107 +26,88 @@ class Dataset(torch.utils.data.Dataset):
         assert split in ["train", "valid", "test", "finetune"]
         self.split = split
 
-        assert include is not None, "Please specify the datasets to include"
-        if isinstance(include, str):
-            include = [include]
-        self.include = [
-            self.__parse_include_arg(include_dir) for include_dir in include
-        ]
+        if include is None:
+            raise ValueError("Please specify the datasets to include")
 
-        self.session_ptr = OrderedDict()
-        self.total_num_units = 0
-
+        self.include = include
         self.transform = transform
-        self.filenames, self.session_ids = self.look_for_files()
-
-        self.session_id_tokens = dict(
-            zip(self.session_ptr.keys(), range(len(self.session_ptr)))
-        )
+        self.filenames, self.session_names, self.unit_names = self.look_for_files()
 
         self.sequence_len_file = sequence_len_file
 
-    def __parse_include_arg(self, include):
-        session = None
-        dataset_dir, session_list = include.split("/")
-        if session_list == "*":
-            session_list = "all"
+    def look_for_files(self) -> Tuple[List[Path], List[str], List[str]]:
+        session_names = []
+        unit_names = []
+        filenames = []
 
-        if os.path.exists(os.path.join(self.root, dataset_dir, session_list + ".txt")):
-            session_list_filename = session_list + ".txt"
-        else:
-            session = session_list
-            session_list = "all"
-        session_list_filename = session_list + ".txt"
-        return dataset_dir, session_list_filename, session
+        for included_datasets in self.include:
+            selection = included_datasets["selection"]
+            if selection.get("dandiset", "") == "":
+                raise ValueError(
+                    f"Please specify a dandiset to include under {self.split}_datasets"
+                )
 
-    def look_for_files(self):
-        files = []
-        file_session_ids = []
-
-        for include_dir, include_file_list, only_session in self.include:
-            session_ids = self.__parse_file_list(
-                os.path.join(self.root, include_dir, include_file_list),
-                only_get=only_session,
+            description_file = os.path.join(
+                self.root, selection["dandiset"], "description.yaml"
             )
-            include_dir = os.path.join(self.root, include_dir, "processed", self.split)
 
-            for file in sorted(os.listdir(include_dir)):
-                if file.endswith(self.extension):
-                    session_id = self.parse_session_id(file)
-                    if session_id in session_ids:
-                        files.append(os.path.join(include_dir, file))
-                        file_session_ids.append(session_id)
-        return files, file_session_ids
+            try:
+                with open(description_file, "r") as f:
+                    description = yaml.load(f, Loader=yaml.CLoader)
 
-    def register_new_session(self, session_id, num_units):
-        if session_id in self.session_ptr:
-            raise ValueError(
-                f"Session {session_id} already registered, duplicate session files are not allowed."
-            )
-        self.session_ptr[session_id] = (
-            self.total_num_units,
-            self.total_num_units + num_units - 1,
-        )
-        self.total_num_units += num_units
+            except FileNotFoundError:
+                raise FileNotFoundError(
+                    f"Could not find description file {description_file}"
+                )
 
-    def __parse_file_list(self, path, only_get=None):
-        session_ids = []
-        only_get_session_found = False
-        with open(path, "r") as f:
-            for line in f.readlines():
-                session_id, num_units = line.strip().split(" ")
-                if only_get is not None:
-                    if session_id == only_get:
-                        self.register_new_session(session_id, int(num_units))
-                        session_ids.append(session_id)
-                        only_get_session_found = True
-                        break
-                else:
-                    self.register_new_session(session_id, int(num_units))
-                    session_ids.append(session_id)
-        if only_get is not None and not only_get_session_found:
-            raise ValueError(f"Could not find session {only_get} in file list {path}")
-        return session_ids
+            # Get a list of all the potentially chunks in this dataset.
+            sortsets = description["sortsets"]
 
-    def parse_session_id(self, filename):
-        filename = os.path.basename(filename)
-        match = self.pattern.match(filename)
-        if match:
-            extracted_session = match.group(1)
-            return extracted_session
-        else:
-            raise ValueError(f"Could not parse session id from filename {filename}")
+            # Perform selection. Right now, we are limiting ourselves to sortset,
+            # subject and session, but we could make selection more flexible in the future.
+            sel_sortset = selection.get("sortset", None)
+            sel_subject = selection.get("subject", None)
+            sel_session = selection.get("session", None)
+
+            # First, we get the sortset-level information.
+            if sel_sortset is not None:
+                sortsets = [
+                    sortset for sortset in sortsets if sortset["id"] == sel_sortset
+                ]
+
+            if sel_subject is not None:
+                sortsets = [
+                    sortset for sortset in sortsets if sortset["subject"] == sel_subject
+                ]
+
+            # Note that this logic may result in adding two many slots but that's fine.
+            unit_names += [x for sortset in sortsets for x in sortset["units"]]
+
+            # Now we get the session-level information.
+            sessions = sum([sortset["sessions"] for sortset in sortsets], [])
+            if sel_session is not None:
+                sessions = [
+                    session for session in sessions if session["id"] == sel_session
+                ]
+
+            session_names += [session["id"] for session in sessions]
+
+            # Now we get the chunk-level information.
+            for session in sessions:
+                for trial in session["trials"]:
+                    for chunk in trial["chunks"][self.split]:
+                        filenames.append(
+                            Path(self.root)
+                            / selection['dandiset']
+                            / self.split
+                            / f"{chunk['id']}.pt"
+                        )
+
+        unit_names = list(set(unit_names))
+        return filenames, session_names, unit_names
 
     def __getitem__(self, item):
         data = torch.load(self.filenames[item])
-        # translate unit ids
-        session_id = self.session_ids[item]
-        translate = self.session_ptr[session_id][0]
-        data.spikes.unit_id += translate
-        data.units.id += translate
-        data.session_id = session_id
-        data.session_id_token = self.session_id_tokens[session_id]
-
         # apply transform
         if self.transform is not None:
             data = self.transform(data)
@@ -144,14 +125,16 @@ class Dataset(torch.utils.data.Dataset):
         else:
             indices = torch.arange(len(self))
         self.filenames = [self.filenames[i] for i in indices[:num_samples]]
-        self.session_ids = [self.session_ids[i] for i in indices[:num_samples]]
+        self.session_names = [self.session_names[i] for i in indices[:num_samples]]
         return self
 
     def augment_for_batchsize(self, batch_size: int):
         curr_len = len(self)
         if curr_len < batch_size:
             self.filenames = self.filenames * (1 + ((batch_size - 1) // curr_len))
-            self.session_ids = self.session_ids * (1 + ((batch_size - 1) // curr_len))
+            self.session_names = self.session_names * (
+                1 + ((batch_size - 1) // curr_len)
+            )
         return self
 
     def get_sequence_len(self):
@@ -176,17 +159,21 @@ def next_multiple_of_8(x):
         return x + (8 - remainder)
 
 
+class SpikeType(StringIntEnum):
+    UNIT = 0
+    START = 1
+    END = 2
+
+
 class Collate:
     def __init__(
         self,
-        max_num_units=4096,
         num_latents_per_step=1,
         step=1.0,
         behavior_type_weight=None,
         reweight=False,
         sequence_length=1.0,
     ):
-        self.max_num_units = max_num_units + 1
         self.num_latents_per_step = num_latents_per_step
         self.step = step
         self.behavior_type_weight = behavior_type_weight
@@ -195,7 +182,7 @@ class Collate:
 
     def __call__(self, batch: List[Data]) -> Dict[str, torch.Tensor | List]:
         # make spike tensors
-        num_tokens = [len(data.spikes) + len(data.units.id) * 2 for data in batch]
+        num_tokens = [len(data.spikes) + len(data.units.unit_name) * 2 for data in batch]
         max_num_tokens = next_multiple_of_8(max(num_tokens))
 
         # print(isinstance(batch[0].spikes.timestamps, torch.Tensor))
@@ -207,9 +194,7 @@ class Collate:
         spike_timestamps = torch.zeros(
             (len(batch), max_num_tokens), dtype=torch.float32
         )
-        spike_unit = torch.empty((len(batch), max_num_tokens), dtype=torch.long).fill_(
-            self.max_num_units - 1
-        )
+        spike_names = []
         spike_type = torch.zeros((len(batch), max_num_tokens), dtype=torch.long)
         mask = torch.zeros((len(batch), max_num_tokens), dtype=torch.bool)
 
@@ -252,11 +237,18 @@ class Collate:
             # add spike events
             spikes = data.spikes
 
+            # Annoyingly, we have to keep spike names as a list of strings, as PyTorch
+            # does not support string tensors. We will convert to a tensor later.
+            spike_names.append(
+                list(spikes.names)
+                + list(data.units.unit_name)
+                + list(data.units.unit_name)
+                + ["NA"] * (max_num_tokens - len(spikes) - len(data.units.unit_name) * 2)
+            )
             spike_timestamps[i, : len(spikes)] = spikes.timestamps
-            spike_unit[i, : len(spikes)] = spikes.unit_id
             mask[i, : len(spikes)] = True
             # add artificial start and end of trial events to each unit
-            units = data.units.id
+            units = data.units.unit_name
             start, end = data.start, data.end
             # assume that aligned with start and end
             start, end = 0.0, end - start
@@ -264,12 +256,10 @@ class Collate:
             spike_timestamps[
                 i, len(spikes) + len(units) : len(spikes) + len(units) * 2
             ] = end
-            spike_unit[i, len(spikes) : len(spikes) + len(units)] = units
-            spike_unit[
+            spike_type[i, len(spikes) : len(spikes) + len(units)] = int(SpikeType.START)
+            spike_type[
                 i, len(spikes) + len(units) : len(spikes) + len(units) * 2
-            ] = units
-            spike_type[i, len(spikes) : len(spikes) + len(units)] = 1
-            spike_type[i, len(spikes) + len(units) : len(spikes) + len(units) * 2] = 2
+            ] = int(SpikeType.END)
 
             # make output
             output = data.behavior
@@ -294,27 +284,23 @@ class Collate:
             input_mask[i, : len(spikes) + len(units) * 2] = True
 
         # session id
-        session_id = [data.session_id for data in batch]
-        task_id = torch.tensor(
-            [data.session_id_token for data in batch], dtype=torch.long
-        )
-
-        task_id = repeat(task_id, "b -> b t", t=max_num_output_tokens)
+        session_names = [data.session for data in batch]
 
         data = dict(
             spike_timestamps=spike_timestamps,
-            spike_unit=spike_unit,
+            spike_names=spike_names,
             spike_type=spike_type,
+            # TODO: clean this up. Why is there a mask distinct from input_mask?
             mask=mask,
+            input_mask=input_mask,
             output_timestamps=output_timestamps,
             output_values=output_values,
             output_weight=output_weight,
             output_mask=output_mask,
             output_stage=output_stage,
-            task_id=torch.clone(task_id),  # repeat and pin_memory don't play well
+            # repeat and pin_memory don't play well, hence we clone
             latent_timestamps=torch.clone(latent_timestamps),
             latent_id=torch.clone(latent_ids),
-            input_mask=input_mask,
-            session_id=session_id,
+            session_names=session_names,
         )
         return data

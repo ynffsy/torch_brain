@@ -146,3 +146,6 @@ scripts/outputs
 wandb
 notebooks/artifacts/*
 .snakemake
+
+tests/logs
+logs/lightning_logs
