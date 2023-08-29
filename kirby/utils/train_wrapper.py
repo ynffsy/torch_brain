@@ -50,14 +50,7 @@ class TrainWrapper(LightningModule):
 
     def training_step(self, data, data_idx):
         output = self.model(
-            data["spike_unit"],
-            data["spike_timestamps"],
-            data["spike_type"],
-            data["input_mask"],
-            data["latent_id"],
-            data["latent_timestamps"],
-            data["output_timestamps"],
-            data["task_id"],
+            **data
         )
 
         loss = F.mse_loss(output, data["output_values"], reduction="none")

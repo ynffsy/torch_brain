@@ -9,4 +9,3 @@ self_heads: 8
 ffn_dropout: 0.2
 lin_dropout: 0.4
 atn_dropout: 0.2
-num_tasks: 64
