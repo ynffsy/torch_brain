@@ -334,18 +334,18 @@ class PerceiverNM(nn.Module):
         atn_dropout=0.0,
         emb_init_scale=0.02,
         use_memory_efficient_attn=True,
-        unit_names: Optional[List[str]] = None,  # For unit embeddings
+        max_num_units: int = 4097,  # For unit embeddings
         session_names: Optional[List[str]] = None,
     ):
         super().__init__()
 
-        if unit_names is None or session_names is None:
-            raise ValueError("unit_names and session_names must be provided")
+        if session_names is None:
+            raise ValueError("session_names must be provided")
 
         use_memory_efficient_attn = use_memory_efficient_attn and xops is not None
 
         # Embeddings
-        self.unit_emb = EmbeddingWithVocab(unit_names, dim, init_scale=emb_init_scale)
+        self.unit_emb = Embedding(max_num_units, dim, init_scale=emb_init_scale)
         self.session_emb = EmbeddingWithVocab(
             session_names, dim, init_scale=emb_init_scale
         )
@@ -406,19 +406,19 @@ class PerceiverNM(nn.Module):
 
     def forward(
         self,
-        spike_names=None,  # (B, N_in)
+        spike_ids=None,  # (B, N_in)
         spike_timestamps=None,  # (B, N_in)
         spike_type=None,  # (B, N_in)
         input_mask=None,  # (B, N_in)
-        latent_id=None,  # (B, N_latent)
+        latent_ids=None,  # (B, N_latent)
         latent_timestamps=None,  # (B, N_latent)
         output_timestamps=None,  # (B, N_out)
         session_names=None,
         **kwargs,
     ):
         # create embeddings
-        x_input = self.unit_emb(spike_names) + self.spike_type_emb(spike_type)
-        latents = self.latent_emb(latent_id)
+        x_input = self.unit_emb(spike_ids) + self.spike_type_emb(spike_type)
+        latents = self.latent_emb(latent_ids)
         x_output = self.session_emb(session_names).squeeze()
         x_output = repeat(x_output, "b d -> b n d", n=output_timestamps.shape[1])
         assert x_output.ndim == 3

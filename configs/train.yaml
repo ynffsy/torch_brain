@@ -4,7 +4,14 @@ defaults:
   - model: poyo_single_session.yaml
 
 train_datasets:
-  - "Perich, Miller/Chewie_20161013_CO_FF_BL_001_stripped"
+  - selection:
+      dandiset: "odoherty_sabes"
+      sortset: "20100101"
+    metrics:
+      - _target_: kirby.metrics.r2
+        output_key: ARM2D
+        loss: True
+        weight: 1
 
 val_datasets:
   - "Perich, Miller/Chewie_20161013_CO_FF_BL_001_stripped"
