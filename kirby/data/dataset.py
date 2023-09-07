@@ -1,16 +1,23 @@
+import collections
+import dataclasses
 import os
-import re
-from collections import OrderedDict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+import torch.utils
+import torch.utils.data
+import torchtext
 import yaml
 from einops import repeat
+from torchtyping import TensorType
 
 from kirby.data import Data
+from kirby.data.data import RegularTimeSeries
 from kirby.taxonomy import StringIntEnum
+from kirby.taxonomy.taxonomy import DecoderSpec, RecordingTech
 from kirby.utils import logging
 
 log = logging(header="DATASET", header_color="red")
@@ -31,16 +38,16 @@ class Dataset(torch.utils.data.Dataset):
 
         self.include = include
         self.transform = transform
-        self.filenames, self.session_names, self.unit_names = self.look_for_files()
+        self.chunk_info, self.session_names, self.unit_names = self.look_for_files()
 
         self.sequence_len_file = sequence_len_file
 
-    def look_for_files(self) -> Tuple[List[Path], List[str], List[str]]:
+    def look_for_files(self) -> Tuple[List[Dict], List[str], List]:
+        chunk_info = []
         session_names = []
         unit_names = []
-        filenames = []
 
-        for included_datasets in self.include:
+        for i, included_datasets in enumerate(self.include):
             selection = included_datasets["selection"]
             if selection.get("dandiset", "") == "":
                 raise ValueError(
@@ -64,7 +71,8 @@ class Dataset(torch.utils.data.Dataset):
             sortsets = description["sortsets"]
 
             # Perform selection. Right now, we are limiting ourselves to sortset,
-            # subject and session, but we could make selection more flexible in the future.
+            # subject and session, but we could make selection more flexible in the 
+            # future.
             sel_sortset = selection.get("sortset", None)
             sel_subject = selection.get("subject", None)
             sel_session = selection.get("session", None)
@@ -90,31 +98,49 @@ class Dataset(torch.utils.data.Dataset):
                     session for session in sessions if session["id"] == sel_session
                 ]
 
+            assert len(sessions) > 0, f"No sessions found for {i}'th dataset included"
+
             session_names += [session["id"] for session in sessions]
 
             # Now we get the chunk-level information.
             for session in sessions:
                 for trial in session["trials"]:
                     for chunk in trial["chunks"][self.split]:
-                        filenames.append(
-                            Path(self.root)
-                            / selection['dandiset']
-                            / self.split
-                            / f"{chunk['id']}.pt"
+                        iomap = {k: session[k] for k in ["inputs", "outputs", "stimuli", "task"]}
+                        chunk_info.append(
+                            {
+                                "filename": (
+                                    Path(self.root)
+                                    / selection["dandiset"]
+                                    / self.split
+                                    / f"{chunk['id']}.pt"
+                                ),
+                                "iomap": iomap,
+                                "description": included_datasets,
+                            }
                         )
 
+        all_filenames = [info["filename"] for info in chunk_info]
+
+        assert len(set(all_filenames)) == len(
+            all_filenames
+        ), f"Overlapping selection criteria for {self.split} datasets"
+
         unit_names = list(set(unit_names))
-        return filenames, session_names, unit_names
+        return chunk_info, session_names, unit_names
 
     def __getitem__(self, item):
-        data = torch.load(self.filenames[item])
+        info = self.chunk_info[item]
+        data = torch.load(info["filename"])
         # apply transform
         if self.transform is not None:
             data = self.transform(data)
+        data.description = info["description"]
+        data.iomap = info["iomap"]
         return data
 
     def __len__(self):
-        return len(self.filenames)
+        return len(self.chunk_info)
 
     def few_shot(self, num_samples, shuffle=True):
         assert num_samples <= len(
@@ -124,14 +150,14 @@ class Dataset(torch.utils.data.Dataset):
             indices = torch.randperm(len(self))
         else:
             indices = torch.arange(len(self))
-        self.filenames = [self.filenames[i] for i in indices[:num_samples]]
+        self.chunk_info = [self.chunk_info[i] for i in indices[:num_samples]]
         self.session_names = [self.session_names[i] for i in indices[:num_samples]]
         return self
 
     def augment_for_batchsize(self, batch_size: int):
         curr_len = len(self)
         if curr_len < batch_size:
-            self.filenames = self.filenames * (1 + ((batch_size - 1) // curr_len))
+            self.chunk_info = self.chunk_info * (1 + ((batch_size - 1) // curr_len))
             self.session_names = self.session_names * (
                 1 + ((batch_size - 1) // curr_len)
             )
@@ -164,56 +190,189 @@ class SpikeType(StringIntEnum):
     START = 1
     END = 2
 
+@dataclass
+class PaddedGrouping:
+    spike_timestamps: TensorType["batch", "nspikes"]
+    # Spike ids are resolved with respect to unit names in the collator.
+    spike_ids: TensorType["batch", "nspikes"]
+    spike_type: TensorType["batch", "nspikes"]
+
+    # True for all real spikes and start/end events
+    input_mask: TensorType["batch", "nspikes"]
+    # TODO: remove mask, it's redundant with input_mask
+
+    latent_timestamps: TensorType["batch", "nlatents"]
+    latent_ids: TensorType["batch", "nlatents"]
+
+    # Pytorch geometric style
+    output_task_index: Dict[str, TensorType["*Bout"]]
+    output_timestamps: Dict[str, TensorType["*Bout", "*ntout"]]
+    output_values: Dict[str, TensorType["*Bout", "*ntout", "*nchannelsout"]]
+    # We absorb the mask into the weight
+    output_weight: Dict[str, TensorType["*Bout", "*ntout"]]
+
+    session_names: List[str]
+
+    # We use only the central channel for now.
+    spike_waveforms: Optional[TensorType["batch", "nspikes", "nt"]] = None
+
+    # We represent average waveforms.
+    average_waveforms: Optional[TensorType["nunits", "nt"]] = None
+
+    # LFPs, when available, are referenced with respect to spikes via nearest neighbour
+    # interpolation. Multiple bands are referenced in parallel.
+    lfps: Optional[TensorType["batch", "nspikes", "lfp_bands"]] = None
+
+    # Q: should we have masks for spike waveforms and for lfps?
+    
+    def to_dict(self):
+        return dataclasses.asdict(self)
+
+
+def check_include_exclude(description, key):
+    if "include_input" in description:
+        return key in description["include_input"]
+    elif "exclude_input" in description.keys():
+        return key not in description["exclude_input"]
+    else:
+        return True
+    
+def resolve(data, key) -> torch.Tensor:
+    # Split key by dots, resolve using getattr
+    components = key.split('.')
+    for c in components:
+        try:
+            data = getattr(data, c)
+        except AttributeError:
+            raise AttributeError(f"Could not resolve {key} in data (specifically, at level {c}))")
+    return data
+
+
 
 class Collate:
     def __init__(
         self,
-        num_latents_per_step=1,
+        num_latents_per_step: int = 1,
         step=1.0,
         behavior_type_weight=None,
-        reweight=False,
+        reweight: bool = False,
         sequence_length=1.0,
+        unit_vocab: Optional[torchtext.vocab.Vocab]=None,
+        decoder_registry: Optional[Dict[str, DecoderSpec]]=None,
     ):
+        """Stack datasets into a batch.
+
+        Args:
+            num_latents_per_step: Number of latents per step.
+            step: Step size between latents in seconds.
+            behavior_type_weight: Weight for each behavior type.
+            reweight: Whether to reweight the loss so that each sequence has the same weight.
+            sequence_length: Length of each sequence in seconds.
+
+        Note that there are necessarily sequence_length / step * num_latents_per_step latent tokens.
+        """
         self.num_latents_per_step = num_latents_per_step
         self.step = step
         self.behavior_type_weight = behavior_type_weight
         self.reweight = reweight
+        if unit_vocab is None:
+            raise NotImplementedError("Unit vocab is required")
+        self.unit_vocab = unit_vocab
+        # Make sure that the unit vocab has a mapping for NA and that it corresponds to 0
+        assert self.unit_vocab.forward(["NA"])[0] == 0
+
+        # TODO: remove sequence_length from the parameters and read the sequence length 
+        # from the data instead.
         self.sequence_length = sequence_length
+        if decoder_registry is None:
+            raise NotImplementedError("Decoder registry is required")
+        self.decoder_registry = decoder_registry
+
 
     def __call__(self, batch: List[Data]) -> Dict[str, Union[torch.Tensor, List]]:
-        # make spike tensors
-        num_tokens = [len(data.spikes) + len(data.units.unit_name) * 2 for data in batch]
+        # Deal with the inputs first
+        num_tokens = [
+            len(data.spikes) + len(data.units.unit_name) * 2 for data in batch
+        ]
         max_num_tokens = next_multiple_of_8(max(num_tokens))
-
-        # print(isinstance(batch[0].spikes.timestamps, torch.Tensor))
-        # print(batch[0].spikes.timestamps.dtype)
-        # print(batch[0].spikes.timestamps.device)
-        # print(isinstance(batch[0].spikes.timestamps, np.ndarray))
-        # print("---")
+        max_num_units = len(self.unit_vocab)
 
         spike_timestamps = torch.zeros(
             (len(batch), max_num_tokens), dtype=torch.float32
         )
-        spike_names = []
         spike_type = torch.zeros((len(batch), max_num_tokens), dtype=torch.long)
+        spike_ids = torch.zeros((len(batch), max_num_tokens), dtype=torch.long)
         mask = torch.zeros((len(batch), max_num_tokens), dtype=torch.bool)
 
-        num_output_tokens = [len(data.behavior.timestamps) for data in batch]
-        max_num_output_tokens = next_multiple_of_8(max(num_output_tokens))
+        # Q: do we have waveforms, and do we have LFPs?
+        has_spike_waveforms = False
+        has_average_waveforms = False
+        has_lfps = False
 
-        # make behavior tensors
-        output_timestamps = torch.zeros(
-            (len(batch), max_num_output_tokens), dtype=torch.float32
-        )
-        output_values = torch.empty(
-            (len(batch), max_num_output_tokens, 2), dtype=torch.float32
-        ).fill_(1e6)
-        output_weight = torch.zeros(
-            (len(batch), max_num_output_tokens), dtype=torch.float32
-        )
-        output_stage = torch.zeros(
-            (len(batch), max_num_output_tokens), dtype=torch.long
-        )
+        max_spike_waveform_size = 0
+        max_average_waveform_size = 0
+        max_nbands = 0
+
+        max_output_tokens = collections.defaultdict(int)
+        output_dims = collections.defaultdict(int)
+        output_task_index = collections.defaultdict(list)
+
+        for i, data in enumerate(batch):
+            # Two conditions: the data exists, and it's been requested.
+            data.has_spike_waveforms = False
+            data.has_average_waveforms = False
+            data.has_lfps = False
+            if (str(RecordingTech.UTAH_ARRAY_WAVEFORMS)) in data.iomap['inputs'].keys():
+                check = check_include_exclude(data.description, str(RecordingTech.UTAH_ARRAY_WAVEFORMS))
+                if check:
+                    max_spike_waveform_size = max(max_spike_waveform_size, data.spikes.waveforms.shape[1])
+                    data.has_spike_waveforms = check
+                    has_spike_waveforms = check
+
+            if (str(RecordingTech.UTAH_ARRAY_AVERAGE_WAVEFORMS)) in data.iomap['inputs'].keys():
+                check = check_include_exclude(data.description, str(RecordingTech.UTAH_ARRAY_AVERAGE_WAVEFORMS))
+                if check:
+                    max_average_waveform_size = max(max_average_waveform_size, data.spikes.waveforms.shape[1])
+                    data.has_average_waveforms = check
+                    has_average_waveforms = check
+                
+            if (str(RecordingTech.UTAH_ARRAY_LFPS)) in data.iomap['inputs'].keys():
+                check = check_include_exclude(data.description, str(RecordingTech.UTAH_ARRAY_LFPS))
+                if check:
+                    max_nbands = max(max_nbands, len(data.lfp_metadata.bands))
+                    data.has_lfps = check
+                    has_lfps = check
+
+            # Now we deal with the outputs.
+            for metric in data.description['metrics']:
+                # This is just a sketch of how we might do this-needs some work.
+                key = metric['output_key']
+                output_dims[key] = self.decoder_registry[key].dim
+                value = resolve(data, self.decoder_registry[key].value_key)
+                max_output_tokens[key] = max(max_output_tokens[key], value.shape[0])
+                output_task_index[key].append(i)
+
+        if has_spike_waveforms:
+            spike_waveforms = torch.zeros(len(batch), max_num_tokens, max_spike_waveform_size)
+
+        if has_average_waveforms:
+            average_waveforms = torch.zeros(max_num_units, max_average_waveform_size)
+
+        if has_lfps:
+            lfps = torch.zeros((len(batch), max_num_tokens, max_nbands), dtype=torch.float32)
+
+        
+        output_timestamps = {}
+        output_values = {}
+        output_weight = {}
+        output_task_index = dict(output_task_index)
+        output_offset = {}
+
+        for key in output_dims.keys():
+            output_timestamps[key] = torch.zeros(len(output_task_index[key]), max_output_tokens[key])
+            output_values[key] = torch.zeros(len(output_task_index[key]), max_output_tokens[key], output_dims[key])
+            output_weight[key] = torch.zeros(len(output_task_index[key]), max_output_tokens[key])
+            output_offset[key] = 0
 
         # make latent tensors
         latent_timestamps = (
@@ -230,7 +389,7 @@ class Collate:
 
         # make attn masks
         input_mask = torch.zeros((len(batch), max_num_tokens), dtype=torch.bool)
-        output_mask = torch.zeros((len(batch), max_num_output_tokens), dtype=torch.bool)
+        # output_mask = torch.zeros((len(batch), max_num_output_tokens), dtype=torch.bool)
 
         # fill values
         for i, data in enumerate(batch):
@@ -239,14 +398,11 @@ class Collate:
 
             # Annoyingly, we have to keep spike names as a list of strings, as PyTorch
             # does not support string tensors. We will convert to a tensor later.
-            spike_names.append(
-                list(spikes.names)
-                + list(data.units.unit_name)
-                + list(data.units.unit_name)
-                + ["NA"] * (max_num_tokens - len(spikes) - len(data.units.unit_name) * 2)
-            )
+            mapped_spikes = self.unit_vocab.forward(list(spikes.names) + list(data.units.unit_name) + list(data.units.unit_name))
+            spike_ids[i, : len(mapped_spikes)] = torch.Tensor(mapped_spikes)
             spike_timestamps[i, : len(spikes)] = spikes.timestamps
             mask[i, : len(spikes)] = True
+
             # add artificial start and end of trial events to each unit
             units = data.units.unit_name
             start, end = data.start, data.end
@@ -260,47 +416,74 @@ class Collate:
             spike_type[
                 i, len(spikes) + len(units) : len(spikes) + len(units) * 2
             ] = int(SpikeType.END)
-
-            # make output
-            output = data.behavior
-            output_timestamps[i, : len(output.timestamps)] = output.timestamps
-            output_values[i, : len(output.timestamps)] = output.hand_vel
-            output_mask[i, : len(output.timestamps)] = True
-
-            behavior_type = (
-                output.type if hasattr(output, "type") else output.behavior_type
-            )
-            output_stage[i, : len(output.timestamps)] = behavior_type
-            output_weight[i, : len(output.timestamps)] = (
-                self.behavior_type_weight[behavior_type]
-                if self.behavior_type_weight is not None
-                else 1.0
-            )
-            # reweight so that each trial is equally important
-            if self.reweight:
-                output_weight[i] *= max_num_output_tokens / len(output.timestamps)
-
-            # update masks
             input_mask[i, : len(spikes) + len(units) * 2] = True
 
-        # session id
+            # Add waveforms
+            if data.has_spike_waveforms:
+                spike_waveforms[i, : len(spikes), : spikes.waveforms.shape[1]] = spikes.waveforms
+
+            # Add average waveforms
+            if data.has_average_waveforms:
+                inverse_slot = self.unit_vocab(units.tolist())
+                average_waveforms[inverse_slot, :] = torch.Tensor(data.units.average_waveform)
+
+            # Add local field potentials
+            if data.has_lfps:
+                # We do a local, nearest neighbour lookup to find the LFPs corresponding to each spike.
+                # We use the LFP index to do so.
+                # Build a map from unit name to LFP index.
+                lfp_channel_to_idx = {x: i for i, x in enumerate(data.lfp_metadata.channels)}
+                unit_to_channel = {u: lfp_channel_to_idx[c] for u, c in zip(data.units.unit_name, data.units.channel_name)}
+                lfp_idx = [unit_to_channel[u] for u in spikes.names]
+
+                # Now find the corresponding offset using nearest neighbour.
+                # Note that this is only safe to do on a RegularTimeSeries
+                assert isinstance(data.lfps, RegularTimeSeries)
+                lfp_approx_index = data.lfps.sampling_rate * (spikes.timestamps - data.lfps.timestamps[0])
+                lfp_tidx = torch.clip(torch.round(lfp_approx_index), 0, data.lfps.lfp.shape[1]).to(torch.long)
+                assert len(lfp_idx) == len(lfp_tidx)
+                selected_lfp = data.lfps.lfp[lfp_tidx, lfp_idx, :]
+
+                lfps[i, : selected_lfp.shape[0], : selected_lfp.shape[1]] = selected_lfp
+
+            # Now we deal with the outputs.
+            for metric in data.description['metrics']:
+                # This is just a sketch of how we might do this-needs some work.
+                key = metric['output_key']
+                timestamps = resolve(data, self.decoder_registry[key].timestamp_key)
+                value = resolve(data, self.decoder_registry[key].value_key)
+
+                output_timestamps[key][output_offset[key], : timestamps.shape[0]] = timestamps
+                output_values[key][output_offset[key], : timestamps.shape[0], :] = value
+                # Right now, the weight is a simple mask, but we could recover the 
+                # previous functionality if necessary.
+                output_weight[key][output_offset[key], : timestamps.shape[0]] = 1.0
+                output_offset[key] += 1
+
         session_names = [data.session for data in batch]
 
-        data = dict(
+        extras = {}
+        if has_spike_waveforms:
+            extras["spike_waveforms"] = spike_waveforms
+
+        if has_average_waveforms:
+            extras["average_waveforms"] = average_waveforms
+
+        if has_lfps:
+            extras["lfps"] = lfps
+
+        data = PaddedGrouping(
             spike_timestamps=spike_timestamps,
-            spike_names=spike_names,
+            spike_ids=spike_ids,
             spike_type=spike_type,
-            # TODO: clean this up. Why is there a mask distinct from input_mask?
-            mask=mask,
             input_mask=input_mask,
+            latent_timestamps=latent_timestamps,
+            latent_ids=latent_ids,
+            output_task_index=output_task_index,
             output_timestamps=output_timestamps,
             output_values=output_values,
             output_weight=output_weight,
-            output_mask=output_mask,
-            output_stage=output_stage,
-            # repeat and pin_memory don't play well, hence we clone
-            latent_timestamps=torch.clone(latent_timestamps),
-            latent_id=torch.clone(latent_ids),
             session_names=session_names,
+            **extras
         )
         return data
