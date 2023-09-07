@@ -1,11 +1,15 @@
-from collections.abc import Iterable, Mapping
 import logging
-from typing import Dict, List, Optional, Union
+from collections.abc import Iterable, Mapping
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from torch import nn, einsum
 import torch.nn.functional as F
 from einops import rearrange, repeat
+from torch import einsum, nn
+from torchtyping import TensorType
+
+from kirby.taxonomy import DecoderSpec, OutputType
+
 
 try:
     import xformers.ops as xops
@@ -258,7 +262,7 @@ class EmbeddingWithVocab(nn.Module):
             self.vocab = vocab
         else:
             raise ValueError("vocab must be a list or dict")
-        
+
         len_vocab = int(max(self.vocab.values()) + 1)
 
         if "NA" not in self.vocab:
@@ -284,7 +288,12 @@ class EmbeddingWithVocab(nn.Module):
             ]
         else:
             indices = [self.vocab[token] for token in tokens]
-        return self.embedding(torch.tensor(indices).to(self.embedding.weight.device))
+        x = (
+            torch.Tensor(indices)
+            .to(dtype=torch.long)
+            .to(device=self.embedding.weight.device)
+        )
+        return self.embedding(x)
 
     def state_dict(self, destination=None, prefix="", keep_vars=False):
         state = super(EmbeddingWithVocab, self).state_dict(
@@ -336,6 +345,7 @@ class PerceiverNM(nn.Module):
         use_memory_efficient_attn=True,
         max_num_units: int = 4097,  # For unit embeddings
         session_names: Optional[List[str]] = None,
+        task_specs: Dict[str, DecoderSpec],
     ):
         super().__init__()
 
@@ -382,7 +392,8 @@ class PerceiverNM(nn.Module):
                             rotate_value=True,
                         ),
                         nn.Sequential(
-                            nn.LayerNorm(dim), FeedForward(dim=dim, dropout=ffn_dropout)
+                            nn.LayerNorm(dim),
+                            FeedForward(dim=dim, dropout=ffn_dropout),
                         ),
                     ]
                 )
@@ -400,29 +411,49 @@ class PerceiverNM(nn.Module):
             nn.LayerNorm(dim), FeedForward(dim=dim, dropout=ffn_dropout)
         )
 
-        # Output projection (linear regression)
-        self.decoder_out = nn.Linear(dim, output_dim)
+        # Output projections + loss
+        self.readout = MultitaskReadout(
+            latent_dim=dim,
+            task_specs=task_specs,
+        )
+
         self.dim = dim
 
     def forward(
         self,
-        spike_ids=None,  # (B, N_in)
-        spike_timestamps=None,  # (B, N_in)
-        spike_type=None,  # (B, N_in)
-        input_mask=None,  # (B, N_in)
-        latent_ids=None,  # (B, N_latent)
-        latent_timestamps=None,  # (B, N_latent)
-        output_timestamps=None,  # (B, N_out)
-        session_names=None,
+        spike_ids,  # (B, N_in)
+        spike_timestamps,  # (B, N_in)
+        spike_type,  # (B, N_in)
+        input_mask,  # (B, N_in)
+        latent_ids,  # (B, N_latent)
+        latent_timestamps,  # (B, N_latent)
+        output_timestamps,  # (B, N_out)
+        session_names,
+        output_task_indices: Dict[
+            str, TensorType["*ntout_task", 2, torch.int32]
+        ],  # Indices of latents for each task
+        compute_loss: bool = False,
+        output_values: Optional[
+            Dict[str, TensorType["*ntout_task", "*nchannelsout"]]
+        ] = None,
+        output_weights: Optional[Dict[str, TensorType["*ntout_task"]]] = None,
         **kwargs,
     ):
         # create embeddings
+        assert spike_ids.max() < self.unit_emb.num_embeddings, "Spike ID out of range"
+        assert (
+            spike_type.max() < self.spike_type_emb.num_embeddings
+        ), "Spike type out of range"
         x_input = self.unit_emb(spike_ids) + self.spike_type_emb(spike_type)
         latents = self.latent_emb(latent_ids)
         x_output = self.session_emb(session_names).squeeze()
         x_output = repeat(x_output, "b d -> b n d", n=output_timestamps.shape[1])
         assert x_output.ndim == 3
-        assert x_output.shape == (x_input.shape[0], output_timestamps.shape[1], self.dim)
+        assert x_output.shape == (
+            x_input.shape[0],
+            output_timestamps.shape[1],
+            self.dim,
+        )
 
         # compute timestamp embeddings
         spike_timestamp_emb = self.rotary_emb(spike_timestamps)
@@ -431,7 +462,11 @@ class PerceiverNM(nn.Module):
 
         # Encoder
         latents = latents + self.enc_atn(
-            latents, x_input, latent_timestamp_emb, spike_timestamp_emb, input_mask
+            latents,
+            x_input,
+            latent_timestamp_emb,
+            spike_timestamp_emb,
+            input_mask,
         )
         latents = latents + self.enc_ffn(latents)
 
@@ -446,7 +481,113 @@ class PerceiverNM(nn.Module):
         )
         x_output = x_output + self.dec_ffn(x_output)
 
-        # Output projection
-        output = self.decoder_out(x_output)
+        # Readout layer
+        output, loss, losses_taskwise = self.readout(
+            latents=x_output,
+            output_task_indices=output_task_indices,
+            output_values=output_values,
+            output_weights=output_weights,
+            compute_loss=compute_loss,
+        )
 
-        return output
+        return output, loss, losses_taskwise
+
+
+class MultitaskReadout(nn.Module):
+    def __init__(
+        self,
+        latent_dim: int,
+        task_specs: Dict[str, DecoderSpec],
+    ):
+        super().__init__()
+
+        # Create a bunch of projection layers. One for each task
+        self.projections = nn.ModuleDict({})
+        for taskname, spec in task_specs.items():
+            self.projections[taskname] = nn.Linear(latent_dim, spec.dim)
+
+        # Need task specs layer to decide loss type
+        self.task_specs = task_specs
+
+    def forward(
+        self,
+        latents: TensorType["batch", "max_ntout", "latent_dim"],
+        output_task_indices: Dict[str, TensorType["*ntout_task", 2, torch.int32]],
+        output_values: Dict[str, TensorType["*ntout_task", "*nchannelsout"]],
+        output_weights: Dict[str, TensorType["*ntout_task"]],
+        compute_loss: bool,
+    ) -> Tuple[
+        Dict[str, TensorType["batch", "*nqueries", "*nchannelsout"]],
+        torch.Tensor,
+        Dict[str, torch.Tensor],
+    ]:
+        """
+        Args:
+            latents: Outputs of the last transformer layer. These are padded to max_ntout
+            output_task_indices: Dictionary keyed by task name.
+                For each task key, this contains a tensor of (batch, latent_index) pairs.
+                These are locations within the `latents` input corresponding to this task.
+                See output_values/output_weights for how this is used
+            output_values: Ground-truth values for loss computation.
+                output_values[task][i] is ground truth value for latent index given by
+                output_task_indices[task][i]
+            output_weights: Sample-wise weights for loss computation.
+                output_weights[task][i] is the weight of latent indexed by output_task_indices[task][i]
+                in total loss computation
+        """
+
+        # Apply task specific projections
+
+        # Flatten the latents so we can index them linearly
+        latents_flat = rearrange(
+            latents, "b n d -> (b n) d"
+        )  # should just do a torch.view()
+        outputs: Dict[str, TensorType["batch", "*nqueries", "*nchannelsout"]] = {}
+        for taskname, indices in output_task_indices.items():
+            # Create linear indices for this task. These will index into
+            # the flattened latents tensor
+            linear_indices = indices[:, 0] * latents.shape[1] + indices[:, 1]
+            # Separate this task's latents, and apply projection
+            latents_for_this_task = latents_flat[linear_indices]
+            outputs[taskname] = self.projections[taskname](latents_for_this_task)
+
+        # Loss computation
+        # Only do it if told to, e.g. pure forward-passes will not ask for it
+        losses_taskwise = {}
+        loss = torch.tensor(0, device=latents.device, dtype=torch.float32)
+
+        if not compute_loss:
+            return outputs, loss, losses_taskwise
+
+        for taskname, spec in self.task_specs.items():
+            output = outputs[taskname]
+            target = output_values[taskname]
+            weights = output_weights[taskname]
+
+            if weights is None:
+                weights = 1.0
+
+            if spec.type == OutputType.CONTINUOUS:
+                # MSE loss
+                loss_noreduce = F.mse_loss(output, target, reduction="none").mean(dim=1)
+                losses_taskwise[taskname] = (weights * loss_noreduce).sum()
+                # Must use sum(). Not all tasks may have same
+                # number of samples, hence mean() would bias the loss.
+
+            elif spec.type in [OutputType.BINARY, OutputType.MULTILABEL]:
+                # CrossEntropy loss
+                loss_noreduce = F.cross_entropy(output, target, reduction="none").mean(
+                    dim=1
+                )
+                losses_taskwise[taskname] = (weights * loss_noreduce).sum()
+                # Must use sum(). Not all tasks may have same
+                # number of samples, hence mean() would bias the loss.
+
+            else:
+                raise NotImplementedError(
+                    "I don't know how to handle this task type. Implement plis"
+                )
+
+            loss = loss + losses_taskwise[taskname]
+
+        return outputs, loss, losses_taskwise

@@ -6,13 +6,13 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
-import wandb
 from lightning import LightningModule, Trainer
 from lightning.pytorch.callbacks import Callback
 from sklearn.metrics import r2_score
 from torch import nn
 from torch.utils.data import DataLoader
 
+import wandb
 from kirby.data.stitcher import stitched_prediction
 from kirby.tasks.reaching import REACHING
 from kirby.utils import logging
@@ -49,14 +49,9 @@ class TrainWrapper(LightningModule):
                 self.tb = logger.experiment
 
     def training_step(self, data, data_idx):
-        output = self.model(
-            **data
+        output, loss, taskwise_loss = self.model(
+            **data, compute_loss=True
         )
-
-        loss = F.mse_loss(output, data["output_values"], reduction="none")
-        loss[~data["output_mask"]] = 0.0
-        loss = loss * data["output_weight"].unsqueeze(-1)
-        loss = loss.sum() / (data["output_weight"].sum())
 
         self.log("train_loss", loss, prog_bar=True)
 

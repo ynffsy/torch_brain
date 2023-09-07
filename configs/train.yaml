@@ -6,15 +6,21 @@ defaults:
 train_datasets:
   - selection:
       dandiset: "odoherty_sabes"
-      sortset: "20100101"
+      sortset: "indy_20160407"
     metrics:
       - _target_: kirby.metrics.r2
-        output_key: ARM2D
+        output_key: CURSOR2D
         loss: True
         weight: 1
 
 val_datasets:
-  - "Perich, Miller/Chewie_20161013_CO_FF_BL_001_stripped"
+  - selection:
+      dandiset: "odoherty_sabes"
+      sortset: "indy_20160407"
+    metrics:
+      - _target_: kirby.metrics.r2
+        output_key: CURSOR2D
+        weight: 1
 
 behavior_type_weight:
   RANDOM: 0.1
