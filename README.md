@@ -4,7 +4,7 @@ Poyo!
 # Installation
 
 **#todo** add more specific instructions, make sure that requirements.txt is up to date.
-- Python 3.8 (need to test other versions)
+- Python 3.9 (also requires python3.9-dev)
 - PyTorch 2.0.0
 - CUDA 11.3 - 11.7 
 - xformers is optional, but recommended for training with memory efficient attention
