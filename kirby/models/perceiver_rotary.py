@@ -570,18 +570,16 @@ class MultitaskReadout(nn.Module):
             if spec.type == OutputType.CONTINUOUS:
                 # MSE loss
                 loss_noreduce = F.mse_loss(output, target, reduction="none").mean(dim=1)
-                losses_taskwise[taskname] = (weights * loss_noreduce).sum()
-                # Must use sum(). Not all tasks may have same
-                # number of samples, hence mean() would bias the loss.
+                losses_taskwise[taskname] = (weights * loss_noreduce).mean()
+                # Task-specific weights should be handled externally, and passed in through
+                # output_weights
 
             elif spec.type in [OutputType.BINARY, OutputType.MULTILABEL]:
                 # CrossEntropy loss
-                loss_noreduce = F.cross_entropy(output, target, reduction="none").mean(
-                    dim=1
-                )
-                losses_taskwise[taskname] = (weights * loss_noreduce).sum()
-                # Must use sum(). Not all tasks may have same
-                # number of samples, hence mean() would bias the loss.
+                loss_noreduce = F.cross_entropy(output, target, reduction="none").mean(dim=1)
+                losses_taskwise[taskname] = (weights * loss_noreduce).mean()
+                # Task-specific weights should be handled externally, and passed in through
+                # output_weights
 
             else:
                 raise NotImplementedError(
