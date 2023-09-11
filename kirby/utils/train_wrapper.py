@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import Optional
+import warnings
 
 import lightning.pytorch.loggers as pl_loggers
 import numpy as np
@@ -10,9 +11,10 @@ from lightning import LightningModule, Trainer
 from lightning.pytorch.callbacks import Callback
 from sklearn.metrics import r2_score
 from torch import nn
-from torch.utils.data import DataLoader
+from kirby.data import Dataset
 
 import wandb
+from kirby.data import Collate
 from kirby.data.stitcher import stitched_prediction
 from kirby.tasks.reaching import REACHING
 from kirby.utils import logging
@@ -34,14 +36,14 @@ class TrainWrapper(LightningModule):
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
+        self.tb = None
+        self.wandb = None
 
     def configure_optimizers(self):
         return [self.optimizer], [{"scheduler": self.scheduler, "interval": "step"}]
 
     def setup(self, stage=None):
         # Make specific loggers available.
-        self.tb = None
-        self.wandb = None
         for logger in self.loggers:
             if isinstance(logger, pl_loggers.WandbLogger):
                 self.wandb = logger.experiment
@@ -71,7 +73,7 @@ class TrainWrapper(LightningModule):
 
 
 class CustomValidator(Callback):
-    def __init__(self, validation_dataset: DataLoader, collator):
+    def __init__(self, validation_dataset: Dataset, collator: Collate):
         super().__init__()
         self.validation_dataset = validation_dataset
         self.collator = collator
@@ -84,9 +86,9 @@ class CustomValidator(Callback):
 
         """We validate against behaviour using R2, so we must accumulate over batches."""
         for data in self.validation_dataset:
-            session_id = data.session_id
+            session_id = data.session
             gt_, pred_ = stitched_prediction(
-                data, pl_module.model, pl_module.device, self.collator
+                data, self.collator, pl_module.model, pl_module.device
             )
             behavior_type_ = (
                 data.behavior.type.numpy()
@@ -132,8 +134,9 @@ class CustomValidator(Callback):
                         gt[session_id][mask], pred[session_id][mask]
                     )
             else:
-                raise NotImplementedError(
-                    f"Cannot infer behavior type from session {session_id}"
+                warnings.warn(
+                    f"Cannot infer behavior type from session {session_id}",
+                    RuntimeWarning,
                 )
         r2 = pd.DataFrame.from_dict(r2).T
         if pl_module.tb is not None:
