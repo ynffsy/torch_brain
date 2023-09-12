@@ -1,0 +1,7 @@
+tmp_dir: "/tmp/"
+perm_dir: "/kirby/"
+
+tmp_flag:
+  raw: false
+  processed: false
+  compressed: false
