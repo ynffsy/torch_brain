@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange, repeat
 from torch import einsum, nn
+from torchmetrics import R2Score
 from torchtyping import TensorType
 
 from kirby.taxonomy import DecoderSpec, OutputType
@@ -438,7 +439,11 @@ class PerceiverNM(nn.Module):
         ] = None,
         output_weights: Optional[Dict[str, TensorType["*ntout_task"]]] = None,
         **kwargs,
-    ):
+    ) -> Tuple[
+        Dict[str, TensorType["batch", "*nqueries", "*nchannelsout"]],
+        torch.Tensor,
+        Dict[str, torch.Tensor],
+    ]:
         # create embeddings
         assert spike_ids.max() < self.unit_emb.num_embeddings, "Spike ID out of range"
         assert (
@@ -447,6 +452,8 @@ class PerceiverNM(nn.Module):
         x_input = self.unit_emb(spike_ids) + self.spike_type_emb(spike_type)
         latents = self.latent_emb(latent_ids)
         x_output = self.session_emb(session_names).squeeze()
+        if x_output.ndim == 1:
+            x_output = x_output.unsqueeze(0)
         x_output = repeat(x_output, "b d -> b n d", n=output_timestamps.shape[1])
         assert x_output.ndim == 3
         assert x_output.shape == (
@@ -559,33 +566,54 @@ class MultitaskReadout(nn.Module):
         if not compute_loss:
             return outputs, loss, losses_taskwise
 
-        for taskname, spec in self.task_specs.items():
-            output = outputs[taskname]
+        for taskname, output in outputs.items():
+            spec = self.task_specs[taskname]
             target = output_values[taskname]
             weights = output_weights[taskname]
 
             if weights is None:
                 weights = 1.0
 
-            if spec.type == OutputType.CONTINUOUS:
-                # MSE loss
-                loss_noreduce = F.mse_loss(output, target, reduction="none").mean(dim=1)
-                losses_taskwise[taskname] = (weights * loss_noreduce).mean()
-                # Task-specific weights should be handled externally, and passed in through
-                # output_weights
-
-            elif spec.type in [OutputType.BINARY, OutputType.MULTILABEL]:
-                # CrossEntropy loss
-                loss_noreduce = F.cross_entropy(output, target, reduction="none").mean(dim=1)
-                losses_taskwise[taskname] = (weights * loss_noreduce).mean()
-                # Task-specific weights should be handled externally, and passed in through
-                # output_weights
-
-            else:
-                raise NotImplementedError(
-                    "I don't know how to handle this task type. Implement plis"
-                )
-
+            losses_taskwise[taskname] = compute_metric(
+                spec.loss_fn, spec.type, output, target, weights
+            )
             loss = loss + losses_taskwise[taskname]
 
         return outputs, loss, losses_taskwise
+
+
+def compute_metric(
+    metric: str,
+    output_type: OutputType,
+    output: torch.Tensor,
+    target: torch.Tensor,
+    weights: torch.Tensor,
+) -> torch.Tensor:
+    if output_type == OutputType.CONTINUOUS:
+        if metric == "mse":
+            # MSE loss
+            loss_noreduce = F.mse_loss(output, target, reduction="none").mean(dim=1)
+            return (weights * loss_noreduce).mean()
+        elif metric == "r2":
+            r2score = R2Score(num_outputs=target.shape[1])
+            return r2score(output, target)
+        else:
+            raise NotImplementedError(
+                f"Metric {metric} not implemented for continuous output"
+            )
+
+    if output_type in [OutputType.BINARY, OutputType.MULTINOMIAL, OutputType.MULTILABEL]:
+        if metric == "bce":
+            target = target.squeeze()
+            loss_noreduce = F.cross_entropy(output, target, reduction="none")
+            if loss_noreduce.ndim > 1:
+                loss_noreduce = loss_noreduce.mean(dim=1)
+            return (weights * loss_noreduce).mean()
+        else:
+            raise NotImplementedError(
+                f"Metric {metric} not implemented for binary/multilabel output"
+            )
+
+    raise NotImplementedError(
+        "I don't know how to handle this task type. Implement plis"
+    )

@@ -84,16 +84,12 @@ class Dataset(torch.utils.data.Dataset):
             # First, we get the sortset-level information.
             if sel_sortset is not None:
                 sortsets = [
-                    sortset
-                    for sortset in sortsets
-                    if sortset["id"] == sel_sortset
+                    sortset for sortset in sortsets if sortset["id"] == sel_sortset
                 ]
 
             if sel_subject is not None:
                 sortsets = [
-                    sortset
-                    for sortset in sortsets
-                    if sortset["subject"] == sel_subject
+                    sortset for sortset in sortsets if sortset["subject"] == sel_subject
                 ]
 
             # Note that this logic may result in adding two many slots but that's fine.
@@ -103,21 +99,17 @@ class Dataset(torch.utils.data.Dataset):
             sessions = sum([sortset["sessions"] for sortset in sortsets], [])
             if sel_session is not None:
                 sessions = [
-                    session
-                    for session in sessions
-                    if session["id"] == sel_session
+                    session for session in sessions if session["id"] == sel_session
                 ]
 
-            assert (
-                len(sessions) > 0
-            ), f"No sessions found for {i}'th dataset included"
+            assert len(sessions) > 0, f"No sessions found for {i}'th dataset included"
 
             session_names += [session["id"] for session in sessions]
 
             # Now we get the chunk-level information.
             for session in sessions:
                 for trial in session["trials"]:
-                    for chunk in trial["chunks"][self.split]:
+                    for chunk in trial["chunks"].get(self.split, []):
                         iomap = {
                             k: session[k]
                             for k in ["inputs", "outputs", "stimuli", "task"]
@@ -166,17 +158,13 @@ class Dataset(torch.utils.data.Dataset):
         else:
             indices = torch.arange(len(self))
         self.chunk_info = [self.chunk_info[i] for i in indices[:num_samples]]
-        self.session_names = [
-            self.session_names[i] for i in indices[:num_samples]
-        ]
+        self.session_names = [self.session_names[i] for i in indices[:num_samples]]
         return self
 
     def augment_for_batchsize(self, batch_size: int):
         curr_len = len(self)
         if curr_len < batch_size:
-            self.chunk_info = self.chunk_info * (
-                1 + ((batch_size - 1) // curr_len)
-            )
+            self.chunk_info = self.chunk_info * (1 + ((batch_size - 1) // curr_len))
             self.session_names = self.session_names * (
                 1 + ((batch_size - 1) // curr_len)
             )
@@ -270,31 +258,37 @@ def resolve(data, key) -> torch.Tensor:
     return data
 
 
+TORCH_DTYPES = {
+    "bool": torch.bool,
+    "uint8": torch.uint8,
+    "int8": torch.int8,
+    "int16": torch.int16,
+    "int32": torch.int32,
+    "int64": torch.int64,
+    "long": torch.long,
+    "float16": torch.float16,
+    "float32": torch.float32,
+    "float64": torch.float64,
+}
+
+
 class Collate:
     def __init__(
         self,
         num_latents_per_step: int = 1,
         step=1.0,
-        behavior_type_weight=None,
         reweight: bool = False,
         sequence_length=1.0,
         unit_vocab: Optional[torchtext.vocab.Vocab] = None,
         decoder_registry: Optional[Dict[str, DecoderSpec]] = None,
+        weight_registry: Optional[Dict[int, float]] = None,
     ):
         """Stack datasets into a batch.
-
-        Args:
-            num_latents_per_step: Number of latents per step.
-            step: Step size between latents in seconds.
-            behavior_type_weight: Weight for each behavior type.
-            reweight: Whether to reweight the loss so that each sequence has the same weight.
-            sequence_length: Length of each sequence in seconds.
 
         Note that there are necessarily sequence_length / step * num_latents_per_step latent tokens.
         """
         self.num_latents_per_step = num_latents_per_step
         self.step = step
-        self.behavior_type_weight = behavior_type_weight
         self.reweight = reweight
         if unit_vocab is None:
             raise NotImplementedError("Unit vocab is required")
@@ -308,10 +302,11 @@ class Collate:
         if decoder_registry is None:
             raise NotImplementedError("Decoder registry is required")
         self.decoder_registry = decoder_registry
+        if weight_registry is None:
+            weight_registry = {}
+        self.weight_registry = weight_registry
 
-    def __call__(
-        self, batch: List[Data]
-    ) -> Dict[str, Union[torch.Tensor, List]]:
+    def __call__(self, batch: List[Data]) -> Dict[str, Union[torch.Tensor, List]]:
         # Deal with the inputs first
         num_tokens = [
             len(data.spikes) + len(data.units.unit_name) * 2 for data in batch
@@ -322,9 +317,7 @@ class Collate:
         spike_timestamps = torch.zeros(
             (len(batch), max_num_tokens), dtype=torch.float32
         )
-        spike_type = torch.zeros(
-            (len(batch), max_num_tokens), dtype=torch.long
-        )
+        spike_type = torch.zeros((len(batch), max_num_tokens), dtype=torch.long)
         spike_ids = torch.zeros((len(batch), max_num_tokens), dtype=torch.long)
         mask = torch.zeros((len(batch), max_num_tokens), dtype=torch.bool)
 
@@ -351,9 +344,7 @@ class Collate:
             data.has_spike_waveforms = False
             data.has_average_waveforms = False
             data.has_lfps = False
-            if (str(RecordingTech.UTAH_ARRAY_WAVEFORMS)) in data.iomap[
-                "inputs"
-            ].keys():
+            if (str(RecordingTech.UTAH_ARRAY_WAVEFORMS)) in data.iomap["inputs"].keys():
                 check = check_include_exclude(
                     data.description, str(RecordingTech.UTAH_ARRAY_WAVEFORMS)
                 )
@@ -379,9 +370,7 @@ class Collate:
                     data.has_average_waveforms = check
                     has_average_waveforms = check
 
-            if (str(RecordingTech.UTAH_ARRAY_LFPS)) in data.iomap[
-                "inputs"
-            ].keys():
+            if (str(RecordingTech.UTAH_ARRAY_LFPS)) in data.iomap["inputs"].keys():
                 check = check_include_exclude(
                     data.description, str(RecordingTech.UTAH_ARRAY_LFPS)
                 )
@@ -391,7 +380,9 @@ class Collate:
                     has_lfps = check
 
             # Now we deal with the outputs.
-            num_output_timestamps = 0  # measures number of output timestamps for this sequence sample
+            num_output_timestamps = (
+                0  # measures number of output timestamps for this sequence sample
+            )
             for metric in data.description["metrics"]:
                 key = metric["output_key"]
                 decoder_registry_keys.add(key)
@@ -408,9 +399,7 @@ class Collate:
             )
 
         if has_average_waveforms:
-            average_waveforms = torch.zeros(
-                max_num_units, max_average_waveform_size
-            )
+            average_waveforms = torch.zeros(max_num_units, max_average_waveform_size)
 
         if has_lfps:
             lfps = torch.zeros(
@@ -424,11 +413,15 @@ class Collate:
         output_weights = {}
         output_offset = {}
         for key in decoder_registry_keys:
-            dim = self.decoder_registry[key].dim
+            reg = self.decoder_registry[key]
+            dim = reg.target_dim
+            dtype = TORCH_DTYPES[reg.target_dtype]
             output_task_indices[key] = torch.zeros(
                 num_outputs_taskwise[key], 2, dtype=torch.int32
             )
-            output_values[key] = torch.zeros(num_outputs_taskwise[key], dim)
+            output_values[key] = torch.zeros(num_outputs_taskwise[key], dim).to(
+                dtype=dtype
+            )
             output_weights[key] = torch.zeros(num_outputs_taskwise[key])
             output_offset[key] = 0
 
@@ -441,16 +434,12 @@ class Collate:
         latent_timestamps = repeat(
             latent_timestamps, "t -> b (t u)", b=len(batch), u=len(latent_ids)
         )
-        latent_ids = repeat(
-            latent_ids, "u -> b (t u)", b=len(batch), t=num_timestamps
-        )
+        latent_ids = repeat(latent_ids, "u -> b (t u)", b=len(batch), t=num_timestamps)
 
         num_timestamps = latent_timestamps.size(1)
 
         # make attn masks
-        input_mask = torch.zeros(
-            (len(batch), max_num_tokens), dtype=torch.bool
-        )
+        input_mask = torch.zeros((len(batch), max_num_tokens), dtype=torch.bool)
 
         # fill values
         for i, data in enumerate(batch):
@@ -477,9 +466,7 @@ class Collate:
             spike_timestamps[
                 i, len(spikes) + len(units) : len(spikes) + len(units) * 2
             ] = end
-            spike_type[i, len(spikes) : len(spikes) + len(units)] = int(
-                SpikeType.START
-            )
+            spike_type[i, len(spikes) : len(spikes) + len(units)] = int(SpikeType.START)
             spike_type[
                 i, len(spikes) + len(units) : len(spikes) + len(units) * 2
             ] = int(SpikeType.END)
@@ -508,9 +495,7 @@ class Collate:
                 }
                 unit_to_channel = {
                     u: lfp_channel_to_idx[c]
-                    for u, c in zip(
-                        data.units.unit_name, data.units.channel_name
-                    )
+                    for u, c in zip(data.units.unit_name, data.units.channel_name)
                 }
                 lfp_idx = [unit_to_channel[u] for u in spikes.names]
 
@@ -528,17 +513,13 @@ class Collate:
                 assert len(lfp_idx) == len(lfp_tidx)
                 selected_lfp = data.lfps.lfp[lfp_tidx, lfp_idx, :]
 
-                lfps[
-                    i, : selected_lfp.shape[0], : selected_lfp.shape[1]
-                ] = selected_lfp
+                lfps[i, : selected_lfp.shape[0], : selected_lfp.shape[1]] = selected_lfp
 
             # Now we deal with the outputs.
             timestamps_offset = 0
             for metric in data.description["metrics"]:
                 key = metric["output_key"]
-                timestamps = resolve(
-                    data, self.decoder_registry[key].timestamp_key
-                )
+                timestamps = resolve(data, self.decoder_registry[key].timestamp_key)
                 values = resolve(data, self.decoder_registry[key].value_key)
                 num_outputs = timestamps.shape[0]
 
@@ -548,9 +529,7 @@ class Collate:
                 )
                 output_timestamps[
                     i, timestamps_range
-                ] = (
-                    timestamps.float()
-                )  # WARNING! Timestamps precision reduction here
+                ] = timestamps.float()  # WARNING! Timestamps precision reduction here
 
                 # Other output things are assigned in a task-wise manner
                 offset = output_offset[key]
@@ -561,9 +540,28 @@ class Collate:
                     offset : offset + num_outputs, 1
                 ] = timestamps_range  # sequence-index
                 output_values[key][offset : offset + num_outputs, :] = values
-                output_weights[key][
-                    offset : offset + num_outputs
-                ] = 1.0  # TODO: Assign actual weights
+
+                try:
+                    behavior_type = resolve(
+                        data, self.decoder_registry[key].behavior_type_key
+                    )
+                except AttributeError:
+                    behavior_type = torch.zeros(num_outputs, dtype=torch.long)
+                found = [
+                    self.weight_registry.get(int(x.item()), False)
+                    for x in behavior_type
+                ]
+                if not all(found) and any(found):
+                    idx = np.where(np.array(found)==False)[0]
+                    raise ValueError(
+                        f"Could not find weights for behavior #{behavior_type[idx]}"
+                    )
+                weights = [
+                    self.weight_registry.get(int(x.item()), 1.0) for x in behavior_type
+                ]
+                output_weights[key][offset : offset + num_outputs] = torch.tensor(
+                    weights
+                ) * metric.get("weight", 1.0)
 
                 timestamps_offset += num_outputs
                 output_offset[key] += num_outputs

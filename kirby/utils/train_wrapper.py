@@ -16,7 +16,9 @@ from kirby.data import Dataset
 import wandb
 from kirby.data import Collate
 from kirby.data.stitcher import stitched_prediction
+from kirby.models.perceiver_rotary import compute_metric
 from kirby.tasks.reaching import REACHING
+from kirby.taxonomy.taxonomy import Task
 from kirby.utils import logging
 
 console = logging(header="TRAIN WRAPPER", header_color="red")
@@ -55,6 +57,13 @@ class TrainWrapper(LightningModule):
             **data, compute_loss=True
         )
 
+        # Compute the mean and std of the output.
+        for name, val in output.items():
+            self.log(f"outputs/mean_{name}", val.mean(), prog_bar=False)
+            self.log(f"outputs/std_{name}", val.std(), prog_bar=False)
+            self.log(f"targets/mean_{name}", data['output_values'][name].to(torch.float).mean(), prog_bar=False)
+            self.log(f"targets/std_{name}", data['output_values'][name].to(torch.float).std(), prog_bar=False)
+
         self.log("train_loss", loss, prog_bar=True)
 
         return {"loss": loss}
@@ -83,6 +92,7 @@ class CustomValidator(Callback):
         pred = defaultdict(list)
         gt = defaultdict(list)  # Ground truth
         behavior_type = defaultdict(list)
+        description = defaultdict(list)
 
         """We validate against behaviour using R2, so we must accumulate over batches."""
         for data in self.validation_dataset:
@@ -91,29 +101,56 @@ class CustomValidator(Callback):
                 data, self.collator, pl_module.model, pl_module.device
             )
             behavior_type_ = (
-                data.behavior.type.numpy()
+                data.behavior.type
                 if hasattr(data.behavior, "type")
-                else data.behavior.behavior_type.numpy()
+                else data.behavior.behavior_type
             )
 
-            gt[session_id].append(gt_)
-            pred[session_id].append(pred_)
-            behavior_type[session_id].append(behavior_type_)
+            for task_type in pred_.keys():
+                gt[(session_id, task_type)].append(gt_[task_type])
+                pred[(session_id, task_type)].append(pred_[task_type])
+                behavior_type[(session_id, task_type)].append(behavior_type_)
+                description[(session_id, task_type)].append(data.description)
+            
 
-        r2 = defaultdict(
-            lambda: dict(
-                full=None, hold=None, reach=None, return_center=None, random=None
-            )
-        )
-        for session_id in gt.keys():
-            gt[session_id] = np.concatenate(gt[session_id], axis=0)
-            pred[session_id] = np.concatenate(pred[session_id], axis=0)
-            behavior_type[session_id] = np.concatenate(
-                behavior_type[session_id], axis=0
-            )
+        r2 = defaultdict(dict)
+        for session_id, task_type in gt.keys():
+            # Resolve the right metric for the session.
+            gt_ = torch.cat(gt[(session_id, task_type)], dim=0).detach().cpu()
+            pred_ = torch.cat(pred[(session_id, task_type)], dim=0).detach().cpu()
+            behavior_type_ = torch.cat(behavior_type[(session_id, task_type)], dim=0).detach().cpu()
 
-            r2[session_id]["full"] = r2_score(gt[session_id], pred[session_id])
+            desc = description[(session_id, task_type)][-1].metrics
+            desc = [x for x in desc if x.output_key == task_type]
+            if not desc:
+                raise ValueError(f"Cannot find description for {session_id}, {str(task_type)}")
+            if len(desc) > 1:
+                raise ValueError(f"Found multiple descriptions for {session_id}, {str(task_type)}")
+            
+            desc = desc[0]
+            
+            metric = None
+            if hasattr(desc, "metric"):
+                metric = desc.metric
+            else:
+                # Get it from the model spec.
+                metric = pl_module.model.readout.task_specs[task_type].loss_fn
 
+            task_spec = pl_module.model.readout.task_specs[task_type]
+
+            # Resolve the appropriate loss function.
+            the_metric = compute_metric(
+                metric,
+                task_spec.type, 
+                pred_, 
+                gt_, 
+                1.0)
+            
+            r2[session_id][f"{metric}_{str(task_type.lower())}"] = the_metric.item()
+
+
+            # TODO: reintegrate this functionality into the new metric system.
+            """
             if "CO" in session_id:
                 for behavior_type_id, name in [
                     (REACHING.CENTER_OUT_REACH, "reach"),
@@ -138,8 +175,17 @@ class CustomValidator(Callback):
                     f"Cannot infer behavior type from session {session_id}",
                     RuntimeWarning,
                 )
+            """
+        
+        # Fold the results into a single number.
+        for key, item in r2.items():
+            for key2, item2 in item.items():
+                pl_module.log(f"val/{key}_{key2}", item2)
+
         r2 = pd.DataFrame.from_dict(r2).T
         if pl_module.tb is not None:
             pl_module.tb.add_text("val_r2", r2.to_markdown())
         if pl_module.wandb is not None:
             pl_module.wandb.log({"val_r2": wandb.Table(dataframe=r2)})
+
+        return r2

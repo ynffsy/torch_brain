@@ -2,25 +2,8 @@
 defaults:
   - _self_
   - model: poyo_single_session.yaml
-
-train_datasets:
-  - selection:
-      dandiset: "perich_miller"
-      sortset: "chewie_20131003"
-    metrics:
-      - _target_: kirby.metrics.r2
-        output_key: CURSOR2D
-        loss: True
-        weight: 1
-
-val_datasets:
-  - selection:
-      dandiset: "perich_miller"
-      sortset: "chewie_20131003"
-    metrics:
-      - _target_: kirby.metrics.r2
-        output_key: CURSOR2D
-        weight: 1
+  - train_datasets: odoherty_single_session.yaml
+  - val_datasets: odoherty_single_session.yaml
 
 behavior_type_weight:
   RANDOM: 0.1
@@ -35,10 +18,11 @@ train_transforms:
 
 data_root: ./data
 seed: 42
-batch_size: 32
+batch_size: 128
 eval_epochs: 10
 epochs: 10
 base_lr: 1.5625e-5
+weight_decay: 0.0001
 # Fraction of epochs to warmup for.
 pct_start: 0.5
 num_workers: 4

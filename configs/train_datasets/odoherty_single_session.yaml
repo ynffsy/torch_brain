@@ -1,0 +1,7 @@
+- selection:
+    dandiset: "odoherty_sabes"
+    sortset: "indy_20170131"
+  metrics:
+    - output_key: ARMVELOCITY2D
+      loss: True
+      weight: 1

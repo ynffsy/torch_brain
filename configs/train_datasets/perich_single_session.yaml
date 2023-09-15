@@ -1,0 +1,7 @@
+- selection:
+    dandiset: "perich_miller"
+    sortset: "chewie_20131003"
+  metrics:
+    - output_key: CURSORVELOCITY2D
+      loss: True
+      weight: 1
