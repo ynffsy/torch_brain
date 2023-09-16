@@ -80,6 +80,7 @@ class Dataset(torch.utils.data.Dataset):
             sel_sortset = selection.get("sortset", None)
             sel_subject = selection.get("subject", None)
             sel_session = selection.get("session", None)
+            sel_output = selection.get("output", None)
 
             # First, we get the sortset-level information.
             if sel_sortset is not None:
@@ -103,6 +104,14 @@ class Dataset(torch.utils.data.Dataset):
                 ]
 
             assert len(sessions) > 0, f"No sessions found for {i}'th dataset included"
+
+            # Similarly, select for certain outputs
+            if sel_output is not None:
+                sessions = [
+                    session
+                    for session in sessions
+                    if sel_output in session["outputs"].keys()
+                ]
 
             session_names += [session["id"] for session in sessions]
 
