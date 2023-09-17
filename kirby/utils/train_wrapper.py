@@ -178,9 +178,13 @@ class CustomValidator(Callback):
             """
         
         # Fold the results into a single number.
+        values = {}
         for key, item in r2.items():
             for key2, item2 in item.items():
-                pl_module.log(f"val/{key}_{key2}", item2)
+                values[f"val/{key}_{key2}"] = item2
+
+        pl_module.log_dict(values, sync_dist=True)
+        console.info(f"Logged {len(values)} validation metrics.")
 
         r2 = pd.DataFrame.from_dict(r2).T
         if pl_module.tb is not None:
