@@ -2,32 +2,25 @@
 defaults:
   - _self_
   - model: poyo_single_session.yaml
-  - train_datasets: odoherty_single_session.yaml
-  - val_datasets: odoherty_single_session.yaml
-
-behavior_type_weight:
-  RANDOM: 0.1
-  HOLD: 0.1
-  CENTER_OUT_REACH: 5.0
-  CENTER_OUT_RETURN: 1.0
-  INVALID: 0.1
+  - train_datasets: allen_multi_session.yaml
+  - val_datasets: allen_multi_session.yaml
 
 train_transforms:
   - _target_: kirby.transforms.RandomCrop
     crop_len: 1.0
 
-data_root: ./data
+data_root: ./data/processed/
 seed: 42
 batch_size: 128
 eval_epochs: 10
-epochs: 10
+epochs: 1000
 base_lr: 1.5625e-5
 weight_decay: 0.0001
 # Fraction of epochs to warmup for.
 pct_start: 0.5
 num_workers: 4
 log_dir: ./logs
-name: poyo_single_session
+name: allen_poyo_single_session
 # Where to resume from. Could be null (yaml for None, meaning train from 
 # scratch) or a fully qualified path to the .ckpt file.
 ckpt_path: null

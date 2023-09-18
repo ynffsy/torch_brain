@@ -103,7 +103,7 @@ class CustomValidator(Callback):
             behavior_type_ = (
                 data.behavior.type
                 if hasattr(data.behavior, "type")
-                else data.behavior.behavior_type
+                else None
             )
 
             for task_type in pred_.keys():
@@ -118,7 +118,8 @@ class CustomValidator(Callback):
             # Resolve the right metric for the session.
             gt_ = torch.cat(gt[(session_id, task_type)], dim=0).detach().cpu()
             pred_ = torch.cat(pred[(session_id, task_type)], dim=0).detach().cpu()
-            behavior_type_ = torch.cat(behavior_type[(session_id, task_type)], dim=0).detach().cpu()
+            # TODO: reintegrate this functionality into the new metric system.
+            # behavior_type_ = torch.cat(behavior_type[(session_id, task_type)], dim=0).detach().cpu()
 
             desc = description[(session_id, task_type)][-1].metrics
             desc = [x for x in desc if x.output_key == task_type]

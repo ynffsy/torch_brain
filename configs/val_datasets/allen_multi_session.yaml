@@ -1,0 +1,6 @@
+- selection:
+    dandiset: "allen_visual_behavior_neuropixels"
+  metrics:
+    - output_key: DRIFTING_GRATINGS
+      metric: accuracy
+      weight: 1

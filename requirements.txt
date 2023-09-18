@@ -33,3 +33,4 @@ snakemake~=7.32.3
 torchtyping~=0.1
 torchtext~=0.15
 mne~=1.5
+allensdk==2.15.2

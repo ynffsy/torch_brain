@@ -609,6 +609,8 @@ def compute_metric(
             if loss_noreduce.ndim > 1:
                 loss_noreduce = loss_noreduce.mean(dim=1)
             return (weights * loss_noreduce).mean()
+        elif metric == "accuracy":
+            return (output == target).sum() / len(target)
         else:
             raise NotImplementedError(
                 f"Metric {metric} not implemented for binary/multilabel output"
