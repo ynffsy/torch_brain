@@ -610,7 +610,8 @@ def compute_metric(
                 loss_noreduce = loss_noreduce.mean(dim=1)
             return (weights * loss_noreduce).mean()
         elif metric == "accuracy":
-            return (output == target).sum() / len(target)
+            pred_class = torch.argmax(output, dim=1)
+            return (pred_class == target.squeeze()).sum() / len(target)
         else:
             raise NotImplementedError(
                 f"Metric {metric} not implemented for binary/multilabel output"
