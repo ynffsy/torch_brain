@@ -1,7 +1,8 @@
-tmp_dir: "/tmp/"
-perm_dir: "/kirby/"
+tmp_dir: /home/mila/p/patrick.mineault/slurm_tmpdir
+perm_dir: "/network/scratch/p/patrick.mineault/data"
 
 tmp_flag:
   raw: false
-  processed: false
+  processed: true
   compressed: false
+  uncompressed: true

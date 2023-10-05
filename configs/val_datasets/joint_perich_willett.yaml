@@ -1,16 +1,17 @@
 - selection:
+    dandiset: "perich_miller"
+  metrics:
+    - output_key: CURSORVELOCITY2D
+      metric: r2
+- selection:
     dandiset: "willett_shenoy"
     output: WRITING_CHARACTER
   metrics:
     - output_key: WRITING_CHARACTER
       metric: accuracy
-      loss: True
-      weight: 1
 - selection:
     dandiset: "willett_shenoy"
     output: WRITING_LINE
   metrics:
     - output_key: WRITING_LINE
       metric: accuracy
-      loss: True
-      weight: 1

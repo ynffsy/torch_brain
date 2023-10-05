@@ -24,3 +24,4 @@ name: allen_poyo_single_session
 # Where to resume from. Could be null (yaml for None, meaning train from 
 # scratch) or a fully qualified path to the .ckpt file.
 ckpt_path: null
+precision: 32
