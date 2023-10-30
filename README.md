@@ -58,6 +58,10 @@ To finetune a model: **#todo** description needs to be updated
 python3 finetune.py --ckpt_path weights/perceiver-chewie-latest.pt --eval_epochs 100 --base_lr 1e-3 --num_samples 32 --batch_size 32
 ```
 
+# Checkpoint Files
+The checkpoint (.ckpt) files are saved in:
+`/logs/lightning_logs/version_{x}/checkpoints/last.ckpt` where `x` is the version number.
+
 
 # todo
 - [ ] Memory efficient attention is only used for self-attention. Need to implement for cross-attention.
