@@ -14,6 +14,7 @@ seed: 42
 batch_size: 128
 eval_epochs: 10
 epochs: 1000
+steps: 0  # Note we either specify epochs or steps, not both.
 base_lr: 1.5625e-5
 weight_decay: 0.0001
 # Fraction of epochs to warmup for.
@@ -24,4 +25,6 @@ name: allen_poyo_single_session
 # Where to resume from. Could be null (yaml for None, meaning train from 
 # scratch) or a fully qualified path to the .ckpt file.
 ckpt_path: null
+finetune_path: null
+finetune_epochs: 0
 precision: 32

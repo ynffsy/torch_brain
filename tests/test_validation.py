@@ -1,22 +1,19 @@
 import os
 from collections import OrderedDict
 from pathlib import Path
-import lightning
-from omegaconf import DictConfig, OmegaConf
 
+import lightning
 import torch
 import torchtext
+from omegaconf import DictConfig, OmegaConf
 
 from kirby.data import Dataset
 from kirby.data.dataset import Collate
 from kirby.models import PerceiverNM
-from kirby.taxonomy import (
-    decoder_registry,
-    weight_registry,
-)
+from kirby.taxonomy import decoder_registry, weight_registry
 from kirby.utils import train_wrapper
 
-DATA_ROOT = str(Path(os.environ["SLURM_TMPDIR"]) / "processed")
+DATA_ROOT = str(Path(os.environ["SLURM_TMPDIR"]) / "uncompressed")
 
 def test_validation():
     ds = Dataset(
@@ -47,7 +44,7 @@ def test_validation():
     )
     
     model = PerceiverNM(
-        max_num_units=len(vocab),
+        unit_vocab=vocab,
         session_names=ds.session_names,
         num_latents=16,
         task_specs=decoder_registry
@@ -116,7 +113,7 @@ def test_validation_willett():
     )
     
     model = PerceiverNM(
-        max_num_units=len(vocab),
+        unit_vocab=vocab,
         session_names=ds.session_names,
         num_latents=16,
         task_specs=decoder_registry

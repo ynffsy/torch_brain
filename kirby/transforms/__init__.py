@@ -1,3 +1,4 @@
+from .random_time_scaling import RandomTimeScaling
 from .random_crop import RandomCrop
 from .unit_dropout import UnitDropout
 from .output_sampler import RandomOutputSampler

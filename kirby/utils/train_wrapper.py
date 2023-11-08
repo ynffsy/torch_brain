@@ -1,6 +1,8 @@
+import subprocess
+import time
+import warnings
 from collections import defaultdict
 from typing import Optional
-import warnings
 
 import lightning.pytorch.loggers as pl_loggers
 import numpy as np
@@ -8,13 +10,12 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 from lightning import LightningModule, Trainer
-from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.callbacks import BaseFinetuning, Callback
 from sklearn.metrics import r2_score
 from torch import nn
-from kirby.data import Dataset
 
 import wandb
-from kirby.data import Collate
+from kirby.data import Collate, Dataset
 from kirby.data.stitcher import stitched_prediction
 from kirby.models.perceiver_rotary import compute_metric
 from kirby.tasks.reaching import REACHING
@@ -42,7 +43,9 @@ class TrainWrapper(LightningModule):
         self.wandb = None
 
     def configure_optimizers(self):
-        return [self.optimizer], [{"scheduler": self.scheduler, "interval": "step"}]
+        return [self.optimizer], [
+            {"scheduler": self.scheduler, "interval": "step"}
+        ]
 
     def setup(self, stage=None):
         # Make specific loggers available.
@@ -52,17 +55,49 @@ class TrainWrapper(LightningModule):
             elif isinstance(logger, pl_loggers.TensorBoardLogger):
                 self.tb = logger.experiment
 
+    def on_train_start(self):
+        # Log the output of `cat /proc/meminfo` using a shell script.
+        try:
+            # Execute the command and capture its output
+            result = subprocess.run(
+                ["cat", "/proc/meminfo"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            result = result.stdout
+        except subprocess.CalledProcessError as e:
+            print(f"Command failed with error: {e}")
+            result = ""
+
+        # Log the output
+        console.info(f"Memory info: \n{result}")
+
+    def on_train_epoch_start(self):
+        self.epoch_time = time.time()
+
     def training_step(self, data, data_idx):
-        output, loss, taskwise_loss = self.model(
-            **data, compute_loss=True
-        )
+        output, loss, taskwise_loss = self.model(**data, compute_loss=True)
 
         # Compute the mean and std of the output.
         for name, val in output.items():
             self.log(f"outputs/mean_{name}", val.mean(), prog_bar=False)
             self.log(f"outputs/std_{name}", val.std(), prog_bar=False)
-            self.log(f"targets/mean_{name}", data['output_values'][name].to(torch.float).mean(), prog_bar=False)
-            self.log(f"targets/std_{name}", data['output_values'][name].to(torch.float).std(), prog_bar=False)
+            self.log(
+                f"targets/mean_{name}",
+                data["output_values"][name].to(torch.float).mean(),
+                prog_bar=False,
+            )
+            self.log(
+                f"targets/std_{name}",
+                data["output_values"][name].to(torch.float).std(),
+                prog_bar=False,
+            )
+
+        if "spike_ids" in data:
+            s = data["spike_ids"].to(torch.float)
+            self.log("inputs/mean_spike_ids", s.mean(), prog_bar=False)
+            self.log("inputs/std_spike_ids", s.std(), prog_bar=False)
 
         self.log("train_loss", loss, prog_bar=True)
 
@@ -73,8 +108,13 @@ class TrainWrapper(LightningModule):
             self.log(f"vals/mean_{tag}", value.cpu().mean(), sync_dist=True)
             self.log(f"vals/std_{tag}", value.cpu().std(), sync_dist=True)
             if value.grad is not None:
-                self.log(f"grads/mean_{tag}", value.grad.cpu().mean(), sync_dist=True)
-                self.log(f"grads/std_{tag}", value.grad.cpu().std(), sync_dist=True)
+                self.log(
+                    f"grads/mean_{tag}",
+                    value.grad.cpu().mean(),
+                    sync_dist=True,
+                )
+
+        self.log("epoch_time", time.time() - self.epoch_time)
 
     def validation_step(self, data, data_idx):
         # Necessary to trick PyTorch Lightning into running the custom validator.
@@ -87,7 +127,9 @@ class CustomValidator(Callback):
         self.validation_dataset = validation_dataset
         self.collator = collator
 
-    def on_validation_epoch_start(self, trainer: Trainer, pl_module: TrainWrapper):
+    def on_validation_epoch_start(
+        self, trainer: Trainer, pl_module: TrainWrapper
+    ):
         # Perform custom validation here.
         pred = defaultdict(list)
         gt = defaultdict(list)  # Ground truth
@@ -101,9 +143,7 @@ class CustomValidator(Callback):
                 data, self.collator, pl_module.model, pl_module.device
             )
             behavior_type_ = (
-                data.behavior.type
-                if hasattr(data.behavior, "type")
-                else None
+                data.behavior.type if hasattr(data.behavior, "type") else None
             )
 
             for task_type in pred_.keys():
@@ -111,25 +151,31 @@ class CustomValidator(Callback):
                 pred[(session_id, task_type)].append(pred_[task_type])
                 behavior_type[(session_id, task_type)].append(behavior_type_)
                 description[(session_id, task_type)].append(data.description)
-            
 
         r2 = defaultdict(dict)
         for session_id, task_type in gt.keys():
             # Resolve the right metric for the session.
             gt_ = torch.cat(gt[(session_id, task_type)], dim=0).detach().cpu()
-            pred_ = torch.cat(pred[(session_id, task_type)], dim=0).detach().cpu()
+            pred_ = (
+                torch.cat(pred[(session_id, task_type)], dim=0).detach().cpu()
+            )
             # TODO: reintegrate this functionality into the new metric system.
-            # behavior_type_ = torch.cat(behavior_type[(session_id, task_type)], dim=0).detach().cpu()
+            # behavior_type_ = torch.cat(behavior_type[(session_id, task_type)], dim=0)
+            # .detach().cpu()
 
             desc = description[(session_id, task_type)][-1].metrics
             desc = [x for x in desc if x.output_key == task_type]
             if not desc:
-                raise ValueError(f"Cannot find description for {session_id}, {str(task_type)}")
+                raise ValueError(
+                    f"Cannot find description for {session_id}, {str(task_type)}"
+                )
             if len(desc) > 1:
-                raise ValueError(f"Found multiple descriptions for {session_id}, {str(task_type)}")
-            
+                raise ValueError(
+                    f"Found multiple descriptions for {session_id}, {str(task_type)}"
+                )
+
             desc = desc[0]
-            
+
             metric = None
             if hasattr(desc, "metric"):
                 metric = desc.metric
@@ -141,14 +187,12 @@ class CustomValidator(Callback):
 
             # Resolve the appropriate loss function.
             the_metric = compute_metric(
-                metric,
-                task_spec.type, 
-                pred_, 
-                gt_, 
-                1.0)
-            
-            r2[session_id][f"{metric}_{str(task_type.lower())}"] = the_metric.item()
+                metric, task_spec.type, pred_, gt_, 1.0
+            )
 
+            r2[session_id][
+                f"{metric}_{str(task_type.lower())}"
+            ] = the_metric.item()
 
             # TODO: reintegrate this functionality into the new metric system.
             """
@@ -177,7 +221,7 @@ class CustomValidator(Callback):
                     RuntimeWarning,
                 )
             """
-        
+
         # Fold the results into a single number.
         values = {}
         for key, item in r2.items():
@@ -194,3 +238,23 @@ class CustomValidator(Callback):
             pl_module.wandb.log({"val_r2": wandb.Table(dataframe=r2)})
 
         return r2
+
+
+class MiddleFreezeUnfreeze(BaseFinetuning):
+    def __init__(self, unfreeze_at_epoch=10):
+        super().__init__()
+        self._unfreeze_at_epoch = unfreeze_at_epoch
+
+    def freeze_before_training(self, pl_module):
+        # freeze any module you want
+        # Here, we are freezing `feature_extractor`
+        self.middle_layers = pl_module.model.freeze_middle()
+
+    def finetune_function(self, pl_module, current_epoch, optimizer):
+        # When `current_epoch` is the "unfreeze_at_epoch", the middle of the model
+        # will start training.
+        if current_epoch == self._unfreeze_at_epoch:
+            self.unfreeze_and_add_param_group(
+                modules=self.middle_layers,
+                optimizer=optimizer,
+            )

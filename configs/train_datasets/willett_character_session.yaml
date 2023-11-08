@@ -1,0 +1,7 @@
+- selection:
+    dandiset: "willett_shenoy"
+    output: WRITING_CHARACTER
+  metrics:
+    - output_key: WRITING_CHARACTER
+      loss: True
+      weight: 1

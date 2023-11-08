@@ -35,3 +35,4 @@ torchtext>=0.15.0,<0.16.0 # required, from here: https://github.com/pytorch/text
 mne~=1.5
 allensdk~=2.15.2
 pydantic
+seaborn~=0.13

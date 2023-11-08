@@ -3,7 +3,7 @@ import dataclasses
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -25,7 +25,11 @@ log = logging(header="DATASET", header_color="red")
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(
-        self, root, split, include=None, transform=None, sequence_len_file=None
+        self,
+        root: str,
+        split: str,
+        include: List[Dict[str, Any]] = None,
+        transform=None,
     ):
         super().__init__()
         self.root = root
@@ -43,8 +47,6 @@ class Dataset(torch.utils.data.Dataset):
             self.session_names,
             self.unit_names,
         ) = self.look_for_files()
-
-        self.sequence_len_file = sequence_len_file
 
     def look_for_files(self) -> Tuple[List[Dict], List[str], List]:
         chunk_info = []
@@ -78,14 +80,26 @@ class Dataset(torch.utils.data.Dataset):
             # subject and session, but we could make selection more flexible in the
             # future.
             sel_sortset = selection.get("sortset", None)
+            sel_sortset_lte = selection.get("sortset_lte", None)
             sel_subject = selection.get("subject", None)
             sel_session = selection.get("session", None)
+
+            if sel_sortset_lte is not None and sel_sortset is not None:
+                raise ValueError(
+                    f"Cannot specify both sortset and sortset_lte in selection"
+                )
+
             sel_output = selection.get("output", None)
 
             # First, we get the sortset-level information.
             if sel_sortset is not None:
                 sortsets = [
                     sortset for sortset in sortsets if sortset["id"] == sel_sortset
+                ]
+
+            if sel_sortset_lte is not None:
+                sortsets = [
+                    sortset for sortset in sortsets if sortset["id"] <= sel_sortset_lte
                 ]
 
             if sel_subject is not None:
@@ -116,13 +130,21 @@ class Dataset(torch.utils.data.Dataset):
             session_names += [session["id"] for session in sessions]
 
             # Now we get the chunk-level information.
+            max_chunks = selection.get("max_examples", 1e12)
             for session in sessions:
+                num_chunks = 0
                 for trial in session["trials"]:
                     for chunk in trial["chunks"].get(self.split, []):
                         iomap = {
                             k: session[k]
                             for k in ["inputs", "outputs", "stimuli", "task"]
                         }
+
+                        # Check that the chunk has the requisite inputs.
+                        check = check_include(included_datasets, iomap['inputs'])
+                        if not check:
+                            continue
+
                         chunk_info.append(
                             {
                                 "filename": (
@@ -135,6 +157,13 @@ class Dataset(torch.utils.data.Dataset):
                                 "description": included_datasets,
                             }
                         )
+
+                        num_chunks += 1
+                        if num_chunks >= max_chunks:
+                            print(f"Truncating at {num_chunks} examples")
+                            break
+                    if num_chunks >= max_chunks:
+                        break
 
         all_filenames = [info["filename"] for info in chunk_info]
 
@@ -153,6 +182,7 @@ class Dataset(torch.utils.data.Dataset):
             data = self.transform(data)
         data.description = info["description"]
         data.iomap = info["iomap"]
+        
         return data
 
     def __len__(self):
@@ -178,19 +208,6 @@ class Dataset(torch.utils.data.Dataset):
                 1 + ((batch_size - 1) // curr_len)
             )
         return self
-
-    def get_sequence_len(self):
-        if self.sequence_len_file is None:
-            # warn that compute can be slow
-            # also if transform is used, this will be wrong
-            log.warn(
-                "Computing sequence lengths can be slow, consider specifying a sequence length file"
-            )
-            sequence_len = np.array([len(data.spikes) for data in self])
-        else:
-            # load npy file
-            sequence_len = np.load(self.sequence_len_file)
-        return sequence_len
 
 
 def next_multiple_of_8(x):
@@ -244,6 +261,11 @@ class PaddedGrouping:
     def to_dict(self):
         return dataclasses.asdict(self)
 
+def check_include(description: Dict, keys: Dict) -> bool:
+    if "include_input" in description:
+        return all([key in keys for key in description["include_input"]])
+    else:
+        return True
 
 def check_include_exclude(description, key):
     if "include_input" in description:
@@ -299,11 +321,7 @@ class Collate:
         self.num_latents_per_step = num_latents_per_step
         self.step = step
         self.reweight = reweight
-        if unit_vocab is None:
-            raise NotImplementedError("Unit vocab is required")
         self.unit_vocab = unit_vocab
-        # Make sure that the unit vocab has a mapping for NA and that it corresponds to 0
-        assert self.unit_vocab.forward(["NA"])[0] == 0
 
         # TODO: remove sequence_length from the parameters and read the sequence length
         # from the data instead.
@@ -316,6 +334,9 @@ class Collate:
         self.weight_registry = weight_registry
 
     def __call__(self, batch: List[Data]) -> Dict[str, Union[torch.Tensor, List]]:
+        # Make sure that the unit vocab has a mapping for NA and that it corresponds to 0
+        assert self.unit_vocab.forward(["NA"])[0] == 0
+        
         # Deal with the inputs first
         num_tokens = [
             len(data.spikes) + len(data.units.unit_name) * 2 for data in batch
@@ -455,8 +476,6 @@ class Collate:
             # add spike events
             spikes = data.spikes
 
-            # Annoyingly, we have to keep spike names as a list of strings, as PyTorch
-            # does not support string tensors. We will convert to a tensor later.
             mapped_spikes = self.unit_vocab.forward(
                 list(spikes.names)
                 + list(data.units.unit_name)
@@ -561,7 +580,7 @@ class Collate:
                     for x in behavior_type
                 ]
                 if not all(found) and any(found):
-                    idx = np.where(np.array(found)==False)[0]
+                    idx = np.where(np.array(found) == False)[0]
                     raise ValueError(
                         f"Could not find weights for behavior #{behavior_type[idx]}"
                     )
@@ -638,7 +657,7 @@ def build_vocab(
     if test_units is not None:
         unit_names += test_units
 
-    unit_names = set(list(unit_names))
+    unit_names = sorted(list(set(list(unit_names))))
     od = collections.OrderedDict({x: 1 for x in unit_names})
     vocab = torchtext.vocab.vocab(od, specials=["NA"])
     return vocab

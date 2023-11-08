@@ -1,16 +1,17 @@
 import logging
+import warnings
 from collections.abc import Iterable, Mapping
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
+import torchtext
 from einops import rearrange, repeat
 from torch import einsum, nn
 from torchmetrics import R2Score
 from torchtyping import TensorType
 
 from kirby.taxonomy import DecoderSpec, OutputType
-
 
 try:
     import xformers.ops as xops
@@ -277,6 +278,12 @@ class EmbeddingWithVocab(nn.Module):
         self.embedding = nn.Embedding(len_vocab + 1, embedding_dim)
         self.init_scale = init_scale
 
+        # Unfortunately, this hook is private, though there has been a PR to make it
+        # public: https://github.com/pytorch/pytorch/issues/75287
+        self._register_load_state_dict_pre_hook(
+            self._hook_vocab_on_load_state_dict, with_module=False
+        )
+
     def forward(self, tokens):
         # Convert tokens to indices and pass through the embedding layer
         if (
@@ -300,13 +307,24 @@ class EmbeddingWithVocab(nn.Module):
         state = super(EmbeddingWithVocab, self).state_dict(
             destination=destination, prefix=prefix, keep_vars=keep_vars
         )
-        state["vocab"] = self.vocab
+        state[prefix + "vocab"] = self.vocab
         return state
 
-    def load_state_dict(self, state_dict, strict=True):
-        self.vocab = state_dict.pop("vocab")
-        self.reverse_vocab = {i: word for word, i in self.vocab.items()}
-        super(EmbeddingWithVocab, self).load_state_dict(state_dict, strict=strict)
+    def _hook_vocab_on_load_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        try:
+            self.vocab = state_dict.pop(prefix + "vocab")
+            self.reverse_vocab = {i: word for word, i in self.vocab.items()}
+        except KeyError:
+            warnings.warn("Could not find vocab in state_dict. Using existing vocab.")
 
     def reset_parameters(self) -> None:
         torch.nn.init.normal_(self.embedding.weight, mean=0, std=self.init_scale)
@@ -344,7 +362,7 @@ class PerceiverNM(nn.Module):
         atn_dropout=0.0,
         emb_init_scale=0.02,
         use_memory_efficient_attn=True,
-        max_num_units: int = 4097,  # For unit embeddings
+        unit_vocab: Optional[torchtext.vocab.vocab]= None,
         session_names: Optional[List[str]] = None,
         task_specs: Dict[str, DecoderSpec],
     ):
@@ -352,10 +370,15 @@ class PerceiverNM(nn.Module):
 
         if session_names is None:
             raise ValueError("session_names must be provided")
+        
+        if unit_vocab is None:
+            raise ValueError("unit_vocab must be provided")
 
         use_memory_efficient_attn = use_memory_efficient_attn and xops is not None
 
         # Embeddings
+        max_num_units = len(unit_vocab)
+        self.unit_vocab = unit_vocab
         self.unit_emb = Embedding(max_num_units, dim, init_scale=emb_init_scale)
         self.session_emb = EmbeddingWithVocab(
             session_names, dim, init_scale=emb_init_scale
@@ -363,6 +386,8 @@ class PerceiverNM(nn.Module):
         self.spike_type_emb = Embedding(4, dim, init_scale=emb_init_scale)
         self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
         self.rotary_emb = RotaryEmbedding(dim_head)
+
+        self.lfp_embedding_layer = nn.Linear(6, dim, bias=False)
 
         self.dropout = nn.Dropout(p=lin_dropout)
 
@@ -449,7 +474,20 @@ class PerceiverNM(nn.Module):
         assert (
             spike_type.max() < self.spike_type_emb.num_embeddings
         ), "Spike type out of range"
+
+        """
+        spike_ids: (B, N_in), torch.long
+        x_input: (B, N_in, dim), torch.float32
+        lfps: (B, N_in, N_bands), torch.float32
+        """
         x_input = self.unit_emb(spike_ids) + self.spike_type_emb(spike_type)
+        # x_input = self.spike_type_emb(spike_type)
+
+        if "lfps" in kwargs and kwargs["lfps"] is not None:
+            x_input += self.lfp_embedding_layer(
+                kwargs["lfps"]
+            )
+
         latents = self.latent_emb(latent_ids)
         x_output = self.session_emb(session_names).squeeze()
         if x_output.ndim == 1:
@@ -498,7 +536,31 @@ class PerceiverNM(nn.Module):
         )
 
         return output, loss, losses_taskwise
-
+    
+    def freeze_middle(self) -> List[nn.Module]:
+        # Freeze everything except the readout, unit embedding, and session embedding 
+        # layers.
+        middle_modules = []
+        banned_modules = [
+            self.readout,
+            self.unit_emb,
+            self.session_emb,
+            self.enc_atn,
+            self.enc_ffn,
+        ]
+        for module in self.children():
+            if module in banned_modules:
+                continue
+            for param in module.parameters():
+                param.requires_grad = False
+            middle_modules.append(module)
+        
+        return middle_modules
+    
+    def unfreeze_middle(self) -> None:
+        for module in self.children():
+            for param in module.parameters():
+                param.requires_grad = True
 
 class MultitaskReadout(nn.Module):
     def __init__(
@@ -577,7 +639,15 @@ class MultitaskReadout(nn.Module):
             losses_taskwise[taskname] = compute_metric(
                 spec.loss_fn, spec.type, output, target, weights
             )
-            loss = loss + losses_taskwise[taskname]
+
+            # Since we calculate a mean across all elements, scale by the number of 
+            # items in the batch so we don't get wild swings in loss depending on
+            # whether we have large or small numbers of non-dominant classes.
+            nbatch_el = len(torch.unique(output_task_indices[taskname][:, 0]))
+
+            loss = loss + losses_taskwise[taskname] * nbatch_el
+
+        loss = loss / latents.shape[0]
 
         return outputs, loss, losses_taskwise
 
@@ -602,9 +672,13 @@ def compute_metric(
                 f"Metric {metric} not implemented for continuous output"
             )
 
-    if output_type in [OutputType.BINARY, OutputType.MULTINOMIAL, OutputType.MULTILABEL]:
+    if output_type in [
+        OutputType.BINARY,
+        OutputType.MULTINOMIAL,
+        OutputType.MULTILABEL,
+    ]:
         if metric == "bce":
-            target = target.squeeze()
+            target = target.squeeze(dim=1)
             loss_noreduce = F.cross_entropy(output, target, reduction="none")
             if loss_noreduce.ndim > 1:
                 loss_noreduce = loss_noreduce.mean(dim=1)
