@@ -6,6 +6,11 @@ defaults:
   - val_datasets: allen_multi_session.yaml
 
 train_transforms:
+  - _target_: kirby.transforms.UnitDropout
+    max_units: 1000
+    min_units: 60
+    mode_units: 300
+    peak: 4
   - _target_: kirby.transforms.RandomCrop
     crop_len: 1.0
 
