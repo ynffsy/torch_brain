@@ -2,9 +2,13 @@
 Poyo!
 
 # Installation
-Create a virtual env with Python 3.9 and run the following:
+## Environment setup with `venv`
+Clone the project, enter the project's root directory, and then run the following:
 ```bash
-pip install -e .
+python3.9 -m venv venv           # create an empty virtual environment
+source venv/bin/activate         # activate it
+pip install -r requirements.txt  # install required packages
+pip install -e .                 # install project-kirby into your path
 ```
 
 Currently this project requires the following:
@@ -14,7 +18,7 @@ Currently this project requires the following:
 - xformers is optional, but recommended for training with memory efficient attention
 
 
-##### Preparing the data
+## Preparing the data
 
 Download data from [Dropbox](https://www.dropbox.com/scl/fo/j9wwle1ta0r4hpxqu885n/h?dl=0&rlkey=o6mf1l1y9c5i3npeetwqi1krl).
 
