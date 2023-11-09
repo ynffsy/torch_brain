@@ -8,6 +8,7 @@ Clone the project, enter the project's root directory, and then run the followin
 python3.9 -m venv venv           # create an empty virtual environment
 source venv/bin/activate         # activate it
 pip install -r requirements.txt  # install required packages
+pip install -r requirements.txt  # yes, run it again
 pip install -e .                 # install project-kirby into your path
 ```
 
