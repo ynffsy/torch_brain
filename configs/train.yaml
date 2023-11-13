@@ -33,3 +33,5 @@ ckpt_path: null
 finetune_path: null
 finetune_epochs: 0
 precision: 32
+nodes: 1
+gpus: 1
