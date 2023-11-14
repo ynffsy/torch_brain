@@ -237,7 +237,12 @@ def run_training(cfg: DictConfig):
         num_sanity_val_steps=0,
         precision=cfg.precision,
         reload_dataloaders_every_n_epochs=5,
+        accelerator="gpu",
+        devices=cfg.gpus,
+        num_nodes=cfg.nodes
     )
+
+    log.info(f"Local rank/node rank/world size/num nodes: {trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/trainer.num_nodes")
 
     for logger in trainer.loggers:
         # OmegaConf.to_container converts the config object to a dictionary.
