@@ -5,22 +5,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import msgpack
 import numpy as np
 import torch
 import torch.utils
 import torch.utils.data
 import torchtext
-import yaml
 from einops import repeat
 from torchtyping import TensorType
 
 from kirby.data import Data
 from kirby.data.data import RegularTimeSeries
-from kirby.taxonomy import StringIntEnum
+from kirby.taxonomy import StringIntEnum, description_helper
 from kirby.taxonomy.taxonomy import DecoderSpec, RecordingTech
-from kirby.utils import logging
-
-log = logging(header="DATASET", header_color="red")
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -61,16 +58,20 @@ class Dataset(torch.utils.data.Dataset):
                 )
 
             description_file = os.path.join(
-                self.root, selection["dandiset"], "description.yaml"
+                self.root, selection["dandiset"], "description.mpk"
             )
 
             try:
-                with open(description_file, "r") as f:
-                    description = yaml.load(f, Loader=yaml.CLoader)
-
+                with open(description_file, "rb") as f:
+                    description = msgpack.load(
+                        f, object_hook=description_helper.decode_datetime
+                    )
             except FileNotFoundError:
                 raise FileNotFoundError(
-                    f"Could not find description file {description_file}"
+                    f"Could not find description file {description_file}. This error "
+                    "might be due to running an old pipeline that generates a "
+                    "description.yaml file. Try running the appropriate snakemake "
+                    "pipeline to generate the msgpack (mpk) file instead."
                 )
 
             # Get a list of all the potentially chunks in this dataset.
@@ -141,7 +142,7 @@ class Dataset(torch.utils.data.Dataset):
                         }
 
                         # Check that the chunk has the requisite inputs.
-                        check = check_include(included_datasets, iomap['inputs'])
+                        check = check_include(included_datasets, iomap["inputs"])
                         if not check:
                             continue
 
@@ -182,7 +183,7 @@ class Dataset(torch.utils.data.Dataset):
             data = self.transform(data)
         data.description = info["description"]
         data.iomap = info["iomap"]
-        
+
         return data
 
     def __len__(self):
@@ -261,11 +262,13 @@ class PaddedGrouping:
     def to_dict(self):
         return dataclasses.asdict(self)
 
+
 def check_include(description: Dict, keys: Dict) -> bool:
     if "include_input" in description:
         return all([key in keys for key in description["include_input"]])
     else:
         return True
+
 
 def check_include_exclude(description, key):
     if "include_input" in description:
@@ -336,7 +339,7 @@ class Collate:
     def __call__(self, batch: List[Data]) -> Dict[str, Union[torch.Tensor, List]]:
         # Make sure that the unit vocab has a mapping for NA and that it corresponds to 0
         assert self.unit_vocab.forward(["NA"])[0] == 0
-        
+
         # Deal with the inputs first
         num_tokens = [
             len(data.spikes) + len(data.units.unit_name) * 2 for data in batch
