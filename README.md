@@ -22,7 +22,12 @@ Currently this project requires the following:
 ## Downloading and preparing the data
 Run the following to download and prepare the data:
 ```bash
-snakemake --cores 8 odoherty_sabes_prepare_data
+snakemake --cores 8 odoherty_sabes
+```
+
+To prepare all of the datasets from the NeurIPS paper:
+```bash
+snakemake --cores 8 poyo_neurips
 ```
 
 # Training
