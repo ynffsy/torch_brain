@@ -1,8 +1,0 @@
-tmp_dir: /home/mila/p/patrick.mineault/slurm_tmpdir
-perm_dir: "/network/scratch/p/patrick.mineault/data"
-
-tmp_flag:
-  raw: false
-  processed: true
-  compressed: false
-  uncompressed: true

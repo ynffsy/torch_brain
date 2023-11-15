@@ -1,25 +1,22 @@
 #!/bin/bash
-#SBATCH --job-name=multi-run
+#SBATCH --job-name=multi-node-mila
 #SBATCH --output=slurm_output_%j.txt
 #SBATCH --error=slurm_error_%j.txt
 #SBATCH --nodes=2
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=6
-#SBATCH --gres=gpu:a100:1
-#SBATCH --mem=124GB
-#SBATCH --time=1:00:00
+#SBATCH --gres=gpu:4
+#SBATCH --mem=496GB
 #SBATCH --switch=1
+#SBATCH --partition=long
 
-set -e
-# For training, one can also use the following options:
-#E.g. SBATCH --partition=unkillable and SBATCH --gres=gpu:a100
+dataset=perich_single_session
+rule=perich_miller_unfreeze
 
-dataset=perich_multi_session
-
-source ~/.bashrc
-module load python/3.9.6
+module load anaconda/3
+module load cuda/11.2/nccl/2.8
 module load cuda/11.2
-module load httpproxy
+
 conda activate poyo
 
 # wandb credentials
@@ -33,11 +30,9 @@ set +a
 # we'd have a bad time. Hence we run snakemake on the master node --until the unfreeze 
 # rule, then run the thread-safe unfreeze rule proper on each node. Note that 
 # srun fires of one process per node.
-rule=perich_miller_unfreeze
 snakemake --rerun-triggers=mtime --config tmp_dir="$SLURM_TMPDIR" -c1 --until $rule
 srun copy_data.sh $rule
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3
 export NCCL_DEBUG=INFO
 export PYTHONFAULTHANDLER=1
 export MASTER_ADDR=$(hostname)
@@ -55,14 +50,14 @@ srun python train.py \
     data_root=$SLURM_TMPDIR/uncompressed/ \
     train_datasets=$dataset \
     val_datasets=$dataset \
-    eval_epochs=2  \
+    eval_epochs=1  \
     epochs=1 \
     pct_start=0.9 \
-    batch_size=96 \
-    name=benchmark_two_node_narval \
+    batch_size=128 \
+    name=multi_node_mila \
     base_lr=1e-5 \
     precision=16 \
     num_workers=6 \
-    model=poyo_1 \
+    model=poyo_single_session \
     nodes=2 \
-    gpus=1
+    gpus=4

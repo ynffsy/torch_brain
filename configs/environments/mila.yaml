@@ -1,0 +1,5 @@
+tmp_dir: "$SLURM_TMPDIR"
+raw_dir: "/network/projects/neuro-galaxy/data"
+processed_dir: "$SLURM_TMPDIR"
+compressed_dir: "~/scratch/data"
+uncompressed_dir: "$SLURM_TMPDIR"
