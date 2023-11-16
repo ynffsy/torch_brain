@@ -8,7 +8,7 @@ feasible during deadtimes during conferences, but still, it works!
 ## Datasets
 
 We keep a canonical version of the raw data in the common location at 
-`/network/projects/neuro-galaxy/raw`. This prevents having to download the data 
+`/network/projects/neuro-galaxy/data/raw`. This prevents having to download the data 
 multiple times, which could easily take a day. Processed, compressed data is stored in
 your personal scratch folder, which prevents undefined behaviour when multiple people 
 are modifying the same `process_data.py` pipeline.
@@ -16,7 +16,46 @@ are modifying the same `process_data.py` pipeline.
 Because mila is SLURM-based, data is first copied to the local node (SLURM_TMPDIR), 
 then processed in jobs. Because the file system is distributed and doesn't like to deal 
 with small files, we use tarballs compressed with lz4, which is a ridiculously fast 
-compression algorithm.
+compression algorithm. Typically, the data will be processed in four stages:
+
+* download to `/network/projects/neuro-galaxy/data/raw`
+* processed to `$SLURM_TMPDIR/compressed`
+* frozen (i.e. compressed) to `~/scratch/data/compressed`
+* unfrozen (i.e. decompressed) to `$SLURM_TMPDIR/uncompressed`
+
+When files are processed by job and subsequently frozen, once the job is done, the files
+in $SLURM_TMPDIR are deleted. This is an unavoidable consequence of the data processing 
+DAG and the constraints of SLURM. Thus, if we call, e.g. `willett_shenoy_unfreeze`, it 
+will first attempt to re-process the data, complaining that the intermediate files don't 
+exist, e.g.:
+
+```
+job                            count
+---------------------------  -------
+willett_shenoy_freeze              1
+willett_shenoy_prepare_data        1
+willett_shenoy_unfreeze            1
+total                              3
+
+Select jobs to execute...
+
+[Thu Nov 16 10:06:57 2023]
+rule willett_shenoy_prepare_data:
+    input: /network/projects/neuro-galaxy/data/raw/willett_shenoy/handwritingBCIData/Datasets/t5.2019.11.25/singleLetters.mat, data/scripts/willett_shenoy/prepare_data.py
+    output: /Tmp/slurm.3839591.0/processed/willett_shenoy/description.mpk
+    jobid: 2
+    reason: Missing output files: /Tmp/slurm.3839591.0/processed/willett_shenoy/description.mpk
+```
+
+A workaround is to use timestamps, and not the presence of intermediate files as 
+the trigger for parent rules, e.g.:
+
+```
+snakemake --rerun-triggers=mtime -c1 willett_shenoy_unfreeze
+```
+
+This will not trigger the creation of intermediate artifacts provided the timestamps of 
+the artifacts make sense.
 
 ## Environment
 
