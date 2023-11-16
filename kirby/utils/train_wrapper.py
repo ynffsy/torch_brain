@@ -3,12 +3,14 @@ import time
 import warnings
 from collections import defaultdict
 from typing import Optional
+from tqdm import tqdm
 
 import lightning.pytorch.loggers as pl_loggers
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
+import torch.distributed as dist
 from lightning import LightningModule, Trainer
 from lightning.pytorch.callbacks import BaseFinetuning, Callback
 from sklearn.metrics import r2_score
@@ -137,7 +139,11 @@ class CustomValidator(Callback):
         description = defaultdict(list)
 
         """We validate against behaviour using R2, so we must accumulate over batches."""
-        for data in self.validation_dataset:
+        for i in tqdm(range(trainer.local_rank, len(self.validation_dataset), trainer.world_size),
+                      desc=f"Val @ Epoch {trainer.current_epoch}",
+                      disable=(trainer.local_rank != 0)):
+            # Samples are cyclically distributed across processes
+            data = self.validation_dataset[i]
             session_id = data.session
             gt_, pred_ = stitched_prediction(
                 data, self.collator, pl_module.model, pl_module.device
@@ -151,6 +157,37 @@ class CustomValidator(Callback):
                 pred[(session_id, task_type)].append(pred_[task_type])
                 behavior_type[(session_id, task_type)].append(behavior_type_)
                 description[(session_id, task_type)].append(data.description)
+
+        def gather_concat_dict(obj):
+            """Gather and concatenate dictionary-of-list objects onto
+            the rank=0 process
+            """
+            gathered_objlist = None
+            if trainer.local_rank == 0:
+                gathered_objlist = [None] * trainer.world_size
+
+            dist.gather_object(obj, gathered_objlist, 0)
+
+            # Concatenate all lists
+            gathered_obj = None
+            if trainer.local_rank == 0:
+                gathered_obj = defaultdict(list)
+                for i, objlist in enumerate(gathered_objlist):
+                    for k in objlist:
+                        gathered_obj[k] += objlist[k]
+
+            dist.barrier()
+            return gathered_obj
+
+        # Gather
+        if trainer.world_size > 1:
+            gt = gather_concat_dict(gt)
+            pred = gather_concat_dict(pred)
+            behavior_type = gather_concat_dict(behavior_type)
+            description = gather_concat_dict(description)
+
+        if trainer.local_rank != 0:
+            return
 
         r2 = defaultdict(dict)
         for session_id, task_type in gt.keys():
@@ -228,7 +265,7 @@ class CustomValidator(Callback):
             for key2, item2 in item.items():
                 values[f"val/{key}_{key2}"] = item2
 
-        pl_module.log_dict(values, sync_dist=True)
+        pl_module.log_dict(values)
         console.info(f"Logged {len(values)} validation metrics.")
 
         r2 = pd.DataFrame.from_dict(r2).T

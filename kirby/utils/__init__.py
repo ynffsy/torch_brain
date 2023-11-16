@@ -2,7 +2,7 @@ import torch
 
 from .logging import logging
 from .dir_utils import find_files_by_extension, make_directory
-
+from .seed_everything import seed_everything
 
 def move_to(data: dict, device):
     for key in data.keys():

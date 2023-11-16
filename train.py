@@ -256,7 +256,7 @@ def run_training(cfg: DictConfig):
 
 # This loads the config file using Hydra, similar to Flags, but composable.
 @hydra.main(
-    version_base="1.3", config_path="../configs", config_name="train.yaml"
+    version_base="1.3", config_path="./configs", config_name="train.yaml"
 )
 def main(cfg: DictConfig):
     # Train the whole thing.
