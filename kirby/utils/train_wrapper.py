@@ -139,7 +139,9 @@ class CustomValidator(Callback):
         description = defaultdict(list)
 
         """We validate against behaviour using R2, so we must accumulate over batches."""
-        for i in tqdm(range(trainer.local_rank, len(self.validation_dataset), trainer.world_size)):
+        for i in tqdm(range(trainer.local_rank, len(self.validation_dataset), trainer.world_size),
+                      desc=f"Val @ Epoch {trainer.current_epoch}",
+                      disable=(trainer.local_rank != 0)):
             # Samples are cyclically distributed across processes
             data = self.validation_dataset[i]
             session_id = data.session
