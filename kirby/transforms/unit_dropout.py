@@ -90,59 +90,23 @@ class UnitDropout:
         num_units_to_sample = int(self.distribution.sample(num_units))
 
         # shuffle units and take the first num_units_to_sample
-        keep_indices, _ = torch.sort(torch.randperm(num_units)[:num_units_to_sample])
+        # torch.randperm(num_units)[:num_units_to_sample]
+        unit_splits = torch.randperm(num_units)
+        drop_indices, _ = torch.sort(unit_splits[num_units_to_sample:])
 
-        # update the units
-        units_keep = data.units.__class__.__new__(data.units.__class__)
-        for key, value in data.units.__dict__.items():
-            if value is not None and isinstance(value, torch.Tensor):
-                units_keep.__dict__[key] = value[keep_indices]
-            elif value is not None and isinstance(value, np.ndarray):
-                units_keep.__dict__[key] = value[keep_indices.numpy()]
-            elif value is not None and isinstance(value, list):
-                units_keep.__dict__[key] = [value[x.item()] for x in keep_indices]
-            else:
-                units_keep.__dict__[key] = None
+        total_spike_mask = ~torch.isin(data.spikes.unit_index, drop_indices)
         
-        data.units = units_keep
-
-        # Keep only the relevant spikes
-        if hasattr(data.spikes, 'names_index_dict'):
-            # index maps have been precomputed, this should make things way faster! 
-            spikes_keep_indices = []
-            for name in data.units.unit_name:
-                if name in data.spikes.names_index_dict:
-                    spikes_keep_indices.append(data.spikes.names_index_dict[name]) 
-            spikes_keep_indices = torch.concatenate(spikes_keep_indices)
-            # sort
-            spikes_keep_indices = spikes_keep_indices.sort()[0]
+        for key, value in data.spikes.__dict__.items():
+            if value is None:
+                continue
             
-            # update the spikes
-            spikes_keep = data.spikes.__class__.__new__(data.spikes.__class__)
-            for key, value in data.spikes.__dict__.items():
-                if value is not None and isinstance(value, torch.Tensor):
-                    spikes_keep.__dict__[key] = value[spikes_keep_indices]
-                elif value is not None and isinstance(value, np.ndarray):
-                    spikes_keep.__dict__[key] = value[spikes_keep_indices.numpy()]
-                elif value is not None and isinstance(value, list):
-                    spikes_keep.__dict__[key] = [value[x.item()] for x in spikes_keep_indices]
-                else:
-                    spikes_keep.__dict__[key] = None
-            
-            delattr(data.spikes, 'names_index_dict')
-            spikes_keep._sorted = data.spikes.sorted
-            data.spikes = spikes_keep
-        else:
-            # todo add warning when index maps are not precomputed
-            total_spike_mask = torch.zeros_like(data.spikes.timestamps, dtype=torch.bool)
-            n = np.array(data.spikes.names)
-            for unit_name in data.units.unit_name:
-                total_spike_mask |= n == unit_name
-
-            data.spikes.timestamps = data.spikes.timestamps[total_spike_mask == 1]
-            data.spikes.types = data.spikes.types[total_spike_mask == 1]
-            # Tricky bit: torch doesn't have real booleans, only uint8, so when we convert 
-            # back to numpy we have to cast correctly to obtains the desired effect.
-            data.spikes.names = (n[total_spike_mask.cpu().detach().numpy() == 1]).tolist()
+            if isinstance(value, torch.Tensor):
+                data.spikes.__dict__[key] = value[total_spike_mask]
+            elif isinstance(value, np.ndarray):
+                data.spikes.__dict__[key] = value[total_spike_mask.numpy()]
+            elif isinstance(value, list):
+                data.spikes.__dict__[key] = [value[x.item()] for x in total_spike_mask]
+            else:
+                data.spikes.__dict__[key] = None
 
         return data

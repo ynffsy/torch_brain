@@ -13,7 +13,9 @@ from kirby.models import PerceiverNM
 from kirby.taxonomy import decoder_registry, weight_registry
 from kirby.utils import train_wrapper
 
-DATA_ROOT = str(Path(os.environ["SLURM_TMPDIR"]) / "uncompressed")
+import util
+
+DATA_ROOT = Path(util.get_data_paths()["uncompressed_dir"]) / "uncompressed"
 
 def test_validation():
     ds = Dataset(

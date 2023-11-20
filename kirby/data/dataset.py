@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import warnings
 import msgpack
 import numpy as np
 import torch
@@ -183,6 +184,20 @@ class Dataset(torch.utils.data.Dataset):
             data = self.transform(data)
         data.description = info["description"]
         data.iomap = info["iomap"]
+
+        if not hasattr(data.spikes, "unit_index"):
+            warnings.warn(
+                "Unit index is not set, backing out from sortset. This is slow. You should set the unit index in prepare_data.py files for speed. In a future version, this will turn into an error."
+            )
+
+            # Inverse map from unit name to index.
+            inv_map = {k: v for v, k in enumerate(data.units.unit_name)}
+            data.spikes.unit_index = torch.Tensor(
+                [inv_map[x] for x in data.spikes.names]
+            ).to(dtype=torch.long)
+
+        if hasattr(data.spikes, "names"):
+            delattr(data.spikes, "names")
 
         return data
 
@@ -479,12 +494,20 @@ class Collate:
             # add spike events
             spikes = data.spikes
 
-            mapped_spikes = self.unit_vocab.forward(
-                list(spikes.names)
-                + list(data.units.unit_name)
-                + list(data.units.unit_name)
+            # Do a lookup from unit names to their location in the embedding
+            unit_names = data.units.unit_name
+            if isinstance(unit_names, np.ndarray):
+                unit_names = unit_names.tolist()
+            unit_embedding_index = torch.tensor(self.unit_vocab.forward(unit_names))
+            mapped_spikes = torch.cat(
+                (
+                    unit_embedding_index[spikes.unit_index],
+                    unit_embedding_index,
+                    unit_embedding_index,
+                )
             )
-            spike_ids[i, : len(mapped_spikes)] = torch.Tensor(mapped_spikes)
+
+            spike_ids[i, : len(mapped_spikes)] = mapped_spikes
             spike_timestamps[i, : len(spikes)] = spikes.timestamps
             mask[i, : len(spikes)] = True
 
@@ -524,11 +547,10 @@ class Collate:
                 lfp_channel_to_idx = {
                     x: i for i, x in enumerate(data.lfp_metadata.channels)
                 }
-                unit_to_channel = {
-                    u: lfp_channel_to_idx[c]
-                    for u, c in zip(data.units.unit_name, data.units.channel_name)
-                }
-                lfp_idx = [unit_to_channel[u] for u in spikes.names]
+                unit_to_channel = torch.tensor(
+                    [lfp_channel_to_idx[c] for c in data.units.channel_name]
+                )
+                lfp_idx = unit_to_channel[spikes.unit_index]
 
                 # Now find the corresponding offset using nearest neighbour.
                 # Note that this is only safe to do on a RegularTimeSeries
