@@ -7,3 +7,4 @@ from .dataset import Collate, Dataset, build_vocab, resolve
 from .nwb_to_data import nwb_to_data
 
 from . import dandi_utils
+from .dataset_builder import DatasetBuilder
