@@ -1,11 +1,11 @@
 import collections
 import dataclasses
 import os
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import warnings
 import msgpack
 import numpy as np
 import torch
@@ -288,7 +288,7 @@ def check_include(description: Dict, keys: Dict) -> bool:
 def check_include_exclude(description, key):
     if "include_input" in description:
         return key in description["include_input"]
-    elif "exclude_input" in description.keys():
+    elif "exclude_input" in description:
         return key not in description["exclude_input"]
     else:
         return True
@@ -600,18 +600,25 @@ class Collate:
                     )
                 except AttributeError:
                     behavior_type = torch.zeros(num_outputs, dtype=torch.long)
-                found = [
-                    self.weight_registry.get(int(x.item()), False)
-                    for x in behavior_type
-                ]
-                if not all(found) and any(found):
-                    idx = np.where(np.array(found) == False)[0]
+
+                weights = torch.tensor(
+                    [
+                        self.weight_registry.get(int(x.item()), -1.0)
+                        for x in behavior_type
+                    ]
+                )
+
+                # Either we have weights for all or for none (implicitly, everything
+                # has a weight of 1 in that case). There shouldn't be any
+                # in-between cases, which would mean there's an undefined behaviour.
+                if torch.any(weights == -1.0) and not torch.all(weights == -1.0):
+                    idx = torch.where(weights == 0)[0][0]
                     raise ValueError(
                         f"Could not find weights for behavior #{behavior_type[idx]}"
                     )
-                weights = [
-                    self.weight_registry.get(int(x.item()), 1.0) for x in behavior_type
-                ]
+
+                weights[weights == -1.0] = 1.0
+
                 output_weights[key][offset : offset + num_outputs] = torch.tensor(
                     weights
                 ) * metric.get("weight", 1.0)
@@ -631,7 +638,7 @@ class Collate:
         if has_lfps:
             extras["lfps"] = lfps
 
-        data = PaddedGrouping(
+        data = dict(
             spike_timestamps=spike_timestamps,
             spike_ids=spike_ids,
             spike_type=spike_type,
@@ -645,7 +652,7 @@ class Collate:
             session_names=session_names,
             **extras,
         )
-        return dataclasses.asdict(data)
+        return data
 
 
 def build_vocab(

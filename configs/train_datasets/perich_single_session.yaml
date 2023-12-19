@@ -5,3 +5,5 @@
     - output_key: CURSORVELOCITY2D
       loss: True
       weight: 1
+  exclude_input:
+    - UTAH_ARRAY_WAVEFORMS
