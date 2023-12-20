@@ -139,11 +139,11 @@ class Dataset(torch.utils.data.Dataset):
                     for chunk in trial["chunks"].get(self.split, []):
                         iomap = {
                             k: session[k]
-                            for k in ["inputs", "outputs", "stimuli", "task"]
+                            for k in ["fields", "task"]
                         }
 
                         # Check that the chunk has the requisite inputs.
-                        check = check_include(included_datasets, iomap["inputs"])
+                        check = check_include(included_datasets, iomap["fields"])
                         if not check:
                             continue
 
@@ -392,7 +392,7 @@ class Collate:
             data.has_spike_waveforms = False
             data.has_average_waveforms = False
             data.has_lfps = False
-            if (str(RecordingTech.UTAH_ARRAY_WAVEFORMS)) in data.iomap["inputs"].keys():
+            if (str(RecordingTech.UTAH_ARRAY_WAVEFORMS)) in data.iomap["fields"].keys():
                 check = check_include_exclude(
                     data.description, str(RecordingTech.UTAH_ARRAY_WAVEFORMS)
                 )
@@ -404,7 +404,7 @@ class Collate:
                     has_spike_waveforms = check
 
             if (str(RecordingTech.UTAH_ARRAY_AVERAGE_WAVEFORMS)) in data.iomap[
-                "inputs"
+                "fields"
             ].keys():
                 check = check_include_exclude(
                     data.description,
@@ -418,7 +418,7 @@ class Collate:
                     data.has_average_waveforms = check
                     has_average_waveforms = check
 
-            if (str(RecordingTech.UTAH_ARRAY_LFPS)) in data.iomap["inputs"].keys():
+            if (str(RecordingTech.UTAH_ARRAY_LFPS)) in data.iomap["fields"].keys():
                 check = check_include_exclude(
                     data.description, str(RecordingTech.UTAH_ARRAY_LFPS)
                 )
