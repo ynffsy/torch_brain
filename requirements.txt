@@ -35,7 +35,5 @@ torchtext>=0.15.0,<0.16.0 # required, from here: https://github.com/pytorch/text
 mne~=1.5
 pydantic
 seaborn~=0.13
-boto3==1.28.47
-zarr-checksum==0.2.9
-dandi==0.56.1
-allensdk~=2.15.2
+dandi
+allensdk
