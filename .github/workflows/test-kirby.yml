@@ -32,4 +32,5 @@ jobs:
         snakemake --cores 4 mc_maze_small
     - name: Test with pytest
       run: |
+        export WANDB_MODE=dryrun
         pytest tests/

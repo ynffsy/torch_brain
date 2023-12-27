@@ -200,9 +200,8 @@ def run_training(cfg: DictConfig):
         save_dir=cfg.log_dir,
     )
 
-    anonymous = hasattr(cfg, "anonymous") and cfg.anonymous
     wandb = lightning.pytorch.loggers.WandbLogger(
-        name=cfg.name, project="poyo", log_model=True, anonymous=anonymous,
+        name=cfg.name, project="poyo", log_model=True,
     )
     print(f"Wandb ID: {wandb.version}")
 
