@@ -53,12 +53,9 @@ def description_mpk(tmp_path):
                 sessions=[
                     SessionDescription(
                         id="20100101_01",
-                        start_time=parser.parse("2010-01-01T00:00:00"),
-                        end_time=parser.parse("2010-01-01T00:00:00"),
+                        recording_date=parser.parse("2010-01-01T00:00:00"),
                         task=Task.CONTINUOUS_REACHING,
-                        inputs={},
-                        stimuli={},
-                        outputs={Output.CURSOR2D: "cursor2d"},
+                        fields={Output.CURSOR2D: "cursor2d"},
                         trials=[
                             TrialDescription(
                                 id="20100101_01_01",
@@ -91,12 +88,9 @@ def description_mpk(tmp_path):
                 sessions=[
                     SessionDescription(
                         id="20100102_01",
-                        start_time=parser.parse("2010-01-01T00:00:00"),
-                        end_time=parser.parse("2010-01-01T00:00:00"),
+                        recording_date=parser.parse("2010-01-01T00:00:00"),
                         task=Task.CONTINUOUS_REACHING,
-                        inputs={},
-                        stimuli={},
-                        outputs={Output.FINGER3D: "finger3d"},
+                        fields={Output.FINGER3D: "finger3d"},
                         trials=[
                             TrialDescription(
                                 id="20100102_01_01",

@@ -126,7 +126,7 @@ class Dataset(torch.utils.data.Dataset):
                 sessions = [
                     session
                     for session in sessions
-                    if sel_output in session["outputs"].keys()
+                    if sel_output in session["fields"].keys()
                 ]
 
             session_names += [session["id"] for session in sessions]
