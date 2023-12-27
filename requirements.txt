@@ -36,3 +36,4 @@ mne~=1.5
 allensdk~=2.15.2
 pydantic
 seaborn~=0.13
+dandi==0.56.1
