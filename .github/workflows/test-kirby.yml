@@ -27,6 +27,10 @@ jobs:
         pip install -r requirements.txt
         pip install -e .     
         pip install flake8 pytest
+    - name: Download sample dataset
+      run: |
+        snakemake --cores 4 mc_maze_small
     - name: Test with pytest
       run: |
+        export WANDB_MODE=dryrun
         pytest tests/

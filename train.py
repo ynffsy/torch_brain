@@ -201,7 +201,7 @@ def run_training(cfg: DictConfig):
     )
 
     wandb = lightning.pytorch.loggers.WandbLogger(
-        name=cfg.name, project="poyo", log_model=True
+        name=cfg.name, project="poyo", log_model=True,
     )
     print(f"Wandb ID: {wandb.version}")
 
