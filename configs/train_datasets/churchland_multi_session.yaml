@@ -1,0 +1,6 @@
+- selection:
+    dandiset: "churchland_shenoy"
+  metrics:
+    - output_key: CURSORVELOCITY2D
+      loss: True
+      weight: 1

@@ -1,0 +1,9 @@
+- selection:
+    dandiset: "churchland_shenoy"
+    sortset: "nitschke_20090812"
+  metrics:
+    - output_key: CURSORVELOCITY2D
+      metric: r2
+      weight: 1
+  exclude_input:
+    - UTAH_ARRAY_WAVEFORMS
