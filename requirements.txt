@@ -36,3 +36,4 @@ mne~=1.5
 pydantic==1.10.13
 seaborn~=0.13
 dandi==0.56.1
+pulp==2.7.0
