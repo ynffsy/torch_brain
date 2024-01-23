@@ -27,6 +27,8 @@ jobs:
         pip install -r requirements.txt
         pip install -e .     
         pip install flake8 pytest
+    - name: Install plugin
+      run: pip install pytest-github-actions-annotate-failures
     - name: Download sample dataset
       run: |
         snakemake --cores 4 mc_maze_small
