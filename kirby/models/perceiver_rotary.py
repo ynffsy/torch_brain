@@ -536,31 +536,102 @@ class PerceiverNM(nn.Module):
         )
 
         return output, loss, losses_taskwise
-    
-    def freeze_middle(self) -> List[nn.Module]:
-        # Freeze everything except the readout, unit embedding, and session embedding 
-        # layers.
-        middle_modules = []
+
+    def freeze_perceiver(self) -> List[nn.Module]:
+        # Freeze everything except the unit embedding, and session embedding layers
+        frozen_modules = []
         banned_modules = [
-            self.readout,
             self.unit_emb,
             self.session_emb,
-            self.enc_atn,
-            self.enc_ffn,
         ]
+
         for module in self.children():
             if module in banned_modules:
                 continue
             for param in module.parameters():
                 param.requires_grad = False
-            middle_modules.append(module)
+            frozen_modules.append(module)
+
+        return frozen_modules
+
+    def load_from_ckpt(self, path) -> None:
+        # Load the checkpoint and partially apply it to the model
+
+        # Load checkpoint
+        ckpt = torch.load(path)
+        ckpt_unit_vocab = ckpt["hyper_parameters"]["model"].unit_vocab
+
+        # It's possible ckpt_state_dict has keys that start with 'model.'
+        # This happens when checkpoint is from a lightning run or
+        # when ckpt is from a distributed training run.
+        # We want to strip the 'model.' prefix from all keys.
+        ckpt_state_dict_raw = ckpt["state_dict"]
+        ckpt_state_dict = {}
+        for key in ckpt_state_dict_raw:
+            if key.startswith("model."):
+                new_key = key.replace("model.", "", 1)
+                ckpt_state_dict[new_key] = ckpt_state_dict_raw[key]
+
+        # List of parameters to generally not load from given checkpoint
+        special_params = [
+            "unit_emb.weight",
+            "unit_vocab",
+            "session_emb.embedding.weight",
+            "session_emb.vocab",
+        ]
+
+        model_state_dict = self.state_dict()
+        weights_to_load = [k for k in model_state_dict.keys() if k not in special_params]
+
+        def compatible(a, b):
+            if torch.is_tensor(a) and torch.is_tensor(b):
+                return a.shape == b.shape
+            elif a == b:
+                return True
+
+        # Filter the state_dict to only include the parameters we want to load.
+        filtered_state_dict = {}
+        for k, v in ckpt_state_dict.items():
+            if k in weights_to_load:
+
+                # Shapes must match
+                if not compatible(v, model_state_dict[k]):
+                    raise ValueError(
+                        f"Cannot load {k} from checkpoint {path}: Incompatible shapes"
+                        f" {v.shape} and {model_state_dict[k].shape}"
+                    )
+
+                filtered_state_dict[k] = v
+
+        # Load the state_dict.
+        self.load_state_dict(filtered_state_dict, strict=False)
+
+        # Now list the parameters that haven't been loaded.
+        missing_keys = [
+            k for k in model_state_dict.keys() 
+            if k not in filtered_state_dict.keys() and k not in special_params
+        ]
+
+        if len(missing_keys) > 0:
+            raise ValueError(
+                "Missing keys found in given checkpoint: "
+                + str(missing_keys)
+            )
+
+        # Copy unit-embedding for units present in both ckpt and current model
+        ckpt_unit_emb  = ckpt_state_dict["unit_emb.weight"]
+        ckpt_unit_dict = ckpt_unit_vocab.get_stoi()
+        unit_dict = self.unit_vocab.get_stoi() 
         
-        return middle_modules
-    
-    def unfreeze_middle(self) -> None:
-        for module in self.children():
-            for param in module.parameters():
-                param.requires_grad = True
+        num_common_units = 0
+        for name, idx in unit_dict.items():
+            if name in ckpt_unit_dict:
+                ckpt_idx = ckpt_unit_dict[name]
+                self.unit_emb.weight.data[idx] = ckpt_unit_emb[ckpt_idx]
+                num_common_units += 1
+
+        logging.info(f"Loaded {num_common_units} unit embeddings from checkpoint")
+
 
 class MultitaskReadout(nn.Module):
     def __init__(

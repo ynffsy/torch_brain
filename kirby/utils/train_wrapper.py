@@ -277,21 +277,16 @@ class CustomValidator(Callback):
         return r2
 
 
-class MiddleFreezeUnfreeze(BaseFinetuning):
+class UnfreezeAtEpoch(Callback):
     def __init__(self, unfreeze_at_epoch=10):
         super().__init__()
         self._unfreeze_at_epoch = unfreeze_at_epoch
 
-    def freeze_before_training(self, pl_module):
-        # freeze any module you want
-        # Here, we are freezing `feature_extractor`
-        self.middle_layers = pl_module.model.freeze_middle()
-
-    def finetune_function(self, pl_module, current_epoch, optimizer):
-        # When `current_epoch` is the "unfreeze_at_epoch", the middle of the model
-        # will start training.
-        if current_epoch == self._unfreeze_at_epoch:
-            self.unfreeze_and_add_param_group(
-                modules=self.middle_layers,
-                optimizer=optimizer,
+    def on_train_epoch_start(self, trainer, pl_module):
+        if trainer.current_epoch == self._unfreeze_at_epoch:
+            console.info(
+                f"Reached epoch {trainer.current_epoch}, unfreezing entire model"
             )
+            for module in pl_module.model.children():
+                for param in module.parameters():
+                    param.requires_grad = True

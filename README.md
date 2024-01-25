@@ -36,3 +36,14 @@ To train POYO you can run:
 python train.py --config-name train.yaml
 ```
 Everything is logged to wandb.
+
+# Finetuning
+## Unit-Identification
+```bash
+python python train.py --config-name unit_identification.yaml
+```
+
+## Full finetuning
+```bash
+python python train.py --config-name finetune.yaml
+```

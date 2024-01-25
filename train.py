@@ -125,12 +125,13 @@ def run_training(cfg: DictConfig):
 
     print(f"Epochs: {epochs}")
 
-    if cfg.finetune_epochs > 0:
-        # if cfg.finetune_path is None:
-        #    raise ValueError("Must specify finetune_path if finetune_epochs > 0")
-        model.freeze_middle()
+    if cfg.finetune:
+        model.load_from_ckpt(cfg.ckpt_path)
 
-    # only parameters to tune are the unit embeddings and the task embedding
+        # Optionally freeze parameters for Unit Identification
+        if cfg.freeze_perceiver_until_epoch != 0:
+            model.freeze_perceiver()
+
     optimizer = Lamb(
         model.parameters(),  # filter(lambda p: p.requires_grad, model.parameters()),
         lr=max_lr,
@@ -154,47 +155,6 @@ def run_training(cfg: DictConfig):
         optimizer=optimizer,
         scheduler=scheduler,
     )
-
-    # Check for the finetune path.
-    if cfg.finetune_path is not None:
-        if cfg.ckpt_path is not None:
-            raise ValueError("Cannot specify both ckpt_path and finetune_path")
-
-        # Load the checkpoint and partially apply it to the model.
-        checkpoint = torch.load(cfg.finetune_path)
-        state_dict = checkpoint["state_dict"]
-
-        # Get the model's state_dict.
-        model_state_dict = wrapper.state_dict()
-
-        def compatible(a, b):
-            if torch.is_tensor(a) and torch.is_tensor(b):
-                return a.shape == b.shape
-            elif a == b:
-                return True
-
-        # Filter the state_dict to only include the parameters we want to load.
-        state_dict = {
-            k: v
-            for k, v in state_dict.items()
-            if k in model_state_dict and compatible(v, model_state_dict[k])
-        }
-        # Load the state_dict.
-        wrapper.load_state_dict(state_dict, strict=False)
-
-        # Now list the parameters that haven't been loaded.
-        missing_keys = [
-            k for k in model_state_dict.keys() if k not in state_dict.keys()
-        ]
-
-        if len(missing_keys) > 0:
-            print(
-                "Missing keys not loaded from finetune_path: "
-                + str(missing_keys)
-            )
-
-        # Re-bind the train loader to the vocabulary.
-        train_loader.unit_vocab = model.unit_vocab
 
     tb = lightning.pytorch.loggers.tensorboard.TensorBoardLogger(
         save_dir=cfg.log_dir,
@@ -221,10 +181,11 @@ def run_training(cfg: DictConfig):
         ),  # Create a callback to log the learning rate.
     ]
 
-    if cfg.finetune_epochs > 0:
-        callbacks.append(
-            train_wrapper.MiddleFreezeUnfreeze(cfg.finetune_epochs)
-        )
+    if cfg.finetune:
+        if cfg.freeze_perceiver_until_epoch > 0:
+            callbacks.append(
+                train_wrapper.UnfreezeAtEpoch(cfg.freeze_perceiver_until_epoch)
+            )
 
     trainer = lightning.Trainer(
         logger=[tb, wandb],
@@ -250,7 +211,10 @@ def run_training(cfg: DictConfig):
 
     # To resume from a checkpoint rather than training from scratch,
     # set ckpt_path on the command line.
-    trainer.fit(wrapper, train_loader, [0], ckpt_path=cfg.ckpt_path)
+    trainer.fit(
+        wrapper, train_loader, [0], 
+        ckpt_path=cfg.ckpt_path if not cfg.finetune else None
+    )
     # [0] is a hack to force the validation callback to be called.
 
 
