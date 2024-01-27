@@ -77,39 +77,99 @@ class Dataset(torch.utils.data.Dataset):
 
             # Get a list of all the potentially chunks in this dataset.
             sortsets = description["sortsets"]
+            all_sortset_ids = [x["id"] for x in sortsets]
+            all_sortset_subjects = set([x["subject"] for x in sortsets])
 
             # Perform selection. Right now, we are limiting ourselves to sortset,
             # subject and session, but we could make selection more flexible in the
             # future.
             sel_sortset = selection.get("sortset", None)
+            sel_sortsets = selection.get("sortsets", None)
             sel_sortset_lte = selection.get("sortset_lte", None)
             sel_subject = selection.get("subject", None)
+            sel_subjects = selection.get("subjects", None)
+            # exclude_sortsets allows you to exclude some sortsets from the selection.
+            # example use: you want to train on the complete dandiset, but leave out
+            # a few sortsets for evaluating transfer performance.
+            sel_exclude_sortsets = selection.get("exclude_sortsets", None)
+
             sel_session = selection.get("session", None)
-
-            if sel_sortset_lte is not None and sel_sortset is not None:
-                raise ValueError(
-                    f"Cannot specify both sortset and sortset_lte in selection"
-                )
-
             sel_output = selection.get("output", None)
 
-            # First, we get the sortset-level information.
+            filtered = False
             if sel_sortset is not None:
+                assert sel_sortset in all_sortset_ids, (
+                    f"Sortset {sel_sortset} not found in dandiset {selection['dandiset']}"
+                )
                 sortsets = [
                     sortset for sortset in sortsets if sortset["id"] == sel_sortset
                 ]
+                filtered = True
+
+            if sel_sortsets is not None:
+                assert not filtered, (
+                    "Cannot specify sortset AND sortsets in selection"
+                )
+
+                # Check that all sortsets are in the dandiset.
+                for sortset in sel_sortsets:
+                    assert sortset in all_sortset_ids, (
+                        f"Sortset {sortset} not found in dandiset {selection['dandiset']}"
+                    )
+
+                sortsets = [
+                    sortset for sortset in sortsets if sortset["id"] in sel_sortsets
+                ]
+                filtered = True
 
             if sel_sortset_lte is not None:
+                assert not filtered, (
+                    "Cannot specify sortset_lte AND sortset(s) in selection"
+                )
+
                 sortsets = [
                     sortset for sortset in sortsets if sortset["id"] <= sel_sortset_lte
                 ]
+                filtered = True
 
             if sel_subject is not None:
+                assert not filtered, (
+                    "Cannot specify subject AND sortset(s)/sortset_lte in selection"
+                )
+
+                assert sel_subject in all_sortset_subjects, (
+                    f"Could not find subject {sel_subject} in dandiset {selection['dandiset']}"
+                )
+
                 sortsets = [
                     sortset for sortset in sortsets if sortset["subject"] == sel_subject
                 ]
+                filtered = True
 
-            # Note that this logic may result in adding two many slots but that's fine.
+            if sel_subjects is not None:
+                assert not filtered, (
+                    "Cannot specify subjects AND subject/sortset(s)/sortset_lte in selection"
+                )
+
+                # Make sure all subjects asked for are in the dandiset
+                sel_subjects = set(sel_subjects)
+                assert sel_subjects.issubset(all_sortset_subjects), (
+                    f"Could not find subject(s) {sel_subjects - all_sortset_subjects} "
+                    f" in dandiset {selection['dandiset']}"
+                )
+
+                sortsets = [
+                    sortset for sortset in sortsets if sortset["subject"] in sel_subjects
+                ]
+                filtered = True
+
+            # Exclude sortsets if asked.
+            if sel_exclude_sortsets is not None: 
+                sortsets = [
+                    sortset for sortset in sortsets if sortset["id"] not in sel_exclude_sortsets
+                ]
+
+            # Note that this logic may result in adding too many slots but that's fine.
             unit_names += [x for sortset in sortsets for x in sortset["units"]]
 
             # Now we get the session-level information.
@@ -119,7 +179,7 @@ class Dataset(torch.utils.data.Dataset):
                     session for session in sessions if session["id"] == sel_session
                 ]
 
-            assert len(sessions) > 0, f"No sessions found for {i}'th dataset included"
+            assert len(sessions) > 0, f"No sessions found for {i}'th selection included"
 
             # Similarly, select for certain outputs
             if sel_output is not None:
