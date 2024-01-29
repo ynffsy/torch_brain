@@ -126,7 +126,10 @@ def run_training(cfg: DictConfig):
     print(f"Epochs: {epochs}")
 
     if cfg.finetune:
-        model.load_from_ckpt(cfg.ckpt_path)
+        model.load_from_ckpt(
+            path=cfg.ckpt_path,
+            strict_vocab=False, # finetuning, generally, is over a new vocabulary
+        )
 
         # Optionally freeze parameters for Unit Identification
         if cfg.freeze_perceiver_until_epoch != 0:

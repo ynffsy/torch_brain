@@ -12,6 +12,7 @@ from torchmetrics import R2Score
 from torchtyping import TensorType
 
 from kirby.taxonomy import DecoderSpec, OutputType
+import kirby.taxonomy
 
 try:
     import xformers.ops as xops
@@ -140,7 +141,9 @@ class RotaryCrossAttention(nn.Module):
         )
         # perform attention, by default will use the optimal attention implementation
         out = F.scaled_dot_product_attention(
-            q, k, v, attn_mask=attn_mask, dropout_p=self.dropout
+            q, k, v, 
+            attn_mask=attn_mask, 
+            dropout_p=self.dropout if self.training else 0
         )
 
         if self.rotate_value:
@@ -208,7 +211,9 @@ class RotarySelfAttention(nn.Module):
 
             # scaling is done by default
             out = xops.memory_efficient_attention(
-                q, k, v, attn_bias=attn_bias, p=self.dropout
+                q, k, v, 
+                attn_bias=attn_bias, 
+                p=self.dropout if self.training else 0
             )
 
             if self.rotate_value:
@@ -362,9 +367,9 @@ class PerceiverNM(nn.Module):
         atn_dropout=0.0,
         emb_init_scale=0.02,
         use_memory_efficient_attn=True,
-        unit_vocab: Optional[torchtext.vocab.vocab]= None,
+        unit_vocab: Optional[torchtext.vocab.vocab] = None,
         session_names: Optional[List[str]] = None,
-        task_specs: Dict[str, DecoderSpec],
+        task_specs: Dict[str, DecoderSpec] = kirby.taxonomy.decoder_registry,
     ):
         super().__init__()
 
@@ -554,8 +559,17 @@ class PerceiverNM(nn.Module):
 
         return frozen_modules
 
-    def load_from_ckpt(self, path) -> None:
-        # Load the checkpoint and partially apply it to the model
+    def load_from_ckpt(self, path, strict_vocab=True) -> None:
+        """Load the checkpoint and partially apply it to the model.
+        
+        Args:
+            path: Path to the checkpoint file
+            strict_vocab: If `True`, checkpoint is expected to contain
+                all unit/session embeddings present in current model's vocab.
+                If any are missing, an error is raised.
+                If `False`, only overlapping embeddings are loaded, and
+                missing embeddings are ignored.
+        """
 
         # Load checkpoint
         ckpt = torch.load(path)
@@ -629,8 +643,42 @@ class PerceiverNM(nn.Module):
                 ckpt_idx = ckpt_unit_dict[name]
                 self.unit_emb.weight.data[idx] = ckpt_unit_emb[ckpt_idx]
                 num_common_units += 1
+            else:
+                if strict_vocab:
+                    raise ValueError(
+                        f"Unit {name} in current model not found in checkpoint."
+                        " To ignore this error, call load_from_ckpt with"
+                        " strict_vocab=False."
+                    )
 
-        logging.info(f"Loaded {num_common_units} unit embeddings from checkpoint")
+        if not strict_vocab:
+            logging.info(f"Loaded {num_common_units} unit embeddings from checkpoint")
+        else:
+            logging.info(f"Found all required unit embeddings in checkpoint.")
+
+        # Copy session-embedding for sessions present in both ckpt and current model
+        ckpt_session_emb = ckpt_state_dict["session_emb.embedding.weight"]
+        ckpt_session_dict = ckpt_state_dict["session_emb.vocab"]
+        session_dict = self.session_emb.vocab
+
+        num_common_sessions = 0
+        for name, idx in session_dict.items():
+            if name in ckpt_session_dict:
+                ckpt_idx = ckpt_session_dict[name]
+                self.session_emb.embedding.weight.data[idx] = ckpt_session_emb[ckpt_idx]
+                num_common_sessions += 1
+            else:
+                if strict_vocab:
+                    raise ValueError(
+                        f"Unit {name} in current model not found in checkpoint."
+                        " To ignore this error, call load_from_ckpt with"
+                        " strict_vocab=False."
+                    )
+
+        if not strict_vocab:
+            logging.info(f"Loaded {num_common_sessions} session embeddings from checkpoint")
+        else:
+            logging.info(f"Found all required session embeddings in checkpoint.")
 
 
 class MultitaskReadout(nn.Module):

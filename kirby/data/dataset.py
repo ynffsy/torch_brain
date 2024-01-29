@@ -17,6 +17,7 @@ from torchtyping import TensorType
 
 from kirby.data import Data
 from kirby.data.data import RegularTimeSeries
+import kirby.taxonomy
 from kirby.taxonomy import StringIntEnum, description_helper
 from kirby.taxonomy.taxonomy import DecoderSpec, RecordingTech
 
@@ -389,17 +390,24 @@ class Collate:
         reweight: bool = False,
         sequence_length=1.0,
         unit_vocab: Optional[torchtext.vocab.Vocab] = None,
-        decoder_registry: Optional[Dict[str, DecoderSpec]] = None,
-        weight_registry: Optional[Dict[int, float]] = None,
+        decoder_registry: Optional[Dict[str, DecoderSpec]] = kirby.taxonomy.decoder_registry,
+        weight_registry: Optional[Dict[int, float]] = kirby.taxonomy.weight_registry,
+        metrics: Optional[List[Dict[str, str]]] = None,
     ):
         """Stack datasets into a batch.
 
         Note that there are necessarily sequence_length / step * num_latents_per_step latent tokens.
+
+        Args:
+            metrics: A list of metrics dictionary including output keys and weight.
+                If None, metrics will be inferred from the dataset.
+                Example: metrics=[{"output_key": "CURSORVELOCITY2D", "weight": 1.0}]
         """
         self.num_latents_per_step = num_latents_per_step
         self.step = step
         self.reweight = reweight
         self.unit_vocab = unit_vocab
+        self.metrics = metrics
 
         # TODO: remove sequence_length from the parameters and read the sequence length
         # from the data instead.
@@ -491,7 +499,8 @@ class Collate:
             num_output_timestamps = (
                 0  # measures number of output timestamps for this sequence sample
             )
-            for metric in data.description["metrics"]:
+            metrics = self.metrics or data.description["metrics"]
+            for metric in metrics:
                 key = metric["output_key"]
                 decoder_registry_keys.add(key)
                 value = resolve(data, self.decoder_registry[key].value_key)
@@ -630,7 +639,8 @@ class Collate:
 
             # Now we deal with the outputs.
             timestamps_offset = 0
-            for metric in data.description["metrics"]:
+            metrics = self.metrics or data.description["metrics"]
+            for metric in metrics:
                 key = metric["output_key"]
                 timestamps = resolve(data, self.decoder_registry[key].timestamp_key)
                 values = resolve(data, self.decoder_registry[key].value_key)
@@ -679,9 +689,9 @@ class Collate:
 
                 weights[weights == -1.0] = 1.0
 
-                output_weights[key][offset : offset + num_outputs] = torch.tensor(
-                    weights
-                ) * metric.get("weight", 1.0)
+                output_weights[key][offset : offset + num_outputs] = (
+                    weights * metric.get("weight", 1.0)
+                )
 
                 timestamps_offset += num_outputs
                 output_offset[key] += num_outputs
