@@ -82,3 +82,25 @@ WANDB_API_KEY=<secret-key>
 ```
 
 Get the API key from the wandb website.
+
+## mila cluster $SLURM_TMPDIR issue
+(added by Krystal Pan)
+
+When running an interactive session on the mila cluster (e.g. `mila_code` in VScode or `salloc` jobs), it is possible that $SLURM_TMPDIR is not expanded and cause a Snakemake error:
+```
+/bin/bash: line 1: SLURM_TMPDIR: unbound variable
+```
+
+Appending the following code to the `~/.bashrc` file to specify the temporary folder can solve this issue.
+```
+if [ -z "$SLURM_TMPDIR" ]; then
+    export SLURM_TMPDIR="/Tmp/slurm.$SLURM_JOB_ID.0"
+fi
+```
+
+After modifying, you only need to run it once:
+```
+source ~/.bashrc
+```
+
+Now $SLURM_TMPDIR will expand and the unbound variable issue is solved.
