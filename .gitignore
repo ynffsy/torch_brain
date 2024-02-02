@@ -154,3 +154,6 @@ slurm*.txt
 smux*
 */*/logs
 */*/outputs
+
+data/processed
+data/raw
