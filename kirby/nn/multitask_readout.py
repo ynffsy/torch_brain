@@ -96,6 +96,7 @@ class MultitaskReadout(nn.Module):
 
         return outputs, loss, taskwise_loss
       
+
 def prepare_for_multitask_readout(
     data, decoder_registry: Dict[str, DecoderSpec], weight_registry
 ):

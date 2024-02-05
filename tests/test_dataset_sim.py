@@ -12,7 +12,6 @@ from dateutil import parser
 from torch.utils.data import DataLoader
 
 from kirby.data import Dataset
-from kirby.data.dataset import Collate
 from kirby.models import PerceiverNM
 from kirby.taxonomy import (
     ChunkDescription,
@@ -42,7 +41,7 @@ def description_mpk(tmp_path):
         metadata_version="0.0.0",
         source="https://dandiarchive.org/#/dandiset/000005",
         description="",
-        folds=["train", "val", "test"],
+        splits=["train", "val", "test"],
         subjects=[],
         sortsets=[
             SortsetDescription(
@@ -56,26 +55,10 @@ def description_mpk(tmp_path):
                         recording_date=parser.parse("2010-01-01T00:00:00"),
                         task=Task.CONTINUOUS_REACHING,
                         fields={Output.CURSOR2D: "cursor2d"},
-                        trials=[
-                            TrialDescription(
-                                id="20100101_01_01",
-                                chunks={
-                                    "train": [
-                                        ChunkDescription(
-                                            id="20100101_01_01_01",
-                                            duration=1,
-                                            start_time=0,
-                                        ),
-                                        ChunkDescription(
-                                            id="20100101_01_01_02",
-                                            duration=1,
-                                            start_time=1,
-                                        ),
-                                    ]
-                                },
-                                footprints={},
-                            )
-                        ],
+                        splits={
+                            "train": [(0, 1), (1, 2)]
+                        },
+                        trials=[],
                     )
                 ],
                 units=["a", "b", "c"],
@@ -91,31 +74,10 @@ def description_mpk(tmp_path):
                         recording_date=parser.parse("2010-01-01T00:00:00"),
                         task=Task.CONTINUOUS_REACHING,
                         fields={Output.FINGER3D: "finger3d"},
-                        trials=[
-                            TrialDescription(
-                                id="20100102_01_01",
-                                chunks={
-                                    "train": [
-                                        ChunkDescription(
-                                            id="20100102_01_01_01",
-                                            duration=1,
-                                            start_time=0,
-                                        ),
-                                        ChunkDescription(
-                                            id="20100102_01_01_02",
-                                            duration=1,
-                                            start_time=1,
-                                        ),
-                                        ChunkDescription(
-                                            id="20100102_01_01_03",
-                                            duration=1,
-                                            start_time=1,
-                                        ),
-                                    ]
-                                },
-                                footprints={},
-                            )
-                        ],
+                        splits={
+                            "train": [(0, 1), (1, 2), (2, 3)]
+                        },
+                        trials=[],
                     )
                 ],
                 units=["e", "d"],
@@ -137,27 +99,43 @@ def test_dataset_selection(description_mpk):
         "train",
         [{"selection": {"dandiset": "odoherty_sabes"}}],
     )
+    assert len(ds.session_info_dict) == 2
 
-    assert len(ds.chunk_info) == 5
-    assert ds.chunk_info[0]["filename"] == (
-        description_mpk / "odoherty_sabes" / "train" / "20100101_01_01_01.pt"
+    assert ds.session_info_dict["odoherty_sabes/20100101_01"].filename == (
+        description_mpk / "odoherty_sabes" / "20100101_01.h5"
     )
+    assert ds.session_info_dict["odoherty_sabes/20100101_01"].session_id == "odoherty_sabes/20100101_01"
+    assert len(ds.session_info_dict["odoherty_sabes/20100101_01"].sampling_interval) == 2
+
+    assert ds.session_info_dict["odoherty_sabes/20100102_01"].filename == (
+        description_mpk / "odoherty_sabes" / "20100102_01.h5"
+    )
+    assert ds.session_info_dict["odoherty_sabes/20100102_01"].session_id == "odoherty_sabes/20100102_01"
+    assert len(ds.session_info_dict["odoherty_sabes/20100102_01"].sampling_interval) == 3
 
     ds = Dataset(
         description_mpk,
         "train",
         [{"selection": {"dandiset": "odoherty_sabes", "subject": "alice"}}],
     )
-
-    assert len(ds.chunk_info) == 2
+    assert len(ds.session_info_dict) == 1
+    assert ds.session_info_dict["odoherty_sabes/20100101_01"].filename == (
+        description_mpk / "odoherty_sabes" / "20100101_01.h5"
+    )
+    assert ds.session_info_dict["odoherty_sabes/20100101_01"].session_id == "odoherty_sabes/20100101_01"
+    assert len(ds.session_info_dict["odoherty_sabes/20100101_01"].sampling_interval) == 2
 
     ds = Dataset(
         description_mpk,
         "train",
         [{"selection": {"dandiset": "odoherty_sabes", "sortset": "20100101"}}],
     )
-
-    assert len(ds.chunk_info) == 2
+    assert len(ds.session_info_dict) == 1
+    assert ds.session_info_dict["odoherty_sabes/20100101_01"].filename == (
+        description_mpk / "odoherty_sabes" / "20100101_01.h5"
+    )
+    assert ds.session_info_dict["odoherty_sabes/20100101_01"].session_id == "odoherty_sabes/20100101_01"
+    assert len(ds.session_info_dict["odoherty_sabes/20100101_01"].sampling_interval) == 2
 
     ds = Dataset(
         description_mpk,
@@ -172,20 +150,19 @@ def test_dataset_selection(description_mpk):
         ],
     )
 
-    assert len(ds.chunk_info) == 3
-
-    ds = Dataset(
-        description_mpk,
-        "train",
-        [{"selection": {"dandiset": "odoherty_sabes"}}],
+    assert ds.session_info_dict["odoherty_sabes/20100102_01"].filename == (
+        description_mpk / "odoherty_sabes" / "20100102_01.h5"
     )
-
-    assert len(ds.chunk_info) == 5
+    assert ds.session_info_dict["odoherty_sabes/20100102_01"].session_id == "odoherty_sabes/20100102_01"
+    assert len(ds.session_info_dict["odoherty_sabes/20100102_01"].sampling_interval) == 3
 
     ds = Dataset(
         description_mpk,
         "train",
         [{"selection": {"dandiset": "odoherty_sabes", "output": "CURSOR2D"}}],
     )
-
-    assert len(ds.chunk_info) == 2
+    assert ds.session_info_dict["odoherty_sabes/20100101_01"].filename == (
+        description_mpk / "odoherty_sabes" / "20100101_01.h5"
+    )
+    assert ds.session_info_dict["odoherty_sabes/20100101_01"].session_id == "odoherty_sabes/20100101_01"
+    assert len(ds.session_info_dict["odoherty_sabes/20100101_01"].sampling_interval) == 2

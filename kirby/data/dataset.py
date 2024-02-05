@@ -1,12 +1,13 @@
 import collections
 import dataclasses
 import os
-import warnings
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import msgpack
+import h5py
 import numpy as np
 import torch
 import torch.utils
@@ -16,18 +17,57 @@ from einops import repeat
 from torchtyping import TensorType
 
 from kirby.data import Data
-from kirby.data.data import RegularTimeSeries
+from kirby.data.data import Interval, RegularTimeSeries
 import kirby.taxonomy
 from kirby.taxonomy import StringIntEnum, description_helper
 from kirby.taxonomy.taxonomy import DecoderSpec, RecordingTech
 
 
+@dataclass
+class SessionFileInfo:
+    """Information about a session that is pertinent to the dataset object.
+    Its goal is to be able to load the session file and extract the relevant
+    data from it.
+    """
+
+    session_id: str  # <dandiset>/<session_id>, fully qualified, should be unique
+    filename: Path
+    iomap: Dict[str, Any]
+    description: Dict[str, Any]
+    sampling_interval: Interval  # Intervals to sample from
+
+
+@dataclass
+class DatasetIndex:
+    """Information needed to extract a slice from a dataset."""
+
+    session_id: str
+    start: float
+    end: float
+
+
 class Dataset(torch.utils.data.Dataset):
+    r"""This class abstracts a collection of lazily-loaded Data objects. Each of these
+    Data objects corresponds to a session and lives on the disk until it is requested.
+    The `include` argument guides which sessions are included in this Dataset.
+    To request a piece of a included session's data, you can use the `get` method,
+    or index the Dataset with a `DatasetIndex` object (see `__getitem__`).
+
+    This definition is a deviation from the standard PyTorch Dataset definition, which
+    generally presents the dataset directly as samples. In this case, the Dataset
+    by itself does not provide you with samples, but rather the means to flexibly work
+    and accesss complete sessions.
+    Within this framework, it is the job of the sampler to provide the
+    DatasetIndex indices to slice the dataset into samples (see `kirby.data.sampler`).
+    """
+
+    _check_for_data_leakage_flag: bool = True
+
     def __init__(
         self,
         root: str,
         split: str,
-        include: List[Dict[str, Any]] = None,
+        include: List[Dict[str, Any]],
         transform=None,
     ):
         super().__init__()
@@ -41,16 +81,17 @@ class Dataset(torch.utils.data.Dataset):
 
         self.include = include
         self.transform = transform
-        (
-            self.chunk_info,
-            self.session_names,
-            self.unit_names,
-        ) = self.look_for_files()
+        self.session_info_dict, self.unit_names = self._look_for_files()
+        self.session_names: List[str] = [
+            x.session_id for x in self.session_info_dict.values()
+        ]
 
-    def look_for_files(self) -> Tuple[List[Dict], List[str], List]:
-        chunk_info = []
+        self.requested_keys = None
+
+    def _look_for_files(self) -> Tuple[Dict[str, SessionFileInfo], List[str]]:
         session_names = []
         unit_names = []
+        session_info_dict = {}
 
         for i, included_datasets in enumerate(self.include):
             selection = included_datasets["selection"]
@@ -99,24 +140,22 @@ class Dataset(torch.utils.data.Dataset):
 
             filtered = False
             if sel_sortset is not None:
-                assert sel_sortset in all_sortset_ids, (
-                    f"Sortset {sel_sortset} not found in dandiset {selection['dandiset']}"
-                )
+                assert (
+                    sel_sortset in all_sortset_ids
+                ), f"Sortset {sel_sortset} not found in dandiset {selection['dandiset']}"
                 sortsets = [
                     sortset for sortset in sortsets if sortset["id"] == sel_sortset
                 ]
                 filtered = True
 
             if sel_sortsets is not None:
-                assert not filtered, (
-                    "Cannot specify sortset AND sortsets in selection"
-                )
+                assert not filtered, "Cannot specify sortset AND sortsets in selection"
 
                 # Check that all sortsets are in the dandiset.
                 for sortset in sel_sortsets:
-                    assert sortset in all_sortset_ids, (
-                        f"Sortset {sortset} not found in dandiset {selection['dandiset']}"
-                    )
+                    assert (
+                        sortset in all_sortset_ids
+                    ), f"Sortset {sortset} not found in dandiset {selection['dandiset']}"
 
                 sortsets = [
                     sortset for sortset in sortsets if sortset["id"] in sel_sortsets
@@ -124,9 +163,9 @@ class Dataset(torch.utils.data.Dataset):
                 filtered = True
 
             if sel_sortset_lte is not None:
-                assert not filtered, (
-                    "Cannot specify sortset_lte AND sortset(s) in selection"
-                )
+                assert (
+                    not filtered
+                ), "Cannot specify sortset_lte AND sortset(s) in selection"
 
                 sortsets = [
                     sortset for sortset in sortsets if sortset["id"] <= sel_sortset_lte
@@ -134,13 +173,13 @@ class Dataset(torch.utils.data.Dataset):
                 filtered = True
 
             if sel_subject is not None:
-                assert not filtered, (
-                    "Cannot specify subject AND sortset(s)/sortset_lte in selection"
-                )
+                assert (
+                    not filtered
+                ), "Cannot specify subject AND sortset(s)/sortset_lte in selection"
 
-                assert sel_subject in all_sortset_subjects, (
-                    f"Could not find subject {sel_subject} in dandiset {selection['dandiset']}"
-                )
+                assert (
+                    sel_subject in all_sortset_subjects
+                ), f"Could not find subject {sel_subject} in dandiset {selection['dandiset']}"
 
                 sortsets = [
                     sortset for sortset in sortsets if sortset["subject"] == sel_subject
@@ -148,9 +187,9 @@ class Dataset(torch.utils.data.Dataset):
                 filtered = True
 
             if sel_subjects is not None:
-                assert not filtered, (
-                    "Cannot specify subjects AND subject/sortset(s)/sortset_lte in selection"
-                )
+                assert (
+                    not filtered
+                ), "Cannot specify subjects AND subject/sortset(s)/sortset_lte in selection"
 
                 # Make sure all subjects asked for are in the dandiset
                 sel_subjects = set(sel_subjects)
@@ -160,14 +199,18 @@ class Dataset(torch.utils.data.Dataset):
                 )
 
                 sortsets = [
-                    sortset for sortset in sortsets if sortset["subject"] in sel_subjects
+                    sortset
+                    for sortset in sortsets
+                    if sortset["subject"] in sel_subjects
                 ]
                 filtered = True
 
             # Exclude sortsets if asked.
-            if sel_exclude_sortsets is not None: 
+            if sel_exclude_sortsets is not None:
                 sortsets = [
-                    sortset for sortset in sortsets if sortset["id"] not in sel_exclude_sortsets
+                    sortset
+                    for sortset in sortsets
+                    if sortset["id"] not in sel_exclude_sortsets
                 ]
 
             # Note that this logic may result in adding too many slots but that's fine.
@@ -192,99 +235,92 @@ class Dataset(torch.utils.data.Dataset):
 
             session_names += [session["id"] for session in sessions]
 
-            # Now we get the chunk-level information.
-            max_chunks = selection.get("max_examples", 1e12)
+            # Now we get the session-level information
             for session in sessions:
-                num_chunks = 0
-                for trial in session["trials"]:
-                    for chunk in trial["chunks"].get(self.split, []):
-                        iomap = {
-                            k: session[k]
-                            for k in ["fields", "task"]
-                        }
+                iomap = {k: session[k] for k in ["fields", "task"]}
 
-                        # Check that the chunk has the requisite inputs.
-                        check = check_include(included_datasets, iomap["fields"])
-                        if not check:
-                            continue
+                # Check that the chunk has the requisite inputs.
+                check = check_include(included_datasets, iomap["fields"])
+                if not check:
+                    continue
 
-                        chunk_info.append(
-                            {
-                                "filename": (
-                                    Path(self.root)
-                                    / selection["dandiset"]
-                                    / self.split
-                                    / f"{chunk['id']}.pt"
-                                ),
-                                "iomap": iomap,
-                                "description": included_datasets,
-                            }
-                        )
+                session_id = selection["dandiset"] + "/" + session["id"]
+                session_info_dict[session_id] = SessionFileInfo(
+                    session_id=session_id,
+                    filename=(Path(self.root) / (session_id + ".h5")),
+                    iomap=iomap,
+                    description=included_datasets,
+                    sampling_interval=Interval.from_list(session["splits"][self.split]),
+                )
 
-                        num_chunks += 1
-                        if num_chunks >= max_chunks:
-                            print(f"Truncating at {num_chunks} examples")
-                            break
-                    if num_chunks >= max_chunks:
-                        break
-
-        all_filenames = [info["filename"] for info in chunk_info]
-
+        all_filenames = [x.filename for _, x in session_info_dict.items()]
         assert len(set(all_filenames)) == len(
             all_filenames
-        ), f"Overlapping selection criteria for {self.split} datasets"
+        ), f"All selected filenames should be unique"
 
         unit_names = list(set(unit_names))
-        return chunk_info, session_names, unit_names
+        return session_info_dict, unit_names
 
-    def __getitem__(self, item):
-        info = self.chunk_info[item]
-        data = torch.load(info["filename"])
+    def request_keys(self, request_keys):
+        self.requested_keys = request_keys
+
+    def get_interval_dict(self):
+        """Returns a dictionary of interval-list for each session.
+        Each interval-list is a list of tuples (start, end) for each interval.
+        """
+        intervals = {}
+        for session_id, session_info in self.session_info_dict.items():
+            intervals[session_id] = list(
+                zip(
+                    session_info.sampling_interval.start,
+                    session_info.sampling_interval.end,
+                )
+            )
+        return intervals
+
+    def get(self, session_id: str, start: float, end: float):
+        """Get a slice of the dataset.
+        Args:
+            session_id: The session id of the slice. Note this is the fully qualified
+                session-id: <dandiset>/<session_id>
+            start: The start time of the slice.
+            end: The end time of the slice.
+        """
+        session_info = self.session_info_dict[session_id]
+        filename = session_info.filename
+        with h5py.File(filename, "r") as f:
+            data = Data.from_hdf5(f)
+            sample = data.slice(start, end, request_keys=self.requested_keys)
+
+        if self._check_for_data_leakage_flag:
+            sample._check_for_data_leakage(self.split)
+
+        sample.session_id = session_id
+        sample.description = session_info.description
+        sample.iomap = session_info.iomap
+        return sample
+
+    def disable_data_leakage_check(self):
+        self._check_for_data_leakage_flag = False
+        logging.warn(
+            f"Data leakage check is disabled. Please be absolutely sure that there is "
+            f"no leakage between {self.split} and other splits (eg. the test split)."
+        )
+
+    def __getitem__(self, index: DatasetIndex):
+        sample = self.get(index.session_id, index.start, index.end)
+
         # apply transform
         if self.transform is not None:
-            data = self.transform(data)
-        data.description = info["description"]
-        data.iomap = info["iomap"]
+            sample = self.transform(sample)
 
-        if not hasattr(data.spikes, "unit_index"):
-            warnings.warn(
-                "Unit index is not set, backing out from sortset. This is slow. You should set the unit index in prepare_data.py files for speed. In a future version, this will turn into an error."
-            )
-
-            # Inverse map from unit name to index.
-            inv_map = {k: v for v, k in enumerate(data.units.unit_name)}
-            data.spikes.unit_index = torch.Tensor(
-                [inv_map[x] for x in data.spikes.names]
-            ).to(dtype=torch.long)
-
-        if hasattr(data.spikes, "names"):
-            delattr(data.spikes, "names")
-
-        return data
+        return sample
 
     def __len__(self):
-        return len(self.chunk_info)
+        raise NotImplementedError("Length of dataset is not defined")
 
-    def few_shot(self, num_samples, shuffle=True):
-        assert num_samples <= len(
-            self
-        ), f"Cannot sample {num_samples} from dataset of length {len(self)}"
-        if shuffle:
-            indices = torch.randperm(len(self))
-        else:
-            indices = torch.arange(len(self))
-        self.chunk_info = [self.chunk_info[i] for i in indices[:num_samples]]
-        self.session_names = [self.session_names[i] for i in indices[:num_samples]]
-        return self
-
-    def augment_for_batchsize(self, batch_size: int):
-        curr_len = len(self)
-        if curr_len < batch_size:
-            self.chunk_info = self.chunk_info * (1 + ((batch_size - 1) // curr_len))
-            self.session_names = self.session_names * (
-                1 + ((batch_size - 1) // curr_len)
-            )
-        return self
+    def __iter__(self):
+        raise NotImplementedError("Iteration over dataset is not defined")
 
 
 def next_multiple_of_8(x):
@@ -365,6 +401,9 @@ def resolve(data, key) -> torch.Tensor:
             raise AttributeError(
                 f"Could not resolve {key} in data (specifically, at level {c}))"
             )
+
+    if isinstance(data, np.ndarray):
+        data = torch.from_numpy(data)
     return data
 
 
@@ -390,7 +429,9 @@ class Collate:
         reweight: bool = False,
         sequence_length=1.0,
         unit_vocab: Optional[torchtext.vocab.Vocab] = None,
-        decoder_registry: Optional[Dict[str, DecoderSpec]] = kirby.taxonomy.decoder_registry,
+        decoder_registry: Optional[
+            Dict[str, DecoderSpec]
+        ] = kirby.taxonomy.decoder_registry,
         weight_registry: Optional[Dict[int, float]] = kirby.taxonomy.weight_registry,
         metrics: Optional[List[Dict[str, str]]] = None,
     ):
@@ -577,7 +618,7 @@ class Collate:
             )
 
             spike_ids[i, : len(mapped_spikes)] = mapped_spikes
-            spike_timestamps[i, : len(spikes)] = spikes.timestamps
+            spike_timestamps[i, : len(spikes)] = torch.from_numpy(spikes.timestamps)
             mask[i, : len(spikes)] = True
 
             # add artificial start and end of trial events to each unit
@@ -689,14 +730,14 @@ class Collate:
 
                 weights[weights == -1.0] = 1.0
 
-                output_weights[key][offset : offset + num_outputs] = (
-                    weights * metric.get("weight", 1.0)
-                )
+                output_weights[key][
+                    offset : offset + num_outputs
+                ] = weights * metric.get("weight", 1.0)
 
                 timestamps_offset += num_outputs
                 output_offset[key] += num_outputs
 
-        session_names = [data.session for data in batch]
+        session_names = [data.session_id for data in batch]
 
         extras = {}
         if has_spike_waveforms:
