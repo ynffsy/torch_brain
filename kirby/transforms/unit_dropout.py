@@ -91,21 +91,22 @@ class UnitDropout:
 
         # shuffle units and take the first num_units_to_sample
         # torch.randperm(num_units)[:num_units_to_sample]
-        unit_splits = torch.randperm(num_units)
-        drop_indices, _ = torch.sort(unit_splits[num_units_to_sample:])
+        unit_splits = np.random.permutation(num_units)
+        drop_indices = np.sort(unit_splits[num_units_to_sample:])
 
-        total_spike_mask = ~torch.isin(data.spikes.unit_index, drop_indices)
+        total_spike_mask = ~np.isin(data.spikes.unit_index, drop_indices)
         
-        for key, value in data.spikes.__dict__.items():
+        for key in data.spikes.keys:
+            value = getattr(data.spikes, key)
             if value is None:
                 continue
             
             if isinstance(value, torch.Tensor):
                 data.spikes.__dict__[key] = value[total_spike_mask]
             elif isinstance(value, np.ndarray):
-                data.spikes.__dict__[key] = value[total_spike_mask.numpy()]
+                data.spikes.__dict__[key] = value[total_spike_mask]
             elif isinstance(value, list):
-                data.spikes.__dict__[key] = [value[x.item()] for x in total_spike_mask]
+                data.spikes.__dict__[key] = [value[x] for x in total_spike_mask]
             else:
                 data.spikes.__dict__[key] = None
 

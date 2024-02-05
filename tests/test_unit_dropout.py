@@ -1,5 +1,5 @@
 import numpy as np
-import torch
+
 from kirby.data.data import Data, IrregularTimeSeries
 from kirby.transforms.unit_dropout import UnitCustomDistribution, UnitDropout
 
@@ -13,10 +13,10 @@ def test_distro():
 
 
 def test_spikes():
-    timestamps = torch.zeros(100)
+    timestamps = np.zeros(100)
     unit_index = [0] * 10 + [1] * 20 + [2] * 70
-    unit_index = torch.tensor(unit_index)
-    types = torch.zeros(100)
+    unit_index = np.array(unit_index)
+    types = np.zeros(100)
 
     for i in range(100):
         data = Data(
@@ -36,8 +36,11 @@ def test_spikes():
         assert len(data_t.units.unit_name) == 3  # We don't currently remove units
         assert len(data_t.spikes.timestamps) == len(data_t.spikes.unit_index)
 
-        for _, value in data.spikes.__dict__.items():
+        for key, value in data.spikes.__dict__.items():
             if value is None:
                 continue
-            
+
+            if key.startswith("_"):
+                continue
+
             assert value.shape[0] == len(data_t.spikes.timestamps)
