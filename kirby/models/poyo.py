@@ -11,6 +11,12 @@ from kirby.nn import (
     InfiniteVocabEmbedding,
     MultitaskReadout,
     PerceiverRotary,
+    prepare_for_multitask_readout,
+)
+from kirby.data import pad, chain, track_mask
+from kirby.utils import (
+    create_start_end_unit_tokens,
+    create_linspace_latent_tokens,
 )
 
 
@@ -136,3 +142,104 @@ class POYO(nn.Module):
         )
 
         return output, loss, losses_taskwise
+
+
+class POYO1Tokenizer:
+    r"""Tokenizer used to tokenize Data for the POYO1 model.
+
+    This tokenizer can be called as a transform. If you are applying multiple
+    transforms, make sure to apply this one last.
+
+    Args:
+        unit_tokenizer (Callable): Tokenizer for the units.
+        session_tokenizer (Callable): Tokenizer for the sessions.
+        decoder_registry (Dict): Registry of the decoders.
+        weight_registry (Dict): Registry of the weights.
+        latent_step (float): Step size for generating latent tokens.
+        num_latents_per_step (int): Number of latents per step.
+    """
+
+    def __init__(
+        self,
+        unit_tokenizer,
+        session_tokenizer,
+        decoder_registry,
+        weight_registry,
+        latent_step,
+        num_latents_per_step,
+    ):
+        self.unit_tokenizer = unit_tokenizer
+        self.session_tokenizer = session_tokenizer
+
+        self.decoder_registry = decoder_registry
+        self.weight_registry = weight_registry
+
+        self.latent_step = latent_step
+        self.num_latents_per_step = num_latents_per_step
+
+    def __call__(self, data):
+        # context window
+        start, end = data.start, data.end
+
+        # TODO this is a temporary check to make sure that the data is as expected
+        assert (
+            start == 0.0 and end == 1.0
+        ), f"start and end must be 0. and 1., got {start} and {end}."
+
+        ### prepare input
+        unit_names = data.units.unit_name
+        spike_unit_index = data.spikes.unit_index
+        spike_timestamps = data.spikes.timestamps
+
+        # create start and end tokens for each unit
+        (
+            se_token_type_index,
+            se_unit_index,
+            se_timestamps,
+        ) = create_start_end_unit_tokens(unit_names, start, end)
+
+        # append start and end tokens to the spike sequence
+        spike_token_type_index = np.concatenate(
+            [se_token_type_index, np.zeros_like(spike_unit_index)]
+        )
+        spike_unit_index = np.concatenate([se_unit_index, spike_unit_index])
+        spike_timestamps = np.concatenate([se_timestamps, spike_timestamps])
+
+        # unit_index is relative to the recording, so we want it to map it to
+        # the global unit index
+        local_to_global_map = np.array(self.unit_tokenizer(unit_names))
+        spike_unit_index = local_to_global_map[spike_unit_index]
+
+        ### prepare latents
+        latent_index, latent_timestamps = create_linspace_latent_tokens(
+            start,
+            end,
+            step=self.latent_step,
+            num_latents_per_step=self.num_latents_per_step,
+        )
+
+        ### prepare outputs
+        session_index = self.session_tokenizer(data.session)
+
+        (
+            output_timestamps,
+            output_task_index,
+            output_values,
+            output_weights,
+        ) = prepare_for_multitask_readout(
+            data, self.decoder_registry, self.weight_registry
+        )
+
+        return {
+            "spike_unit_index": pad(spike_unit_index),
+            "spike_timestamps": pad(spike_timestamps),
+            "spike_type": pad(spike_token_type_index),
+            "input_mask": track_mask(spike_unit_index),
+            "latent_index": latent_index,
+            "latent_timestamps": latent_timestamps,
+            "session_index": session_index,
+            "output_timestamps": pad(output_timestamps),
+            "output_task_index": pad(output_task_index),
+            "output_values": chain(output_values),
+            "output_weights": chain(output_weights),
+        }
