@@ -12,7 +12,8 @@ from dateutil import parser
 from torch.utils.data import DataLoader
 
 from kirby.data import Dataset
-from kirby.data.dataset import Collate
+from kirby.data.dataset import Collate, DatasetIndex
+from kirby.data.sampler import SequentialFixedWindowSampler
 from kirby.models import PerceiverNM
 from kirby.taxonomy import (
     ChunkDescription,
@@ -30,9 +31,20 @@ from kirby.utils import move_to
 
 DATA_ROOT = Path(util.get_data_paths()["processed_dir"]) / "processed"
 
+
 def test_load_real_data():
     ds = Dataset(DATA_ROOT, "train", [{"selection": {"dandiset": "mc_maze_small"}}])
-    assert ds[0].start >= 0
+    first_interval = ds.session_info_dict[
+        "mc_maze_small/jenkins_20090928_maze"
+    ].sampling_interval[0]
+    assert (
+        ds.get(
+            "mc_maze_small/jenkins_20090928_maze",
+            first_interval.start,
+            first_interval.end,
+        ).start
+        >= 0
+    )
 
 
 def test_collate_data():
@@ -49,7 +61,12 @@ def test_collate_data():
             }
         ],
     )
-    assert len(ds) > 0
+
+    sampler = SequentialFixedWindowSampler(
+        interval_dict=ds.get_interval_dict(),
+        window_length=1.0,
+    )
+    assert len(sampler) > 0
 
     od = OrderedDict({x: 1 for x in ds.unit_names})
     vocab = torchtext.vocab.vocab(od, specials=["NA"])
@@ -62,7 +79,7 @@ def test_collate_data():
         decoder_registry=decoder_registry,
         weight_registry=weight_registry,
     )
-    train_loader = DataLoader(ds, collate_fn=collate_fn, batch_size=16)
+    train_loader = DataLoader(ds, collate_fn=collate_fn, batch_size=16, sampler=sampler)
     for data in train_loader:
         assert data["spike_timestamps"].shape[0] == 16
         # npt.assert_allclose(
@@ -166,8 +183,13 @@ def test_collated_data_model():
             }
         ],
     )
-    batch_size = 16
 
+    sampler = SequentialFixedWindowSampler(
+        interval_dict=ds.get_interval_dict(),
+        window_length=1.0,
+    )
+
+    batch_size = 16
     od = OrderedDict({x: 1 for x in ds.unit_names})
     vocab = torchtext.vocab.vocab(od, specials=["NA"])
 
@@ -179,7 +201,9 @@ def test_collated_data_model():
         decoder_registry=decoder_registry,
         weight_registry=weight_registry,
     )
-    train_loader = DataLoader(ds, collate_fn=collate_fn, batch_size=batch_size)
+    train_loader = DataLoader(
+        ds, collate_fn=collate_fn, batch_size=batch_size, sampler=sampler
+    )
     model = PerceiverNM(
         unit_vocab=vocab,
         session_names=ds.session_names,
