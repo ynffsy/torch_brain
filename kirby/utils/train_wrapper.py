@@ -129,6 +129,7 @@ class CustomValidator(Callback):
     def __init__(
         self, 
         validation_dataset: Dataset, 
+        tokenizer: Callable,
         collator: Collate
     ):
         super().__init__()
