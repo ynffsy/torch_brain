@@ -1,9 +1,8 @@
-_target_: kirby.models.perceiver_rotary.PerceiverNM
+_target_: kirby.models.poyo.POYO
 dim: 64
 dim_head: 64
 num_latents: 16
 depth: 6
-output_dim: 2
 cross_heads: 2
 self_heads: 8
 ffn_dropout: 0.2

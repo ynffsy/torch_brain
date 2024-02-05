@@ -12,11 +12,13 @@ from kirby.nn import (
     MultitaskReadout,
     PerceiverRotary,
     prepare_for_multitask_readout,
+    extract_request_keys_from_decoder_registry,
 )
 from kirby.data import pad, chain, track_mask
 from kirby.utils import (
     create_start_end_unit_tokens,
     create_linspace_latent_tokens,
+    inspect_request_keys,
 )
 
 
@@ -144,7 +146,7 @@ class POYO(nn.Module):
         return output, loss, losses_taskwise
 
 
-class POYO1Tokenizer:
+class POYOTokenizer:
     r"""Tokenizer used to tokenize Data for the POYO1 model.
 
     This tokenizer can be called as a transform. If you are applying multiple
@@ -176,6 +178,10 @@ class POYO1Tokenizer:
 
         self.latent_step = latent_step
         self.num_latents_per_step = num_latents_per_step
+
+    @property
+    def request_keys(self):
+        return inspect_request_keys(self.__call__) + extract_request_keys_from_decoder_registry(self.decoder_registry)
 
     def __call__(self, data):
         # context window

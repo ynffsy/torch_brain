@@ -109,12 +109,20 @@ def prepare_for_multitask_readout(
         key = metric["output_key"]
 
         task_index.append(Output.from_string(key).value)
-        timestamps.append(data.get_nested_attribute(decoder_registry[key].timestamp_key))
+        timestamps.append(
+            data.get_nested_attribute(decoder_registry[key].timestamp_key)
+        )
 
         values[key] = data.get_nested_attribute(decoder_registry[key].value_key)
+        
+        # here we assume that we won't be running a model at float64 precision
+        if values[key].dtype == np.float64:
+            values[key] = values[key].astype(np.float32)
 
         try:
-            behavior_type = data.get_nested_attribute(decoder_registry[key].behavior_type_key)
+            behavior_type = data.get_nested_attribute(
+                decoder_registry[key].behavior_type_key
+            )
         except AttributeError:
             behavior_type = np.zeros(len(values[key]), dtype=np.int64)
 
@@ -136,8 +144,20 @@ def prepare_for_multitask_readout(
 
     # chain
     timestamps, batch = collate(
-        [(chain(timestamps[i]), track_batch(timestamps[i])) for i in range(len(timestamps))]
+        [
+            (chain(timestamps[i]), track_batch(timestamps[i]))
+            for i in range(len(timestamps))
+        ]
     )
     task_index = torch.tensor(task_index)[batch]
 
     return timestamps, task_index, values, weights
+
+
+def extract_request_keys_from_decoder_registry(decoder_registry):
+    request_keys = []
+    for key, spec in decoder_registry.items():
+        request_keys.append(spec.timestamp_key)
+        request_keys.append(spec.value_key)
+        request_keys.append(spec.behavior_type_key)
+    return request_keys

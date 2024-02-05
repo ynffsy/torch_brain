@@ -35,9 +35,10 @@ def rotate_half(x):
 
 
 def apply_rotary_pos_emb(freqs, x, dim=2):
+    dtype = x.dtype
     if dim == 1:
         freqs = rearrange(freqs, "n ... -> n () ...")
     elif dim == 2:
         freqs = rearrange(freqs, "n m ... -> n m () ...")
-    x = (x * freqs.cos()) + (rotate_half(x) * freqs.sin())
+    x = (x * freqs.cos().to(dtype)) + (rotate_half(x) * freqs.sin().to(dtype))
     return x

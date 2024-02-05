@@ -2,7 +2,7 @@ import subprocess
 import time
 import warnings
 from collections import defaultdict
-from typing import Optional
+from typing import Optional, Callable
 from tqdm import tqdm
 
 import lightning.pytorch.loggers as pl_loggers
@@ -46,9 +46,7 @@ class TrainWrapper(LightningModule):
         self.wandb = None
 
     def configure_optimizers(self):
-        return [self.optimizer], [
-            {"scheduler": self.scheduler, "interval": "step"}
-        ]
+        return [self.optimizer], [{"scheduler": self.scheduler, "interval": "step"}]
 
     def setup(self, stage=None):
         # Make specific loggers available.
@@ -80,12 +78,15 @@ class TrainWrapper(LightningModule):
         self.epoch_time = time.time()
 
     def training_step(self, data, data_idx):
-        output, loss, taskwise_loss = self.model(**data, compute_loss=True)
+        output, loss, taskwise_loss = self.model(**data)
 
         # Compute the mean and std of the output.
-        for name, val in output.items():
-            self.log(f"outputs/mean_{name}", val.mean(), prog_bar=False)
-            self.log(f"outputs/std_{name}", val.std(), prog_bar=False)
+        for name in data["output_values"].keys():
+            output_predictions = torch.cat(
+                [pred[name] for pred in output if name in pred], dim=0
+            )
+            self.log(f"outputs/mean_{name}", output_predictions.mean(), prog_bar=False)
+            self.log(f"outputs/std_{name}", output_predictions.std(), prog_bar=False)
             self.log(
                 f"targets/mean_{name}",
                 data["output_values"][name].to(torch.float).mean(),
@@ -137,11 +138,10 @@ class CustomValidator(Callback):
             window_length=1.0,
             step=0.5,
         )
+        self.tokenizer = tokenizer
         self.collator = collator
 
-    def on_validation_epoch_start(
-        self, trainer: Trainer, pl_module: TrainWrapper
-    ):
+    def on_validation_epoch_start(self, trainer: Trainer, pl_module: TrainWrapper):
         # Perform custom validation here.
         pred = defaultdict(list)
         gt = defaultdict(list)  # Ground truth
@@ -149,10 +149,13 @@ class CustomValidator(Callback):
         description = defaultdict(list)
 
         """We validate against behaviour using R2, so we must accumulate over batches."""
-        for i, dataset_idx in enumerate(tqdm(self.validation_sampler,
-                      desc=f"Val @ Epoch {trainer.current_epoch}",
-                      disable=(trainer.local_rank != 0))):
-             
+        for i, dataset_idx in enumerate(
+            tqdm(
+                self.validation_sampler,
+                desc=f"Val @ Epoch {trainer.current_epoch}",
+                disable=(trainer.local_rank != 0),
+            )
+        ):
             # Samples are cyclically distributed across processes
             if i % trainer.world_size != trainer.local_rank:
                 continue
@@ -160,7 +163,7 @@ class CustomValidator(Callback):
             data = self.validation_dataset[dataset_idx]
             session_id = data.session
             gt_, pred_ = stitched_prediction(
-                data, self.collator, pl_module.model, pl_module.device
+                data, self.tokenizer, self.collator, pl_module.model, pl_module.device
             )
             behavior_type_ = (
                 data.behavior.type if hasattr(data.behavior, "type") else None
@@ -207,9 +210,7 @@ class CustomValidator(Callback):
         for session_id, task_type in gt.keys():
             # Resolve the right metric for the session.
             gt_ = torch.cat(gt[(session_id, task_type)], dim=0).detach().cpu()
-            pred_ = (
-                torch.cat(pred[(session_id, task_type)], dim=0).detach().cpu()
-            )
+            pred_ = torch.cat(pred[(session_id, task_type)], dim=0).detach().cpu()
             # TODO: reintegrate this functionality into the new metric system.
             # behavior_type_ = torch.cat(behavior_type[(session_id, task_type)], dim=0)
             # .detach().cpu()
@@ -237,13 +238,9 @@ class CustomValidator(Callback):
             task_spec = pl_module.model.readout.task_specs[task_type]
 
             # Resolve the appropriate loss function.
-            the_metric = compute_metric(
-                metric, task_spec.type, pred_, gt_, 1.0
-            )
+            the_metric = compute_metric(metric, task_spec.type, pred_, gt_, 1.0)
 
-            r2[session_id][
-                f"{metric}_{str(task_type.lower())}"
-            ] = the_metric.item()
+            r2[session_id][f"{metric}_{str(task_type.lower())}"] = the_metric.item()
 
             # TODO: reintegrate this functionality into the new metric system.
             """

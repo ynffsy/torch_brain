@@ -11,5 +11,6 @@ from .perceiver_rotary import PerceiverRotary
 from .loss import compute_loss_or_metric
 from .multitask_readout import (
     MultitaskReadout,
+    extract_request_keys_from_decoder_registry,
     prepare_for_multitask_readout,
 )

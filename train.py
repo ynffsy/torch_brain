@@ -22,12 +22,13 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 from torch_optimizer import Lamb
 
-from kirby.data import Collate, Dataset, build_vocab
+from kirby.data import Dataset, collate
 from kirby.data.sampler import RandomFixedWindowSampler
 from kirby.tasks.reaching import REACHING
 from kirby.taxonomy import decoder_registry, weight_registry
 from kirby.transforms import Compose
 from kirby.utils import logging, seed_everything, train_wrapper
+from kirby.models import POYOTokenizer
 
 
 def run_training(cfg: DictConfig):
@@ -41,14 +42,33 @@ def run_training(cfg: DictConfig):
     log = logging.getLogger()
 
     # Device setup is managed by PyTorch Lightning.
-    # prepare transform
+
+    # make model
+    model = hydra.utils.instantiate(
+        cfg.model,
+        task_specs=decoder_registry,
+        _convert_="object",
+    )
+
+    # prepare tokenizer and transforms
+
     # The transform list is defined in the config file.
     sequence_length = 1.0
     transforms = hydra.utils.instantiate(
         cfg.train_transforms, sequence_length=sequence_length
     )
 
-    transform = Compose(transforms)
+    # build tokenizer
+    tokenizer = POYOTokenizer(
+        model.unit_emb.tokenizer,
+        model.session_emb.tokenizer,
+        decoder_registry=decoder_registry,
+        weight_registry=weight_registry,
+        latent_step=1 / 8,
+        num_latents_per_step=cfg.model.num_latents,
+    )
+
+    transform = Compose([*transforms, tokenizer])
 
     log.info("Data root: {}".format(cfg.data_root))
     train_dataset = Dataset(
@@ -65,51 +85,32 @@ def run_training(cfg: DictConfig):
         include=cfg.val_datasets,
     )
 
-    # Build a vocabulary from these unit names.
-    vocab = build_vocab(train_dataset.unit_names, val_dataset.unit_names)
+    train_dataset.request_keys(tokenizer.request_keys)
+    val_dataset.request_keys(tokenizer.request_keys)
 
-    # Make model
-    # Note _convert_ is set to object otherwise decoder_registry gets cast to
-    # a DictConfig and this interferes with checkpointing down the line.
-    # We add the unit vocabulary here so it gets saved automatically, and the weights
-    # are associated with their vocabulary.
-    model = hydra.utils.instantiate(
-        cfg.model,
-        unit_vocab=vocab,
-        session_names=train_dataset.session_names,
-        task_specs=decoder_registry,
-        _convert_="object",
-    )
+    # register units and sessions
+    model.unit_emb.initialize_vocab(train_dataset.unit_names)
+    model.session_emb.initialize_vocab(train_dataset.session_names)
 
-    # Dataloaders
-    collate_fn = Collate(
-        num_latents_per_step=cfg.model.num_latents,  # This was tied in train_poyo_1.py
-        step=1.0 / 8,
-        sequence_length=sequence_length,
-        unit_vocab=model.unit_vocab,  # Unit vocab will be lazy loaded via the model.
-        decoder_registry=decoder_registry,
-        weight_registry=weight_registry,
-    )
-
-    loader_kwargs = dict(
-        collate_fn=collate_fn,
-        drop_last=False,
-        num_workers=cfg.num_workers,
-        batch_size=cfg.batch_size,
-        pin_memory=True,
-    )
-
-    # For debugging. we allow the user to set num_workers to 0.
-    if loader_kwargs["num_workers"] > 0:
-        loader_kwargs["prefetch_factor"] = 1
-        loader_kwargs["persistent_workers"] = True
-
+    # sampler and dataloader
     train_sampler = RandomFixedWindowSampler(
         interval_dict=train_dataset.get_interval_dict(),
-        window_length=1.0,
-        generator=torch.Generator().manual_seed(cfg.seed+1),
+        window_length=sequence_length,
+        generator=torch.Generator().manual_seed(cfg.seed + 1),
     )
-    train_loader = DataLoader(train_dataset, **loader_kwargs, sampler=train_sampler)
+
+    train_loader = DataLoader(
+        train_dataset,
+        sampler=train_sampler,
+        collate_fn=collate,
+        batch_size=cfg.batch_size,
+        num_workers=cfg.num_workers,
+        drop_last=True,
+        pin_memory=True,
+        # For debugging. we allow the user to set num_workers to 0.
+        persistent_workers=True if cfg.num_workers > 0 else False,
+        prefetch_factor=2 if cfg.num_workers > 0 else None,
+    )
 
     log.info(f"Training on {len(train_sampler)} samples")
     log.info(f"Training on {len(train_dataset.unit_names)} units")
@@ -130,7 +131,7 @@ def run_training(cfg: DictConfig):
     if cfg.finetune:
         model.load_from_ckpt(
             path=cfg.ckpt_path,
-            strict_vocab=False, # finetuning, generally, is over a new vocabulary
+            strict_vocab=False,  # finetuning, generally, is over a new vocabulary
         )
 
         # Optionally freeze parameters for Unit Identification
@@ -166,21 +167,21 @@ def run_training(cfg: DictConfig):
     )
 
     wandb = lightning.pytorch.loggers.WandbLogger(
-        name=cfg.name, project="poyo", log_model=True,
+        name=cfg.name,
+        project="poyo",
+        log_model=True,
     )
     print(f"Wandb ID: {wandb.version}")
 
     callbacks = [
-        ModelSummary(
-            max_depth=2
-        ),  # Displays the number of parameters in the model.
+        ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
         ModelCheckpoint(
             dirpath=f"logs/lightning_logs/{wandb.version}",
             save_last=True,
             save_on_train_epoch_end=True,
             every_n_epochs=cfg.eval_epochs,
         ),
-        train_wrapper.CustomValidator(val_dataset, collate_fn),
+        train_wrapper.CustomValidator(val_dataset, tokenizer, collate),
         LearningRateMonitor(
             logging_interval="step"
         ),  # Create a callback to log the learning rate.
@@ -198,7 +199,7 @@ def run_training(cfg: DictConfig):
         check_val_every_n_epoch=cfg.eval_epochs,
         max_epochs=epochs,
         log_every_n_steps=1,
-        strategy="ddp_find_unused_parameters_true",
+        strategy="ddp_find_unused_parameters_true" if torch.cuda.is_available() else "auto",
         callbacks=callbacks,
         num_sanity_val_steps=0,
         precision=cfg.precision,
@@ -208,7 +209,9 @@ def run_training(cfg: DictConfig):
         num_nodes=cfg.nodes,
     )
 
-    log.info(f"Local rank/node rank/world size/num nodes: {trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/trainer.num_nodes")
+    log.info(
+        f"Local rank/node rank/world size/num nodes: {trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/trainer.num_nodes"
+    )
 
     for logger in trainer.loggers:
         # OmegaConf.to_container converts the config object to a dictionary.
@@ -217,16 +220,16 @@ def run_training(cfg: DictConfig):
     # To resume from a checkpoint rather than training from scratch,
     # set ckpt_path on the command line.
     trainer.fit(
-        wrapper, train_loader, [0], 
-        ckpt_path=cfg.ckpt_path if not cfg.finetune else None
+        wrapper,
+        train_loader,
+        [0],
+        ckpt_path=cfg.ckpt_path if not cfg.finetune else None,
     )
     # [0] is a hack to force the validation callback to be called.
 
 
 # This loads the config file using Hydra, similar to Flags, but composable.
-@hydra.main(
-    version_base="1.3", config_path="./configs", config_name="train.yaml"
-)
+@hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
 def main(cfg: DictConfig):
     # Train the whole thing.
     # This inner function is unnecessary, but I keep it here to maintain

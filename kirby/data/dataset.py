@@ -295,7 +295,7 @@ class Dataset(torch.utils.data.Dataset):
         if self._check_for_data_leakage_flag:
             sample._check_for_data_leakage(self.split)
 
-        sample.session_id = session_id
+        sample.session = session_id
         sample.description = session_info.description
         sample.iomap = session_info.iomap
         return sample
