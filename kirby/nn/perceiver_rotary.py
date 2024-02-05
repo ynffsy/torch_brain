@@ -33,6 +33,7 @@ class PerceiverRotary(nn.Module):
         self,
         *,
         dim=512,
+        context_dim=None,
         dim_head=64,
         depth=2,
         cross_heads=1,
@@ -51,6 +52,7 @@ class PerceiverRotary(nn.Module):
         # Encoding transformer (q-latent, kv-input spikes)
         self.enc_atn = RotaryCrossAttention(
             dim=dim,
+            context_dim=context_dim,
             heads=cross_heads,
             dropout=atn_dropout,
             dim_head=dim_head,
