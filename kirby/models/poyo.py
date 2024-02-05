@@ -187,11 +187,6 @@ class POYOTokenizer:
         # context window
         start, end = data.start, data.end
 
-        # TODO this is a temporary check to make sure that the data is as expected
-        assert (
-            start == 0.0 and end == 1.0
-        ), f"start and end must be 0. and 1., got {start} and {end}."
-
         ### prepare input
         unit_names = data.units.unit_name
         spike_unit_index = data.spikes.unit_index
