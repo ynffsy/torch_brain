@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader
 from torch_optimizer import Lamb
 
 from kirby.data import Collate, Dataset, build_vocab
+from kirby.data.sampler import RandomFixedWindowSampler
 from kirby.tasks.reaching import REACHING
 from kirby.taxonomy import decoder_registry, weight_registry
 from kirby.transforms import Compose
@@ -48,6 +49,7 @@ def run_training(cfg: DictConfig):
     )
 
     transform = Compose(transforms)
+
     log.info("Data root: {}".format(cfg.data_root))
     train_dataset = Dataset(
         cfg.data_root,
@@ -65,10 +67,6 @@ def run_training(cfg: DictConfig):
 
     # Build a vocabulary from these unit names.
     vocab = build_vocab(train_dataset.unit_names, val_dataset.unit_names)
-
-    log.info(f"Number of training samples: {len(train_dataset)}")
-    log.info(f"Number of sessions: {len(train_dataset.session_names)}")
-    log.info(f"Number of units: {len(train_dataset.unit_names)}")
 
     # Make model
     # Note _convert_ is set to object otherwise decoder_registry gets cast to
@@ -98,7 +96,6 @@ def run_training(cfg: DictConfig):
         drop_last=False,
         num_workers=cfg.num_workers,
         batch_size=cfg.batch_size,
-        shuffle=True,
         pin_memory=True,
     )
 
@@ -107,9 +104,14 @@ def run_training(cfg: DictConfig):
         loader_kwargs["prefetch_factor"] = 1
         loader_kwargs["persistent_workers"] = True
 
-    train_loader = DataLoader(train_dataset, **loader_kwargs)
+    train_sampler = RandomFixedWindowSampler(
+        interval_dict=train_dataset.get_interval_dict(),
+        window_length=1.0,
+        generator=torch.Generator().manual_seed(cfg.seed+1),
+    )
+    train_loader = DataLoader(train_dataset, **loader_kwargs, sampler=train_sampler)
 
-    log.info(f"Training on {len(train_dataset)} samples")
+    log.info(f"Training on {len(train_sampler)} samples")
     log.info(f"Training on {len(train_dataset.unit_names)} units")
     log.info(f"Training on {len(train_dataset.session_names)} sessions")
 
@@ -203,7 +205,7 @@ def run_training(cfg: DictConfig):
         reload_dataloaders_every_n_epochs=5,
         accelerator="gpu",
         devices=cfg.gpus,
-        num_nodes=cfg.nodes
+        num_nodes=cfg.nodes,
     )
 
     log.info(f"Local rank/node rank/world size/num nodes: {trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/trainer.num_nodes")

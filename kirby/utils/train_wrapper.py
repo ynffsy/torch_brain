@@ -19,6 +19,7 @@ from torch import nn
 import wandb
 from kirby.data import Collate, Dataset
 from kirby.data.stitcher import stitched_prediction
+from kirby.data.sampler import SequentialFixedWindowSampler
 from kirby.models.perceiver_rotary import compute_metric
 from kirby.tasks.reaching import REACHING
 from kirby.taxonomy.taxonomy import Task
@@ -124,9 +125,18 @@ class TrainWrapper(LightningModule):
 
 
 class CustomValidator(Callback):
-    def __init__(self, validation_dataset: Dataset, collator: Collate):
+    def __init__(
+        self, 
+        validation_dataset: Dataset, 
+        collator: Collate
+    ):
         super().__init__()
         self.validation_dataset = validation_dataset
+        self.validation_sampler = SequentialFixedWindowSampler(
+            interval_dict=validation_dataset.get_interval_dict(),
+            window_length=1.0,
+            step=0.5,
+        )
         self.collator = collator
 
     def on_validation_epoch_start(
@@ -139,11 +149,15 @@ class CustomValidator(Callback):
         description = defaultdict(list)
 
         """We validate against behaviour using R2, so we must accumulate over batches."""
-        for i in tqdm(range(trainer.local_rank, len(self.validation_dataset), trainer.world_size),
+        for i, dataset_idx in enumerate(tqdm(self.validation_sampler,
                       desc=f"Val @ Epoch {trainer.current_epoch}",
-                      disable=(trainer.local_rank != 0)):
+                      disable=(trainer.local_rank != 0))):
+             
             # Samples are cyclically distributed across processes
-            data = self.validation_dataset[i]
+            if i % trainer.world_size != trainer.local_rank:
+                continue
+
+            data = self.validation_dataset[dataset_idx]
             session_id = data.session
             gt_, pred_ = stitched_prediction(
                 data, self.collator, pl_module.model, pl_module.device

@@ -1,0 +1,6 @@
+- selection:
+    dandiset: "mc_maze_small"
+  metrics:
+    - output_key: ARMVELOCITY2D
+      loss: True
+      weight: 1
