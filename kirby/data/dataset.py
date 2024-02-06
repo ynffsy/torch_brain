@@ -737,7 +737,7 @@ class Collate:
                 timestamps_offset += num_outputs
                 output_offset[key] += num_outputs
 
-        session_names = [data.session_id for data in batch]
+        session_names = [data.session for data in batch]
 
         extras = {}
         if has_spike_waveforms:
