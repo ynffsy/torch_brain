@@ -62,6 +62,8 @@ class Dataset(torch.utils.data.Dataset):
     """
 
     _check_for_data_leakage_flag: bool = True
+    _open_files: Optional[Dict[str, h5py.File]] = None
+    _data_objects: Optional[Dict[str, Data]] = None
 
     def __init__(
         self,
@@ -69,11 +71,10 @@ class Dataset(torch.utils.data.Dataset):
         split: str,
         include: List[Dict[str, Any]],
         transform=None,
+        keep_files_open: bool = True,
     ):
         super().__init__()
         self.root = root
-
-        assert split in ["train", "valid", "test", "finetune"]
         self.split = split
 
         if include is None:
@@ -86,7 +87,32 @@ class Dataset(torch.utils.data.Dataset):
             x.session_id for x in self.session_info_dict.values()
         ]
 
+        if keep_files_open:
+            self._open_files = {
+                session_id: h5py.File(session_info.filename, "r")
+                for session_id, session_info in self.session_info_dict.items()
+            }
+
+            self._data_objects = {
+                session_id: Data.from_hdf5(f)
+                for session_id, f in self._open_files.items()
+            }
+
         self.requested_keys = None
+    
+    def _close_open_files(self):
+        """Closes the open files and deletes open data objects. 
+        This is useful when you are done with the dataset.
+        """
+        if self._open_files is not None:
+            for f in self._open_files.values():
+                f.close()
+            self._open_files = None
+
+        self._data_objects = None # initialized Data objects should be gc'd 
+
+    def __del__(self):
+        self._close_open_files()
 
     def _look_for_files(self) -> Tuple[Dict[str, SessionFileInfo], List[str]]:
         session_names = []
@@ -287,9 +313,13 @@ class Dataset(torch.utils.data.Dataset):
             end: The end time of the slice.
         """
         session_info = self.session_info_dict[session_id]
-        filename = session_info.filename
-        with h5py.File(filename, "r") as f:
-            data = Data.from_hdf5(f)
+        if self._data_objects is None:
+            filename = session_info.filename
+            with h5py.File(filename, "r") as f:
+                data = Data.from_hdf5(f)
+                sample = data.slice(start, end, request_keys=self.requested_keys)
+        else:
+            data = self._data_objects[session_id]
             sample = data.slice(start, end, request_keys=self.requested_keys)
 
         if self._check_for_data_leakage_flag:

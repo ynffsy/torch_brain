@@ -10,8 +10,10 @@ import torchtext
 import util
 from dateutil import parser
 from torch.utils.data import DataLoader
+import numpy as np
+import h5py
 
-from kirby.data import Dataset
+from kirby.data import Dataset, Data, IrregularTimeSeries
 from kirby.models import PerceiverNM
 from kirby.taxonomy import (
     ChunkDescription,
@@ -90,6 +92,20 @@ def description_mpk(tmp_path):
             to_serializable(struct), f, default=description_helper.encode_datetime
         )
 
+    # Create dummy session files
+    for sortset in struct.sortsets:
+        for session in sortset.sessions:
+            filename = tmp_path / id / f"{session.id}.h5"
+            dummy_data = Data(
+                start=0.0,
+                end=1.0,
+                spikes=IrregularTimeSeries(
+                    timestamps=np.arange(0, 1, 0.1),
+                    ),
+            )
+            with h5py.File(filename, "w") as f:
+                dummy_data.to_hdf5(f)
+                
     return tmp_path
 
 
