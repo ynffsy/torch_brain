@@ -84,8 +84,8 @@ class UnitDropout:
 
     def __call__(self, data):
         # get units
-        unit_names = data.units.unit_name
-        num_units = len(unit_names)
+        unit_ids = data.units.id
+        num_units = len(unit_ids)
 
         num_units_to_sample = int(self.distribution.sample(num_units))
 

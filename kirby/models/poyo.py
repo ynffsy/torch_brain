@@ -188,7 +188,7 @@ class POYOTokenizer:
         start, end = data.start, data.end
 
         ### prepare input
-        unit_names = data.units.unit_name
+        unit_ids = data.units.id
         spike_unit_index = data.spikes.unit_index
         spike_timestamps = data.spikes.timestamps
 
@@ -197,7 +197,7 @@ class POYOTokenizer:
             se_token_type_index,
             se_unit_index,
             se_timestamps,
-        ) = create_start_end_unit_tokens(unit_names, start, end)
+        ) = create_start_end_unit_tokens(unit_ids, start, end)
 
         # append start and end tokens to the spike sequence
         spike_token_type_index = np.concatenate(
@@ -208,7 +208,7 @@ class POYOTokenizer:
 
         # unit_index is relative to the recording, so we want it to map it to
         # the global unit index
-        local_to_global_map = np.array(self.unit_tokenizer(unit_names))
+        local_to_global_map = np.array(self.unit_tokenizer(unit_ids))
         spike_unit_index = local_to_global_map[spike_unit_index]
 
         ### prepare latents

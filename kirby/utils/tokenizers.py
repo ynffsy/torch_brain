@@ -11,25 +11,25 @@ class TokenType(StringIntEnum):
     END_OF_SEQUENCE = 2
 
 
-def create_start_end_unit_tokens(unit_name, start, end):
+def create_start_end_unit_tokens(unit_ids, start, end):
     r"""Creates for each unit a start and end token. Each token is defined by the
     unit index, the token type index and the timestamps.
 
     Args:
-        unit_name (np.ndarray): List of unit names.
+        unit_ids (np.ndarray): List of unit identifiers.
         start (float): The start time of the sequence.
         end (float): The end time of the sequence.
     """
     token_type_index = np.array(
         [TokenType.START_OF_SEQUENCE, TokenType.END_OF_SEQUENCE], dtype=np.int64
     )
-    token_type_index = repeat(token_type_index, "u -> (t u)", t=len(unit_name))
+    token_type_index = repeat(token_type_index, "u -> (t u)", t=len(unit_ids))
 
-    unit_index = np.arange(len(unit_name))
+    unit_index = np.arange(len(unit_ids))
     unit_index = repeat(unit_index, "u -> (u t)", t=2)
 
     timestamps = np.array([start, end], dtype=np.float64)
-    timestamps = repeat(timestamps, "u -> (t u)", t=len(unit_name))
+    timestamps = repeat(timestamps, "u -> (t u)", t=len(unit_ids))
     return token_type_index, unit_index, timestamps
 
 

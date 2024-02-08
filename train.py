@@ -89,8 +89,8 @@ def run_training(cfg: DictConfig):
     val_dataset.request_keys(tokenizer.request_keys)
 
     # register units and sessions
-    model.unit_emb.initialize_vocab(train_dataset.unit_names)
-    model.session_emb.initialize_vocab(train_dataset.session_names)
+    model.unit_emb.initialize_vocab(train_dataset.unit_ids)
+    model.session_emb.initialize_vocab(train_dataset.session_ids)
 
     # sampler and dataloader
     train_sampler = RandomFixedWindowSampler(
@@ -113,8 +113,8 @@ def run_training(cfg: DictConfig):
     )
 
     log.info(f"Training on {len(train_sampler)} samples")
-    log.info(f"Training on {len(train_dataset.unit_names)} units")
-    log.info(f"Training on {len(train_dataset.session_names)} sessions")
+    log.info(f"Training on {len(train_dataset.unit_ids)} units")
+    log.info(f"Training on {len(train_dataset.session_ids)} sessions")
 
     # No need to explicitly use DDP with the model, lightning does this for us.
     max_lr = cfg.base_lr * cfg.batch_size

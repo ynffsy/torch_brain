@@ -82,8 +82,8 @@ class Dataset(torch.utils.data.Dataset):
 
         self.include = include
         self.transform = transform
-        self.session_info_dict, self.unit_names = self._look_for_files()
-        self.session_names: List[str] = [
+        self.session_info_dict, self.unit_ids = self._look_for_files()
+        self.session_ids: List[str] = [
             x.session_id for x in self.session_info_dict.values()
         ]
 
@@ -115,8 +115,8 @@ class Dataset(torch.utils.data.Dataset):
         self._close_open_files()
 
     def _look_for_files(self) -> Tuple[Dict[str, SessionFileInfo], List[str]]:
-        session_names = []
-        unit_names = []
+        session_ids = []
+        unit_ids = []
         session_info_dict = {}
 
         for i, included_datasets in enumerate(self.include):
@@ -240,7 +240,8 @@ class Dataset(torch.utils.data.Dataset):
                 ]
 
             # Note that this logic may result in adding too many slots but that's fine.
-            unit_names += [x for sortset in sortsets for x in sortset["units"]]
+            unit_ids += [x for sortset in sortsets for x in sortset["units"]]
+            # unit_ids are already fully qualified with prepended dandiset id.
 
             # Now we get the session-level information.
             sessions = sum([sortset["sessions"] for sortset in sortsets], [])
@@ -259,7 +260,7 @@ class Dataset(torch.utils.data.Dataset):
                     if sel_output in session["fields"].keys()
                 ]
 
-            session_names += [session["id"] for session in sessions]
+            session_ids += [session["id"] for session in sessions]
 
             # Now we get the session-level information
             for session in sessions:
@@ -284,8 +285,8 @@ class Dataset(torch.utils.data.Dataset):
             all_filenames
         ), f"All selected filenames should be unique"
 
-        unit_names = list(set(unit_names))
-        return session_info_dict, unit_names
+        unit_ids = list(set(unit_ids))
+        return session_info_dict, unit_ids
 
     def request_keys(self, request_keys):
         self.requested_keys = request_keys
