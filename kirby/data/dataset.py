@@ -59,6 +59,21 @@ class Dataset(torch.utils.data.Dataset):
     and accesss complete sessions.
     Within this framework, it is the job of the sampler to provide the
     DatasetIndex indices to slice the dataset into samples (see `kirby.data.sampler`).
+
+    Args:
+        root: The root directory of the dataset.
+        split: The split of the dataset. This is used to determine the sampling intervals
+            for each session.
+        include: A list of dictionaries specifying the datasets to include. Each dictionary
+            should have the following keys:
+            - dandiset: The dandiset to include.
+            - selection: A dictionary specifying the selection criteria for the dataset.
+        transform: A transform to apply to the data. This transform should be a callable
+            that takes a Data object and returns a Data object.
+        keep_files_open: If True, the files are kept open and the data is loaded into
+            memory. This is useful for efficiency. If False, the files are opened and
+            closed every time a piece of data is requested. This is useful for memory
+            efficiency.
     """
 
     _check_for_data_leakage_flag: bool = True
@@ -288,25 +303,11 @@ class Dataset(torch.utils.data.Dataset):
         unit_ids = list(set(unit_ids))
         return session_info_dict, unit_ids
 
-    def request_keys(self, request_keys):
-        self.requested_keys = request_keys
-
-    def get_interval_dict(self):
-        """Returns a dictionary of interval-list for each session.
-        Each interval-list is a list of tuples (start, end) for each interval.
-        """
-        intervals = {}
-        for session_id, session_info in self.session_info_dict.items():
-            intervals[session_id] = list(
-                zip(
-                    session_info.sampling_interval.start,
-                    session_info.sampling_interval.end,
-                )
-            )
-        return intervals
-
     def get(self, session_id: str, start: float, end: float):
-        """Get a slice of the dataset.
+        r"""This is the main method to extract a slice from a session. It returns a
+        Data object that contains all data for session :obj:`session_id` between
+        times :obj:`start` and :obj:`end`. 
+
         Args:
             session_id: The session id of the slice. Note this is the fully qualified
                 session-id: <dandiset>/<session_id>
@@ -331,11 +332,51 @@ class Dataset(torch.utils.data.Dataset):
         sample.iomap = session_info.iomap
         return sample
 
+    def request_keys(self, request_keys: List[str]):
+        r"""Specify a list of attributes to load in memory. The attributes can be nested
+        using dots. By default, all attributes are loaded in memory. This method allows
+        you to specify a subset of attributes to load in memory. This is useful for
+        efficiency. 
+
+        Args:
+            request_keys: A list of strings specifying the attributes to load in memory.
+
+        .. code-block:: python
+
+                # the following will load all attributes in data.units but only
+                # the timestamps and unit_index in data.spikes.
+                dataset.request_keys(["units", "spikes.timestamps", "spikes.unit_index"])
+        """
+        self.requested_keys = request_keys
+
+    def get_interval_dict(self):
+        r"""Returns a dictionary of interval-list for each session.
+        Each interval-list is a list of tuples (start, end) for each interval. This 
+        represents the intervals that can be sampled from each session.
+
+        Note that these intervals will change depending on the split.
+        """
+        intervals = {}
+        for session_id, session_info in self.session_info_dict.items():
+            intervals[session_id] = list(
+                zip(
+                    session_info.sampling_interval.start,
+                    session_info.sampling_interval.end,
+                )
+            )
+        return intervals
+
     def disable_data_leakage_check(self):
+        r"""Disables the data leakage check.
+        
+        .. warning::
+            Only do this you are absolutely sure that there is no leakage between the 
+            current split and other splits (eg. the test split). 
+        """
         self._check_for_data_leakage_flag = False
         logging.warn(
             f"Data leakage check is disabled. Please be absolutely sure that there is "
-            f"no leakage between {self.split} and other splits (eg. the test split)."
+            f"no leakage between {self.split} and other splits."
         )
 
     def __getitem__(self, index: DatasetIndex):

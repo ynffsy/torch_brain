@@ -9,11 +9,17 @@ from kirby.data.dataset import DatasetIndex
 
 class RandomFixedWindowSampler(torch.utils.data.Sampler):
     r"""Samples fixed-length windows randomly, given intervals defined in the 
-    `interval_dict` parameter. `interval_dict` is a dictionary where the keys are the 
-    names of the sessions and the values are lists of tuples representing the start and 
-    end of the intervals from which to sample.
+    :obj:`interval_dict` parameter. :obj:`interval_dict` is a dictionary where the keys 
+    are the session ids and the values are lists of tuples representing the 
+    start and end of the intervals from which to sample. The samples are shuffled, and
+    random temporal jitter is applied.
 
-    The samples are shuffled and a temporal jitter effect is applied.
+
+    In one epoch, the number of samples that is generated from a given sampling interval
+    is given by:
+    
+    .. math::
+        N = \left\lfloor\frac{\text{interval_length}}{\text{window_length}}\right\rfloor
 
     Args:
         interval_dict (Dict[str, List[Tuple[int, int]]]): Sampling intervals for each
@@ -101,9 +107,10 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
 
 class SequentialFixedWindowSampler(torch.utils.data.Sampler):
     r"""Samples fixed-length windows sequentially, always in the same order. The
-    sampling intervals are defined in the `interval_dict` parameter. `interval_dict`
-    is a dictionary where the keys are the names of the sessions and the values are
-    lists of tuples representing the start and end of the intervals from which to sample.
+    sampling intervals are defined in the :obj:`interval_dict` parameter. 
+    :obj:`interval_dict` is a dictionary where the keys are the session ids and the 
+    values are lists of tuples representing the start and end of the intervals 
+    from which to sample.
 
     If the length of a sequence is not evenly divisible by the step, the last
     window will be added with an overlap with the previous window. This is to ensure

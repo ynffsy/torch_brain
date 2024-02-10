@@ -17,27 +17,30 @@ class InfiniteVocabEmbedding(nn.Module):
 
     This layer is initially lazy, i.e. it does not have a weight matrix. The weight
     matrix is initialized when:
-    1. The vocabulary is initialized via `initialize_vocab()`.
-    2. The model is loaded from a checkpoint that contains the vocabulary.
 
-    If the vocabulary is initialized, then `load_state_dict` is called,
+    - The vocabulary is initialized via :meth:`initialize_vocab()`.
+    
+    - or The model is loaded from a checkpoint that contains the vocabulary.
+
+    If the vocabulary is initialized before :meth:`load_state_dict` is called,
     an error will be raised if the vocabulary in the checkpoint does not match the
     vocabulary in the model. The order of the words in the vocabulary does not matter,
     as long as the words are the same.
 
-    If you would like to create a new variant of an existing InfiniteVocabEmbedding
+    If you would like to create a new variant of an existing :obj:`InfiniteVocabEmbedding`
     (that you loaded from a checkpoint), you can use:
-    1. `extend_vocab()` to add new words to the vocabulary. The embeddings for the new
-    words will be initialized randomly.
-    2. `subset_vocab()` to select a subset of the vocabulary. The embeddings for the
-    selected words will be copied from the original embeddings, and the ids for the
-    selected words will change and `tokenizer` will be updated accordingly.
 
-    .. warning :: If you intend to alter the vocabulary from a checkpoint, do not call
-    `initialize_vocab()`.
+    - :meth:`extend_vocab()` to add new words to the vocabulary. The embeddings for the new
+    words will be initialized randomly.
+    
+    - :meth:`subset_vocab()` to select a subset of the vocabulary. The embeddings for the
+    selected words will be copied from the original embeddings, and the ids for the
+    selected words will change and :meth:`tokenizer` will be updated accordingly.
 
     This module also plays the role of the tokenizer, which is accessible via
-    `tokenizer`, and is a Callable.
+    :meth:`tokenizer`, and is a Callable.
+
+    .. warning:: If you are only interested in loading a subset of words from a checkpoint, do not call :meth:`initialize_vocab()`, first load the checkpoint then use :meth:`subset_vocab`.
 
     Args:
         embedding_dim (int): Embedding dimension.
@@ -64,13 +67,27 @@ class InfiniteVocabEmbedding(nn.Module):
     def initialize_vocab(self, vocab: List[str]):
         r"""Initialize the vocabulary with a list of words. This method should be called
         only once, and before the model is trained. If you would like to add new words
-        to the vocabulary, use `extend_vocab()` instead.
+        to the vocabulary, use :obj:`extend_vocab()` instead.
 
-        .. note:: A special word "NA" will always be in the vocabulary, and is assigned
-        the index 0. 0 is used for padding.
+        .. note:: A special word "NA" will always be in the vocabulary, and is assigned the index 0. 0 is used for padding.
 
         Args:
             vocab (List[str]): A list of words to initialize the vocabulary.
+
+        .. code-block:: python
+
+            from kirby.nn import InfiniteVocabEmbedding
+
+            embedding = InfiniteVocabEmbedding(64)
+
+            vocab = ["apple", "banana", "cherry"]
+            embedding.initialize_vocab(vocab)
+
+            embedding.vocab 
+            >>> OrderedDict([('NA', 0), ('apple', 1), ('banana', 2), ('cherry', 3)])
+
+            embedding.weight.shape
+            >>> torch.Size([4, 64])
         """
         assert (
             self.vocab is None
@@ -100,6 +117,25 @@ class InfiniteVocabEmbedding(nn.Module):
             vocab (List[str]): A list of words to add to the vocabulary.
             exist_ok (bool): If True, the method will not raise an error if the new words
                 already exist in the vocabulary and will skip them. Default is False.
+
+        .. code-block:: python
+
+            from kirby.nn import InfiniteVocabEmbedding
+
+            embedding = InfiniteVocabEmbedding(64)
+
+            vocab = ["apple", "banana", "cherry"]
+            embedding.initialize_vocab(vocab)
+
+            new_words = ["date", "elderberry", "fig"]
+            embedding.extend_vocab(new_words)
+
+            embedding.vocab
+            >>> OrderedDict([('NA', 0), ('apple', 1), ('banana', 2), ('cherry', 3),
+            ('date', 4), ('elderberry', 5), ('fig', 6)])
+
+            embedding.weight.shape
+            >>> torch.Size([7, 64])
         """
         if self.is_lazy():
             raise ValueError("No vocabulary was initialized. Use initialize_vocab()")
@@ -152,6 +188,24 @@ class InfiniteVocabEmbedding(nn.Module):
             inplace (bool): If True, the method will modify the vocabulary and the weight
                 matrix in place. If False, a new InfiniteVocabEmbedding will be returned
                 with the selected words. Default is True.
+
+        .. code-block:: python
+
+            from kirby.nn import InfiniteVocabEmbedding
+
+            embedding = InfiniteVocabEmbedding(64)
+
+            vocab = ["apple", "banana", "cherry"]
+            embedding.initialize_vocab(vocab)
+
+            selected_words = ["banana", "cherry"]
+            embedding.subset_vocab(selected_words)
+
+            embedding.vocab
+            >>> OrderedDict([('NA', 0), ('banana', 1), ('cherry', 2)])
+
+            embedding.weight.shape
+            >>> torch.Size([3, 64])
         """
         if self.is_lazy():
             raise ValueError("No vocabulary was initialized. Use initialize_vocab()")
@@ -186,20 +240,79 @@ class InfiniteVocabEmbedding(nn.Module):
             return new_embedding
 
     def tokenizer(self, words: Union[str, List[str]]):
-        r"""Convert a word or a list of words to their token ids."""
+        r"""Convert a word or a list of words to their token indices.
+        
+        Args:
+            words (Union[str, List[str]]): A word or a list of words.
+        
+        Returns:
+            Union[int, List[int]]: A token index or a list of token indices.
+
+        .. code-block:: python
+            
+                from kirby.nn import InfiniteVocabEmbedding
+    
+                embedding = InfiniteVocabEmbedding(64)
+    
+                vocab = ["apple", "banana", "cherry"]
+                embedding.initialize_vocab(vocab)
+    
+                embedding.tokenizer("banana")
+                >>> 2
+    
+                embedding.tokenizer(["apple", "cherry", "apple"])
+                >>> [1, 3, 1]
+        """
         if isinstance(words, str):
             return self.vocab[words]
         return [self.vocab[w] for w in words]
 
     def detokenizer(self, index: int):
-        r"""Convert a token id to a word."""
+        r"""Convert a token index to a word.
+        
+        Args:
+            index (int): A token index.
+            
+        Returns:
+            str: A word.
+
+        .. code-block:: python
+            
+                from kirby.nn import InfiniteVocabEmbedding
+    
+                embedding = InfiniteVocabEmbedding(64)
+    
+                vocab = ["apple", "banana", "cherry"]
+                embedding.initialize_vocab(vocab)
+    
+                embedding.detokenizer(2)
+                >>> 'banana'
+        """
         return list(self.vocab.keys())[index]
 
     def is_lazy(self):
-        r"""Check if the module is initialized."""
+        r"""Returns True if the module is not initialized.
+        
+        .. code-block:: python
+                
+            from kirby.nn import InfiniteVocabEmbedding
+
+            embedding = InfiniteVocabEmbedding(64)
+
+            embedding.is_lazy()
+            >>> True
+
+            vocab = ["apple", "banana", "cherry"]
+            embedding.initialize_vocab(vocab)
+
+            embedding.is_lazy()
+            >>> False
+        """
         return isinstance(self.weight, UninitializedParameter)
 
-    def reset_parameters(self) -> None:
+    def reset_parameters(self):
+        r"""Resets all learnable parameters of the module, but will not reset the
+        vocabulary."""
         if not self.is_lazy():
             torch.nn.init.normal_(self.weight, mean=0, std=self.init_scale)
             if self.padding_idx is not None:

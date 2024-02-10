@@ -13,10 +13,22 @@ PaddedObject = namedtuple("PaddedObject", ["obj"])
 
 
 def pad(obj):
+    r"""Wrap an object to specify that it (or any of its members) should be padded to 
+    the maximum length in the batch. The object can be any of the objects that PyTorch's
+    :obj:`default_collate` already supports.
+    
+    Args:
+        obj: Can be tensors, numpy arrays, lists, tuples, or dictionaries.
+    """
     return PaddedObject(obj)
 
 
 def track_mask(input: Union[torch.Tensor, np.ndarray]):
+    r"""Wrap an array or tensor to specify that its padding mask should be tracked.
+    
+    Args:
+        input: An array or tensor.
+    """
     return pad(torch.ones((input.shape[0]), dtype=torch.bool))
 
 
@@ -46,10 +58,23 @@ Padded8Object = namedtuple("Padded8Object", ["obj"])
 
 
 def pad8(obj):
+    r"""Wrap an object to specify that it (or any of its members) should be padded to
+    the maximum length in the batch. This function is similar to :obj:`pad` except that
+    the padding length is rounded up to the nearest multiple of 8.
+    
+    Args:
+        obj: Can be tensors, numpy arrays, lists, tuples, or dictionaries.
+    """
     return Padded8Object(obj)
 
 
 def track_mask8(input: Union[torch.Tensor, np.ndarray]):
+    r"""Wrap an array or tensor to specify that its padding mask should be tracked. This
+    is used in conjunction with :obj:`pad8`.
+
+    Args:
+        input: An array or tensor.
+    """
     return pad8(torch.ones((input.shape[0]), dtype=torch.bool))
 
 
@@ -91,10 +116,24 @@ ChainBatchTrackerObject = namedtuple("ChainBatchTrackerObject", ["obj"])
 
 
 def chain(obj):
+    r"""Wrap an object to specify that it (or any of its members) should be stacked 
+    along the first dimension when batching. This approach is similar to PyTorch 
+    Geometric's collate approach for graphs. This function will chain all the sequences
+    in the batch into one large sequence. To track which sample from the batch an 
+    element of the sequence came from use :func:`track_batch`.
+    
+    Args:
+        obj: Can be tensors, numpy arrays, lists, tuples, or dictionaries.
+    """
     return ChainObject(obj)
 
 
 def track_batch(input: Union[torch.Tensor, np.ndarray]):
+    r"""Wrap an array or tensor to track the batch_index.
+
+    Args:
+        input: An array or tensor.
+    """
     return ChainBatchTrackerObject(torch.ones((input.shape[0]), dtype=torch.long))
 
 
@@ -142,19 +181,19 @@ collate_fn_map[ChainBatchTrackerObject] = chain_batch_tracker_collate_tensor_fn
 
 
 def collate(batch):
-    r"""Extension of PyTorch's `default_collate` function to enable more advanced
+    r"""Extension of PyTorch's :obj:`default_collate` function to enable more advanced
     collation of samples of variable lengths.
 
-    To specify how the collation recipe, wrap the objects using `pad` or `chain`.
+    To specify how the collation recipe, wrap the objects using :obj:`pad` or :obj:`chain`.
     If the wrapped object is an Iterable or Mapping, all its elements will inherite
-    the collation recipe. All objects that are already supported by `default_collate`
+    the collation recipe. All objects that are already supported by :obj:`default_collate`
     can be wrapped.
 
     If an object is not wrapped, the default collation recipe will be used. i.e. the
-    outcome will be identical to `default_collate`.
+    outcome will be identical to :obj:`default_collate`.
 
-    `pad` or `chain` do not track any padding masks or batch index, since that might not
-    always be needed. Use `track_mask` or `track_batch` to track masks or batch index
+    :obj:`pad` or :obj:`chain` do not track any padding masks or batch index, since that might not
+    always be needed. Use :obj:`track_mask` or :obj:`track_batch` to track masks or batch index
     for a particular array or tensor.
 
     Args:
