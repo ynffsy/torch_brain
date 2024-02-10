@@ -29,7 +29,7 @@ def track_mask(input: Union[torch.Tensor, np.ndarray]):
     Args:
         input: An array or tensor.
     """
-    return pad(torch.ones((input.shape[0]), dtype=torch.bool))
+    return pad(torch.ones((len(input)), dtype=torch.bool))
 
 
 def pad_collate_tensor_fn(
@@ -75,7 +75,7 @@ def track_mask8(input: Union[torch.Tensor, np.ndarray]):
     Args:
         input: An array or tensor.
     """
-    return pad8(torch.ones((input.shape[0]), dtype=torch.bool))
+    return pad8(torch.ones((len(input)), dtype=torch.bool))
 
 
 def pad8_collate_tensor_fn(
@@ -134,7 +134,7 @@ def track_batch(input: Union[torch.Tensor, np.ndarray]):
     Args:
         input: An array or tensor.
     """
-    return ChainBatchTrackerObject(torch.ones((input.shape[0]), dtype=torch.long))
+    return ChainBatchTrackerObject(torch.ones((len(input)), dtype=torch.long))
 
 
 def chain_collate_tensor_fn(
