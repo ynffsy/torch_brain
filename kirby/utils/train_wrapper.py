@@ -17,14 +17,12 @@ from sklearn.metrics import r2_score
 from torch import nn
 
 import wandb
-from kirby.data import Collate, Dataset
-from kirby.data.stitcher import stitched_prediction
+from kirby.data import Dataset
 from kirby.data.sampler import SequentialFixedWindowSampler
 from kirby.models.perceiver_rotary import compute_metric
-from kirby.tasks.reaching import REACHING
 from kirby.taxonomy.taxonomy import Task
 from kirby.utils import logging
-
+from kirby.utils.validation_wrapper import CustomValidator
 console = logging(header="TRAIN WRAPPER", header_color="red")
 
 
@@ -125,168 +123,168 @@ class TrainWrapper(LightningModule):
         pass
 
 
-class CustomValidator(Callback):
-    def __init__(
-        self, 
-        validation_dataset: Dataset, 
-        tokenizer: Callable,
-        collator: Collate
-    ):
-        super().__init__()
-        self.validation_dataset = validation_dataset
-        self.validation_sampler = SequentialFixedWindowSampler(
-            interval_dict=validation_dataset.get_interval_dict(),
-            window_length=1.0,
-            step=0.5,
-        )
-        self.tokenizer = tokenizer
-        self.collator = collator
+# class CustomValidator(Callback):
+#     def __init__(
+#         self, 
+#         validation_dataset: Dataset, 
+#         tokenizer: Callable,
+#         collator: Callable,
+#     ):
+#         super().__init__()
+#         self.validation_dataset = validation_dataset
+#         self.validation_sampler = SequentialFixedWindowSampler(
+#             interval_dict=validation_dataset.get_interval_dict(),
+#             window_length=1.0,
+#             step=0.5,
+#         )
+#         self.tokenizer = tokenizer
+#         self.collator = collator
 
-    def on_validation_epoch_start(self, trainer: Trainer, pl_module: TrainWrapper):
-        # Perform custom validation here.
-        pred = defaultdict(list)
-        gt = defaultdict(list)  # Ground truth
-        behavior_type = defaultdict(list)
-        description = defaultdict(list)
+#     def on_validation_epoch_start(self, trainer: Trainer, pl_module: TrainWrapper):
+#         # Perform custom validation here.
+#         pred = defaultdict(list)
+#         gt = defaultdict(list)  # Ground truth
+#         behavior_type = defaultdict(list)
+#         description = defaultdict(list)
 
-        """We validate against behaviour using R2, so we must accumulate over batches."""
-        for i, dataset_idx in enumerate(
-            tqdm(
-                self.validation_sampler,
-                desc=f"Val @ Epoch {trainer.current_epoch}",
-                disable=(trainer.local_rank != 0),
-            )
-        ):
-            # Samples are cyclically distributed across processes
-            if i % trainer.world_size != trainer.local_rank:
-                continue
+#         """We validate against behaviour using R2, so we must accumulate over batches."""
+#         for i, dataset_idx in enumerate(
+#             tqdm(
+#                 self.validation_sampler,
+#                 desc=f"Val @ Epoch {trainer.current_epoch}",
+#                 disable=(trainer.local_rank != 0),
+#             )
+#         ):
+#             # Samples are cyclically distributed across processes
+#             if i % trainer.world_size != trainer.local_rank:
+#                 continue
 
-            data = self.validation_dataset[dataset_idx]
-            session_id = data.session
-            gt_, pred_ = stitched_prediction(
-                data, self.tokenizer, self.collator, pl_module.model, pl_module.device
-            )
-            behavior_type_ = (
-                data.behavior.type if hasattr(data.behavior, "type") else None
-            )
+#             data = self.validation_dataset[dataset_idx]
+#             session_id = data.session
+#             gt_, pred_ = stitched_prediction(
+#                 data, self.tokenizer, self.collator, pl_module.model, pl_module.device
+#             )
+#             behavior_type_ = (
+#                 data.behavior.type if hasattr(data.behavior, "type") else None
+#             )
 
-            for task_type in pred_.keys():
-                gt[(session_id, task_type)].append(gt_[task_type])
-                pred[(session_id, task_type)].append(pred_[task_type])
-                behavior_type[(session_id, task_type)].append(behavior_type_)
-                description[(session_id, task_type)].append(data.description)
+#             for task_type in pred_.keys():
+#                 gt[(session_id, task_type)].append(gt_[task_type])
+#                 pred[(session_id, task_type)].append(pred_[task_type])
+#                 behavior_type[(session_id, task_type)].append(behavior_type_)
+#                 description[(session_id, task_type)].append(data.description)
 
-        def gather_concat_dict(obj):
-            """Gather and concatenate dictionary-of-list objects onto
-            the rank=0 process
-            """
-            gathered_objlist = None
-            if trainer.local_rank == 0:
-                gathered_objlist = [None] * trainer.world_size
+#         def gather_concat_dict(obj):
+#             """Gather and concatenate dictionary-of-list objects onto
+#             the rank=0 process
+#             """
+#             gathered_objlist = None
+#             if trainer.local_rank == 0:
+#                 gathered_objlist = [None] * trainer.world_size
 
-            dist.gather_object(obj, gathered_objlist, 0)
+#             dist.gather_object(obj, gathered_objlist, 0)
 
-            # Concatenate all lists
-            gathered_obj = None
-            if trainer.local_rank == 0:
-                gathered_obj = defaultdict(list)
-                for i, objlist in enumerate(gathered_objlist):
-                    for k in objlist:
-                        gathered_obj[k] += objlist[k]
+#             # Concatenate all lists
+#             gathered_obj = None
+#             if trainer.local_rank == 0:
+#                 gathered_obj = defaultdict(list)
+#                 for i, objlist in enumerate(gathered_objlist):
+#                     for k in objlist:
+#                         gathered_obj[k] += objlist[k]
 
-            dist.barrier()
-            return gathered_obj
+#             dist.barrier()
+#             return gathered_obj
 
-        # Gather
-        if trainer.world_size > 1:
-            gt = gather_concat_dict(gt)
-            pred = gather_concat_dict(pred)
-            behavior_type = gather_concat_dict(behavior_type)
-            description = gather_concat_dict(description)
+#         # Gather
+#         if trainer.world_size > 1:
+#             gt = gather_concat_dict(gt)
+#             pred = gather_concat_dict(pred)
+#             behavior_type = gather_concat_dict(behavior_type)
+#             description = gather_concat_dict(description)
 
-        if trainer.local_rank != 0:
-            return
+#         if trainer.local_rank != 0:
+#             return
 
-        r2 = defaultdict(dict)
-        for session_id, task_type in gt.keys():
-            # Resolve the right metric for the session.
-            gt_ = torch.cat(gt[(session_id, task_type)], dim=0).detach().cpu()
-            pred_ = torch.cat(pred[(session_id, task_type)], dim=0).detach().cpu()
-            # TODO: reintegrate this functionality into the new metric system.
-            # behavior_type_ = torch.cat(behavior_type[(session_id, task_type)], dim=0)
-            # .detach().cpu()
+#         r2 = defaultdict(dict)
+#         for session_id, task_type in gt.keys():
+#             # Resolve the right metric for the session.
+#             gt_ = torch.cat(gt[(session_id, task_type)], dim=0).detach().cpu()
+#             pred_ = torch.cat(pred[(session_id, task_type)], dim=0).detach().cpu()
+#             # TODO: reintegrate this functionality into the new metric system.
+#             # behavior_type_ = torch.cat(behavior_type[(session_id, task_type)], dim=0)
+#             # .detach().cpu()
 
-            desc = description[(session_id, task_type)][-1].metrics
-            desc = [x for x in desc if x.output_key == task_type]
-            if not desc:
-                raise ValueError(
-                    f"Cannot find description for {session_id}, {str(task_type)}"
-                )
-            if len(desc) > 1:
-                raise ValueError(
-                    f"Found multiple descriptions for {session_id}, {str(task_type)}"
-                )
+#             desc = description[(session_id, task_type)][-1].metrics
+#             desc = [x for x in desc if x.output_key == task_type]
+#             if not desc:
+#                 raise ValueError(
+#                     f"Cannot find description for {session_id}, {str(task_type)}"
+#                 )
+#             if len(desc) > 1:
+#                 raise ValueError(
+#                     f"Found multiple descriptions for {session_id}, {str(task_type)}"
+#                 )
 
-            desc = desc[0]
+#             desc = desc[0]
 
-            metric = None
-            if hasattr(desc, "metric"):
-                metric = desc.metric
-            else:
-                # Get it from the model spec.
-                metric = pl_module.model.readout.task_specs[task_type].loss_fn
+#             metric = None
+#             if hasattr(desc, "metric"):
+#                 metric = desc.metric
+#             else:
+#                 # Get it from the model spec.
+#                 metric = pl_module.model.readout.task_specs[task_type].loss_fn
 
-            task_spec = pl_module.model.readout.task_specs[task_type]
+#             task_spec = pl_module.model.readout.task_specs[task_type]
 
-            # Resolve the appropriate loss function.
-            the_metric = compute_metric(metric, task_spec.type, pred_, gt_, 1.0)
+#             # Resolve the appropriate loss function.
+#             the_metric = compute_metric(metric, task_spec.type, pred_, gt_, 1.0)
 
-            r2[session_id][f"{metric}_{str(task_type.lower())}"] = the_metric.item()
+#             r2[session_id][f"{metric}_{str(task_type.lower())}"] = the_metric.item()
 
-            # TODO: reintegrate this functionality into the new metric system.
-            """
-            if "CO" in session_id:
-                for behavior_type_id, name in [
-                    (REACHING.CENTER_OUT_REACH, "reach"),
-                    (REACHING.CENTER_OUT_RETURN, "return_center"),
-                    (REACHING.CENTER_OUT_HOLD, "hold"),
-                ]:
-                    mask = behavior_type[session_id] == behavior_type_id
-                    r2[session_id][name] = r2_score(
-                        gt[session_id][mask], pred[session_id][mask]
-                    )
-            elif "RT" in session_id:
-                for behavior_type_id, name in [
-                    (REACHING.RANDOM, "random"),
-                    (REACHING.HOLD, "hold"),
-                ]:
-                    mask = behavior_type[session_id] == behavior_type_id
-                    r2[session_id][name] = r2_score(
-                        gt[session_id][mask], pred[session_id][mask]
-                    )
-            else:
-                warnings.warn(
-                    f"Cannot infer behavior type from session {session_id}",
-                    RuntimeWarning,
-                )
-            """
+#             # TODO: reintegrate this functionality into the new metric system.
+#             """
+#             if "CO" in session_id:
+#                 for behavior_type_id, name in [
+#                     (REACHING.CENTER_OUT_REACH, "reach"),
+#                     (REACHING.CENTER_OUT_RETURN, "return_center"),
+#                     (REACHING.CENTER_OUT_HOLD, "hold"),
+#                 ]:
+#                     mask = behavior_type[session_id] == behavior_type_id
+#                     r2[session_id][name] = r2_score(
+#                         gt[session_id][mask], pred[session_id][mask]
+#                     )
+#             elif "RT" in session_id:
+#                 for behavior_type_id, name in [
+#                     (REACHING.RANDOM, "random"),
+#                     (REACHING.HOLD, "hold"),
+#                 ]:
+#                     mask = behavior_type[session_id] == behavior_type_id
+#                     r2[session_id][name] = r2_score(
+#                         gt[session_id][mask], pred[session_id][mask]
+#                     )
+#             else:
+#                 warnings.warn(
+#                     f"Cannot infer behavior type from session {session_id}",
+#                     RuntimeWarning,
+#                 )
+#             """
 
-        # Fold the results into a single number.
-        values = {}
-        for key, item in r2.items():
-            for key2, item2 in item.items():
-                values[f"val/{key}_{key2}"] = item2
+#         # Fold the results into a single number.
+#         values = {}
+#         for key, item in r2.items():
+#             for key2, item2 in item.items():
+#                 values[f"val/{key}_{key2}"] = item2
 
-        pl_module.log_dict(values)
-        console.info(f"Logged {len(values)} validation metrics.")
+#         pl_module.log_dict(values)
+#         console.info(f"Logged {len(values)} validation metrics.")
 
-        r2 = pd.DataFrame.from_dict(r2).T
-        if pl_module.tb is not None:
-            pl_module.tb.add_text("val_r2", r2.to_markdown())
-        if pl_module.wandb is not None:
-            pl_module.wandb.log({"val_r2": wandb.Table(dataframe=r2)})
+#         r2 = pd.DataFrame.from_dict(r2).T
+#         if pl_module.tb is not None:
+#             pl_module.tb.add_text("val_r2", r2.to_markdown())
+#         if pl_module.wandb is not None:
+#             pl_module.wandb.log({"val_r2": wandb.Table(dataframe=r2)})
 
-        return r2
+#         return r2
 
 
 class UnfreezeAtEpoch(Callback):

@@ -8,6 +8,7 @@ import lightning
 pickle.Unpickler = old_unpickler
 
 from collections import OrderedDict
+import copy
 
 import hydra
 import torch
@@ -23,8 +24,7 @@ from torch.utils.data import DataLoader
 from torch_optimizer import Lamb
 
 from kirby.data import Dataset, collate
-from kirby.data.sampler import RandomFixedWindowSampler
-from kirby.tasks.reaching import REACHING
+from kirby.data.sampler import RandomFixedWindowSampler, SequentialFixedWindowSampler
 from kirby.taxonomy import decoder_registry, weight_registry
 from kirby.transforms import Compose
 from kirby.utils import logging, seed_everything, train_wrapper
@@ -66,6 +66,7 @@ def run_training(cfg: DictConfig):
         weight_registry=weight_registry,
         latent_step=1 / 8,
         num_latents_per_step=cfg.model.num_latents,
+        using_memory_efficient_attn=model.using_memory_efficient_attn,
     )
 
     transform = Compose([*transforms, tokenizer])
@@ -79,14 +80,14 @@ def run_training(cfg: DictConfig):
     )
     # In Lightning, testing only happens once, at the end of training. To get the
     # intended behavior, we need to specify a validation set instead.
+    val_tokenizer = copy.copy(tokenizer)
+    val_tokenizer.eval = True
     val_dataset = Dataset(
         cfg.data_root,
         "test",
         include=cfg.val_datasets,
+        transform=val_tokenizer
     )
-
-    train_dataset.request_keys(tokenizer.request_keys)
-    val_dataset.request_keys(tokenizer.request_keys)
 
     # register units and sessions
     model.unit_emb.initialize_vocab(train_dataset.unit_ids)
@@ -115,6 +116,20 @@ def run_training(cfg: DictConfig):
     log.info(f"Training on {len(train_sampler)} samples")
     log.info(f"Training on {len(train_dataset.unit_ids)} units")
     log.info(f"Training on {len(train_dataset.session_ids)} sessions")
+
+    val_sampler = SequentialFixedWindowSampler(
+        interval_dict=val_dataset.get_interval_dict(),
+        window_length=sequence_length,
+        step=sequence_length/2,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        sampler=val_sampler,
+        collate_fn=collate,
+        batch_size=cfg.batch_size * 10,
+        num_workers=2,
+    )
 
     # No need to explicitly use DDP with the model, lightning does this for us.
     max_lr = cfg.base_lr * cfg.batch_size
@@ -181,7 +196,7 @@ def run_training(cfg: DictConfig):
             save_on_train_epoch_end=True,
             every_n_epochs=cfg.eval_epochs,
         ),
-        train_wrapper.CustomValidator(val_dataset, tokenizer, collate),
+        train_wrapper.CustomValidator(val_loader),
         LearningRateMonitor(
             logging_interval="step"
         ),  # Create a callback to log the learning rate.

@@ -76,7 +76,7 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
                         DatasetIndex(
                             session_name, t.item(), (t + self.window_length).item()
                         )
-                        for t in torch.arange(start + left_offset, end, self.window_length)
+                        for t in torch.arange(start + left_offset, end, self.window_length, dtype=torch.float64)
                         if t + self.window_length <= end
                     ]
                 
@@ -154,7 +154,7 @@ class SequentialFixedWindowSampler(torch.utils.data.Sampler):
                         DatasetIndex(
                             session_name, t.item(), (t + self.window_length).item()
                         )
-                        for t in torch.arange(start, end, self.step)
+                        for t in torch.arange(start, end, self.step, dtype=torch.float64)
                         if t + self.window_length <= end
                 ]
 

@@ -12,13 +12,11 @@ from kirby.nn import (
     MultitaskReadout,
     PerceiverRotary,
     prepare_for_multitask_readout,
-    extract_request_keys_from_decoder_registry,
 )
-from kirby.data import pad, chain, track_mask
+from kirby.data import pad, chain, track_mask, track_batch
 from kirby.utils import (
     create_start_end_unit_tokens,
     create_linspace_latent_tokens,
-    inspect_request_keys,
 )
 
 
@@ -66,6 +64,7 @@ class POYO(nn.Module):
         )
 
         self.dim = dim
+        self.using_memory_efficient_attn = self.perceiver_io.using_memory_efficient_attn
 
     def freeze_middle(self) -> List[nn.Module]:
         # Freeze everything except the readout, unit embedding, and session embedding
@@ -94,18 +93,23 @@ class POYO(nn.Module):
 
     def forward(
         self,
+        *,
         # input sequence
         spike_unit_index,  # (B, N_in)
         spike_timestamps,  # (B, N_in)
         spike_type,  # (B, N_in)
-        input_mask,  # (B, N_in)
+        input_mask=None,  # (B, N_in)
+        input_seqlen=None,
         # latent sequence
         latent_index,  # (B, N_latent)
         latent_timestamps,  # (B, N_latent)
+        latent_seqlen=None,
         # output sequence
         session_index,  # (B,)
         output_timestamps,  # (B, N_out)
         output_task_index,  # (B, N_out)
+        output_seqlen=None,
+        output_batch_index=None,
         output_values: Optional[Dict[str, torch.Tensor]] = None,
         output_weights: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Tuple[
@@ -113,6 +117,7 @@ class POYO(nn.Module):
         torch.Tensor,
         Dict[str, torch.Tensor],
     ]:
+
         # input
         inputs = self.unit_emb(spike_unit_index) + self.spike_type_emb(spike_type)
 
@@ -120,25 +125,30 @@ class POYO(nn.Module):
         latents = self.latent_emb(latent_index)
 
         # outputs
-        outputs = self.task_emb(output_task_index) + self.session_emb(
-            session_index
-        ).unsqueeze(1)
+        output_queries = (
+            self.task_emb(output_task_index)
+            + self.session_emb(session_index)
+        )
 
         # feed into perceiver
         output_latents = self.perceiver_io(
             inputs=inputs,
             latents=latents,
-            outputs=outputs,
+            output_queries=output_queries,
             input_timestamps=spike_timestamps,
             latent_timestamps=latent_timestamps,
-            output_timestamps=output_timestamps,
+            output_query_timestamps=output_timestamps,
             input_mask=input_mask,
+            input_seqlen=input_seqlen,
+            latent_seqlen=latent_seqlen,
+            output_query_seqlen=output_seqlen,
         )
 
         # Readout layer
         output, loss, losses_taskwise = self.readout(
             output_latents=output_latents,
             output_task_index=output_task_index,
+            output_batch_index=output_batch_index,
             output_values=output_values,
             output_weights=output_weights,
         )
@@ -169,6 +179,8 @@ class POYOTokenizer:
         weight_registry,
         latent_step,
         num_latents_per_step,
+        using_memory_efficient_attn: bool = True,
+        eval=False,
     ):
         self.unit_tokenizer = unit_tokenizer
         self.session_tokenizer = session_tokenizer
@@ -179,13 +191,12 @@ class POYOTokenizer:
         self.latent_step = latent_step
         self.num_latents_per_step = num_latents_per_step
 
-    @property
-    def request_keys(self):
-        return inspect_request_keys(self.__call__) + extract_request_keys_from_decoder_registry(self.decoder_registry)
+        self.using_memory_efficient_attn = using_memory_efficient_attn
+        self.eval = eval
 
     def __call__(self, data):
         # context window
-        start, end = data.start, data.end
+        start, end = 0, 1. # data.domain, data.end
 
         ### prepare input
         unit_ids = data.units.id
@@ -227,20 +238,53 @@ class POYOTokenizer:
             output_task_index,
             output_values,
             output_weights,
+            output_subtask_index,
         ) = prepare_for_multitask_readout(
             data, self.decoder_registry, self.weight_registry
         )
 
-        return {
-            "spike_unit_index": pad(spike_unit_index),
-            "spike_timestamps": pad(spike_timestamps),
-            "spike_type": pad(spike_token_type_index),
-            "input_mask": track_mask(spike_unit_index),
-            "latent_index": latent_index,
-            "latent_timestamps": latent_timestamps,
-            "session_index": session_index,
-            "output_timestamps": pad(output_timestamps),
-            "output_task_index": pad(output_task_index),
-            "output_values": chain(output_values),
-            "output_weights": chain(output_weights),
-        }
+        if not self.using_memory_efficient_attn:
+            batch = {
+                # input sequence
+                "spike_unit_index": pad(spike_unit_index),
+                "spike_timestamps": pad(spike_timestamps),
+                "spike_type": pad(spike_token_type_index),
+                "input_mask": track_mask(spike_unit_index),
+                # latent sequence
+                "latent_index": latent_index,
+                "latent_timestamps": latent_timestamps,
+                # output sequence
+                "session_index": pad(np.repeat(session_index, len(output_timestamps))),
+                "output_timestamps": pad(output_timestamps),
+                "output_task_index": pad(output_task_index),
+                "output_values": chain(output_values),
+                "output_weights": chain(output_weights),
+            }
+        else:
+            batch = {
+                # input sequence
+                "spike_unit_index": chain(spike_unit_index),
+                "spike_timestamps": chain(spike_timestamps),
+                "spike_type": chain(spike_token_type_index),
+                "input_seqlen": len(spike_unit_index),
+                # latent sequence
+                "latent_index": chain(latent_index),
+                "latent_timestamps": chain(latent_timestamps),
+                "latent_seqlen": len(latent_index),
+                # output sequence
+                "session_index": chain(np.repeat(session_index, len(output_timestamps))),
+                "output_timestamps": chain(output_timestamps),
+                "output_task_index": chain(output_task_index),
+                "output_seqlen": len(output_timestamps),
+                "output_batch_index": track_batch(output_timestamps),
+                "output_values": chain(output_values),
+                "output_weights": chain(output_weights),
+            }
+
+        if self.eval:
+            # we will add a few more fields needed for evaluation
+            batch["session_id"] = data.session
+            batch["absolute_start"] = data.absolute_start
+            batch["output_subtask_index"] = chain(output_subtask_index)
+
+        return batch

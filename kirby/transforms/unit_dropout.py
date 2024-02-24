@@ -94,20 +94,17 @@ class UnitDropout:
         unit_splits = np.random.permutation(num_units)
         drop_indices = np.sort(unit_splits[num_units_to_sample:])
 
-        total_spike_mask = ~np.isin(data.spikes.unit_index, drop_indices)
+        unit_mask = np.ones_like(unit_ids, dtype=bool)
+        unit_mask[drop_indices] = False
+
+        spike_mask = ~np.isin(data.spikes.unit_index, drop_indices)
         
-        for key in data.spikes.keys:
-            value = getattr(data.spikes, key)
-            if value is None:
-                continue
-            
-            if isinstance(value, torch.Tensor):
-                data.spikes.__dict__[key] = value[total_spike_mask]
-            elif isinstance(value, np.ndarray):
-                data.spikes.__dict__[key] = value[total_spike_mask]
-            elif isinstance(value, list):
-                data.spikes.__dict__[key] = [value[x] for x in total_spike_mask]
-            else:
-                data.spikes.__dict__[key] = None
+        data.spikes = data.spikes.select_by_mask(spike_mask)
+        data.units = data.units.select_by_mask(unit_mask)
+
+        relabel_map = np.zeros(num_units, dtype=np.long)
+        relabel_map[unit_mask] = np.arange(unit_mask.sum())
+
+        data.spikes.unit_index = relabel_map[data.spikes.unit_index]
 
         return data

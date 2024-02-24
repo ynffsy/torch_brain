@@ -28,8 +28,9 @@ class MultitaskReadout(nn.Module):
 
     def forward(
         self,
-        output_latents: TensorType["batch", "max_ntout", "latent_dim"],
-        output_task_index: TensorType["batch", "max_ntout"],
+        output_latents: Union[TensorType["batch", "max_ntout", "dim"], TensorType["total_ntout", "dim"]],
+        output_task_index: Union[TensorType["batch", "max_ntout"], TensorType["total_ntout"]],
+        output_batch_index: Optional[TensorType["max_ntout"]] = None,
         output_values: Dict[str, TensorType["*ntout_task", "*nchannelsout"]] = None,
         output_weights: Dict[str, TensorType["*ntout_task"]] = None,
     ) -> Tuple[
@@ -47,7 +48,19 @@ class MultitaskReadout(nn.Module):
                 output_weights[task] is the weight for a given task.
         """
 
-        outputs = [{} for _ in range(output_latents.shape[0])]
+        if output_batch_index is not None:
+            # Inputs were chained, make sure input dimensions make sense
+            assert output_latents.dim() == 2
+            assert output_task_index.dim() == 1
+            assert output_batch_index.dim() == 1
+            batch_size = output_batch_index.max().item() + 1
+        else:
+            # Inputs were not chained, make sure input dimensions make sense
+            assert output_latents.dim() == 3
+            assert output_task_index.dim() == 2
+            batch_size = output_latents.shape[0]
+
+        outputs = [{} for _ in range(batch_size)]
         taskwise_loss = {}
         loss = torch.tensor(0, device=output_latents.device, dtype=torch.float32)
 
@@ -68,17 +81,21 @@ class MultitaskReadout(nn.Module):
             if output_values is not None:
                 target = output_values[taskname]
                 
-                weights = None
+                weights = 1.0
                 if taskname in output_weights and output_weights[taskname] is not None:
                     weights = output_weights[taskname]
-                weights = weights if weights is not None else 1.0
 
                 taskwise_loss[taskname] = compute_loss_or_metric(
                     spec.loss_fn, spec.type, task_output, target, weights
                 )
 
             # we need to distribute the outputs to their respective samples
-            token_batch = torch.where(mask)[0]
+            if output_batch_index is None:
+                token_batch = torch.where(mask)[0]
+            else:
+                # Inputs where chained, and we have batch-indices for each token
+                token_batch = output_batch_index[mask]
+
             batch, token_batch = torch.unique(token_batch, return_inverse=True)
             for i in range(len(batch)):
                 outputs[batch[i]][taskname] = task_output[token_batch == i]
@@ -89,7 +106,7 @@ class MultitaskReadout(nn.Module):
                 # whether we have large or small numbers of non-dominant classes.
                 loss = loss + taskwise_loss[taskname] * len(batch)
 
-        loss = loss / output_latents.shape[0]
+        loss = loss / batch_size
 
         if output_values is None:
             return outputs, None, None
@@ -102,6 +119,7 @@ def prepare_for_multitask_readout(
 ):
     timestamps = list()
     task_index = list()
+    subtask_index = dict()
     values = dict()
     weights = dict()
 
@@ -119,15 +137,13 @@ def prepare_for_multitask_readout(
         if values[key].dtype == np.float64:
             values[key] = values[key].astype(np.float32)
 
-        try:
-            behavior_type = data.get_nested_attribute(
-                decoder_registry[key].behavior_type_key
-            )
-        except AttributeError:
-            behavior_type = np.zeros(len(values[key]), dtype=np.int64)
-
+        if decoder_registry[key].subtask_key is not None:
+            subtask_index[key] = data.get_nested_attribute(decoder_registry[key].subtask_key)
+        else:
+            subtask_index[key] = np.zeros(len(values[key]), dtype=np.int64)
+        
         weights_ = torch.tensor(
-            [weight_registry.get(int(x.item()), -1.0) for x in behavior_type]
+            [weight_registry.get(int(x.item()), -1.0) for x in subtask_index[key]]
         )
 
         # Either we have weights for all or for none (implicitly, everything
@@ -136,11 +152,11 @@ def prepare_for_multitask_readout(
         if torch.any(weights_ == -1.0) and not torch.all(weights_ == -1.0):
             idx = torch.where(weights_ == 0)[0][0]
             raise ValueError(
-                f"Could not find weights for behavior #{behavior_type[idx]}"
+                f"Could not find weights for behavior #{subtask_index[key][idx]}"
             )
 
         weights_[weights_ == -1.0] = 1.0
-        weights[key] = torch.tensor(weights_) * metric.get("weight", 1.0)
+        weights[key] = weights_ * metric.get("weight", 1.0)
 
     # chain
     timestamps, batch = collate(
@@ -151,13 +167,4 @@ def prepare_for_multitask_readout(
     )
     task_index = torch.tensor(task_index)[batch]
 
-    return timestamps, task_index, values, weights
-
-
-def extract_request_keys_from_decoder_registry(decoder_registry):
-    request_keys = []
-    for key, spec in decoder_registry.items():
-        request_keys.append(spec.timestamp_key)
-        request_keys.append(spec.value_key)
-        request_keys.append(spec.behavior_type_key)
-    return request_keys
+    return timestamps, task_index, values, weights, subtask_index
