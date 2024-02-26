@@ -1,11 +1,13 @@
 from typing import Dict, List, Optional, Tuple, Union
+import copy
 
+from pydantic.dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn as nn
 from torchtyping import TensorType
 
-from kirby.taxonomy import DecoderSpec, Output
+from kirby.taxonomy import DecoderSpec, Decoder
 from kirby.data.collate import collate, chain, track_batch
 from kirby.nn import compute_loss_or_metric
 
@@ -66,7 +68,7 @@ class MultitaskReadout(nn.Module):
 
         for taskname, spec in self.task_specs.items():
             # the taskid is a universal unique identifier for the task
-            taskid = Output.from_string(taskname).value
+            taskid = Decoder.from_string(taskname).value
 
             # get the mask of tokens that belong to this task
             mask = output_task_index == taskid
@@ -114,34 +116,67 @@ class MultitaskReadout(nn.Module):
         return outputs, loss, taskwise_loss
 
 
-def prepare_for_multitask_readout(
-    data, decoder_registry: Dict[str, DecoderSpec], weight_registry
-):
-    timestamps = list()
-    task_index = list()
-    subtask_index = dict()
-    values = dict()
-    weights = dict()
+def parse_multitask_readout_config(config):
+    if "multitask_readout" not in config:
+        return None
+    
+    assert len(config["multitask_readout"]) > 1, "At least one decoder must be defined."
 
-    for metric in data.description["metrics"]:
-        key = metric["output_key"]
-
-        task_index.append(Output.from_string(key).value)
-        timestamps.append(
-            data.get_nested_attribute(decoder_registry[key].timestamp_key)
-        )
-
-        values[key] = data.get_nested_attribute(decoder_registry[key].value_key)
+    decoder_config_list = []
+    for decoder_config in  config["multitask_readout"]:
+        if "decoder_id" not in decoder_config:
+            raise ValueError("a decoder_id must be defined.")
         
+        decoder_id = decoder_config["decoder_id"]
+
+        decoder_registry[decoder_id]
+
+        # allow timestamp_key, value_key, task_key, subtask_key to be overwritten
+        for key in ["timestamp_key", "value_key", "task_key", "subtask_key"]:
+            if key not in decoder_config:
+                decoder_config[key] = decoder_config[key]
+
+        # get weights
+        task_weights = decoder_config.get("task_weights", {})
+        subtask_weights = decoder_config.get("subtask_weights", {})
+    pass
+
+
+def prepare_for_multitask_readout(
+    data, decoder_registry: Dict[str, DecoderSpec],
+):
+    decoder_index = list()
+    timestamps = list()
+    values = dict()
+    task_index = dict()
+    subtask_index = dict()
+    weights = dict()
+    
+    config = data.config["multitask_readout"]
+
+    # for metric in data.description["metrics"]:
+    for decoder in config:
+        key = decoder["decoder_id"]
+
+        decoder_index.append(Decoder.from_string(key).value)
+        timestamps.append(data.get_nested_attribute(decoder["timestamp_key"]))
+        values[key] = data.get_nested_attribute(decoder["value_key"])
         # here we assume that we won't be running a model at float64 precision
         if values[key].dtype == np.float64:
             values[key] = values[key].astype(np.float32)
 
-        if decoder_registry[key].subtask_key is not None:
-            subtask_index[key] = data.get_nested_attribute(decoder_registry[key].subtask_key)
+        if decoder["task_index"] is not None:
+            task_index[key] = data.get_nested_attribute(decoder["task_index"])
+        else:
+            task_index[key] = np.zeros(len(values[key]), dtype=np.int64)
+        
+        if decoder["subtask_key"] is not None:
+            subtask_index[key] = data.get_nested_attribute(decoder["subtask_key"])
         else:
             subtask_index[key] = np.zeros(len(values[key]), dtype=np.int64)
         
+        weights = ...
+
         weights_ = torch.tensor(
             [weight_registry.get(int(x.item()), -1.0) for x in subtask_index[key]]
         )
@@ -165,6 +200,6 @@ def prepare_for_multitask_readout(
             for i in range(len(timestamps))
         ]
     )
-    task_index = torch.tensor(task_index)[batch]
+    decoder_index = torch.tensor(decoder_index)[batch]
 
-    return timestamps, task_index, values, weights, subtask_index
+    return timestamps, decoder_index, values, weights, subtask_index

@@ -95,7 +95,7 @@ def run_training(cfg: DictConfig):
 
     # sampler and dataloader
     train_sampler = RandomFixedWindowSampler(
-        interval_dict=train_dataset.get_interval_dict(),
+        interval_dict=train_dataset.get_sampling_intervals(),
         window_length=sequence_length,
         generator=torch.Generator().manual_seed(cfg.seed + 1),
     )
@@ -118,7 +118,7 @@ def run_training(cfg: DictConfig):
     log.info(f"Training on {len(train_dataset.session_ids)} sessions")
 
     val_sampler = SequentialFixedWindowSampler(
-        interval_dict=val_dataset.get_interval_dict(),
+        interval_dict=val_dataset.get_sampling_intervals(),
         window_length=sequence_length,
         step=sequence_length/2,
     )

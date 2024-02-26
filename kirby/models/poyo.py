@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torchtyping import TensorType
 
-from kirby.taxonomy import DecoderSpec, Output
+from kirby.taxonomy import DecoderSpec, Decoder
 from kirby.nn import (
     Embedding,
     InfiniteVocabEmbedding,
@@ -42,7 +42,7 @@ class POYO(nn.Module):
         self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.session_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.spike_type_emb = Embedding(4, dim, init_scale=emb_init_scale)
-        self.task_emb = Embedding(Output.max_value(), dim, init_scale=emb_init_scale)
+        self.task_emb = Embedding(Decoder.max_value(), dim, init_scale=emb_init_scale)
         self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
 
         self.perceiver_io = PerceiverRotary(
