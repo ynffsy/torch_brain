@@ -92,10 +92,6 @@ def run_training(cfg: DictConfig):
     model.unit_emb.initialize_vocab(train_dataset.unit_ids)
     model.session_emb.initialize_vocab(train_dataset.session_ids)
 
-    
-    import pdb; pdb.set_trace()
-
-
     # sampler and dataloader
     train_sampler = RandomFixedWindowSampler(
         interval_dict=train_dataset.get_sampling_intervals(),

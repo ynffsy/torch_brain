@@ -5,12 +5,11 @@ from kirby.utils import logging
 
 log = logging(header="UNIT DROPOUT", header_color="cyan")
 
-"""
-Triangular distribution with a peak at mode_units, going from min_units to max_units.
-"""
-
 
 class UnitCustomDistribution:
+    r"""Triangular distribution with a peak at mode_units, going from min_units to 
+    max_units.
+    """
     def __init__(
         self,
         min_units=20,
