@@ -242,6 +242,7 @@ class POYOTokenizer:
         )
 
         if not self.using_memory_efficient_attn:
+            # Padding
             batch = {
                 # input sequence
                 "spike_unit_index": pad(spike_unit_index),
@@ -259,6 +260,7 @@ class POYOTokenizer:
                 "output_weights": chain(output_weights),
             }
         else:
+            # Chaining
             batch = {
                 # input sequence
                 "spike_unit_index": chain(spike_unit_index),
