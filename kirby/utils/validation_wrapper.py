@@ -189,8 +189,8 @@ class CustomValidator(Callback):
                         decoder = decoder_
                 
                 assert decoder is not None, f"Decoder not found for {taskname}"
-                metrics = decoder["metrics"]
-                for metric in metrics:
+                metrics_spec = decoder["metrics"]
+                for metric in metrics_spec:
                     gt = session_gt_output[session_id][taskname]
                     pred = session_pred_output[session_id][taskname]
                     timestamps = session_timestamp[session_id][taskname]
