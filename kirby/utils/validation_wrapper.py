@@ -38,6 +38,14 @@ class CustomValidator(Callback):
             session_ids = batch.pop("session_id")  # (B,)
             output_subtask_index = batch.pop("output_subtask_index")
 
+            batch_format = None
+            if "input_mask" in batch:
+                batch_format = "padded"
+            elif "input_seqlen" in batch:
+                batch_format = "chained"
+            else:
+                raise ValueError("Invalid batch format.")
+
             # move to gpu dict of dicts
             def move_to_gpu(d):
                 for k, v in d.items():
@@ -73,12 +81,17 @@ class CustomValidator(Callback):
                     continue
 
                 # we need to distribute the outputs to their respective samples
-                token_batch = torch.where(mask)[0]
+
+                if batch_format == "padded":
+                    token_batch = torch.where(mask)[0]
+                elif batch_format == "chained":
+                    token_batch = batch["output_batch_index"][mask]
+
                 batch_i, token_batch = torch.unique(token_batch, return_inverse=True)
                 for i in range(len(batch_i)):
                     timestamps[batch_i[i]][taskname] = (
                         batch["output_timestamps"][mask][token_batch == i]
-                        + absolute_starts[i]
+                        + absolute_starts[batch_i[i]]
                     )
                     subtask_index[batch_i[i]][taskname] = output_subtask_index[
                         taskname
