@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from torchtyping import TensorType
 
-from kirby.taxonomy import DecoderSpec, Decoder
+from kirby.taxonomy import DecoderSpec, Decoder, Task
 from kirby.data.collate import collate, chain, track_batch
 from kirby.nn import compute_loss_or_metric
 
@@ -116,82 +116,51 @@ class MultitaskReadout(nn.Module):
         return outputs, loss, taskwise_loss
 
 
-def parse_multitask_readout_config(config):
-    if "multitask_readout" not in config:
-        return None
-    
-    assert len(config["multitask_readout"]) > 1, "At least one decoder must be defined."
-
-    decoder_config_list = []
-    for decoder_config in  config["multitask_readout"]:
-        if "decoder_id" not in decoder_config:
-            raise ValueError("a decoder_id must be defined.")
-        
-        decoder_id = decoder_config["decoder_id"]
-
-        decoder_registry[decoder_id]
-
-        # allow timestamp_key, value_key, task_key, subtask_key to be overwritten
-        for key in ["timestamp_key", "value_key", "task_key", "subtask_key"]:
-            if key not in decoder_config:
-                decoder_config[key] = decoder_config[key]
-
-        # get weights
-        task_weights = decoder_config.get("task_weights", {})
-        subtask_weights = decoder_config.get("subtask_weights", {})
-    pass
-
-
 def prepare_for_multitask_readout(
     data, decoder_registry: Dict[str, DecoderSpec],
 ):
     decoder_index = list()
     timestamps = list()
     values = dict()
-    task_index = dict()
+    # task_index = dict()
     subtask_index = dict()
     weights = dict()
     
     config = data.config["multitask_readout"]
 
-    # for metric in data.description["metrics"]:
     for decoder in config:
         key = decoder["decoder_id"]
+        weight = decoder.get("weight", 1.0)
+        subtask_weights = decoder.get("subtask_weights", {})
+
+        decoder = decoder_registry[key].__dict__
 
         decoder_index.append(Decoder.from_string(key).value)
         timestamps.append(data.get_nested_attribute(decoder["timestamp_key"]))
+        
         values[key] = data.get_nested_attribute(decoder["value_key"])
         # here we assume that we won't be running a model at float64 precision
+        # TODO do this in decoder spec? 
         if values[key].dtype == np.float64:
             values[key] = values[key].astype(np.float32)
 
-        if decoder["task_index"] is not None:
-            task_index[key] = data.get_nested_attribute(decoder["task_index"])
-        else:
-            task_index[key] = np.zeros(len(values[key]), dtype=np.int64)
+        # if decoder["task_index"] is not None:
+        #     task_index[key] = data.get_nested_attribute(decoder["task_index"])
+        # else:
+        #     task_index[key] = np.zeros(len(values[key]), dtype=np.int64)
         
         if decoder["subtask_key"] is not None:
             subtask_index[key] = data.get_nested_attribute(decoder["subtask_key"])
+            num_subtasks = Task.from_string(next(subtask_weights.keys())).max_value()
+            subtask_weight_map = np.ones(num_subtasks, dtype=np.float32)
+            for subtask, weight in subtask_weights.items():
+                subtask_weight_map[Task.from_string(subtask).value] = weight
+            
+            subtask_weight_map *= weight
+            weights[key] = subtask_weight_map[subtask_index[key]]
         else:
             subtask_index[key] = np.zeros(len(values[key]), dtype=np.int64)
-        
-        weights = ...
-
-        weights_ = torch.tensor(
-            [weight_registry.get(int(x.item()), -1.0) for x in subtask_index[key]]
-        )
-
-        # Either we have weights for all or for none (implicitly, everything
-        # has a weight of 1 in that case). There shouldn't be any
-        # in-between cases, which would mean there's an undefined behaviour.
-        if torch.any(weights_ == -1.0) and not torch.all(weights_ == -1.0):
-            idx = torch.where(weights_ == 0)[0][0]
-            raise ValueError(
-                f"Could not find weights for behavior #{subtask_index[key][idx]}"
-            )
-
-        weights_[weights_ == -1.0] = 1.0
-        weights[key] = weights_ * metric.get("weight", 1.0)
+            weights[key] = np.ones(len(values[key]), dtype=np.float32) * weight
 
     # chain
     timestamps, batch = collate(

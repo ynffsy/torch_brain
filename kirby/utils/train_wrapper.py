@@ -20,7 +20,7 @@ import wandb
 from kirby.data import Dataset
 from kirby.data.sampler import SequentialFixedWindowSampler
 from kirby.models.perceiver_rotary import compute_metric
-from kirby.taxonomy.taxonomy import Task
+from kirby.taxonomy.task import Task
 from kirby.utils import logging
 from kirby.utils.validation_wrapper import CustomValidator
 console = logging(header="TRAIN WRAPPER", header_color="red")

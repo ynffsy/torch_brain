@@ -25,7 +25,7 @@ from torch_optimizer import Lamb
 
 from kirby.data import Dataset, collate
 from kirby.data.sampler import RandomFixedWindowSampler, SequentialFixedWindowSampler
-from kirby.taxonomy import decoder_registry, weight_registry
+from kirby.taxonomy import decoder_registry
 from kirby.transforms import Compose
 from kirby.utils import logging, seed_everything, train_wrapper
 from kirby.models import POYOTokenizer
@@ -63,7 +63,6 @@ def run_training(cfg: DictConfig):
         model.unit_emb.tokenizer,
         model.session_emb.tokenizer,
         decoder_registry=decoder_registry,
-        weight_registry=weight_registry,
         latent_step=1 / 8,
         num_latents_per_step=cfg.model.num_latents,
         using_memory_efficient_attn=model.using_memory_efficient_attn,
@@ -75,7 +74,7 @@ def run_training(cfg: DictConfig):
     train_dataset = Dataset(
         cfg.data_root,
         "train",
-        include=cfg.train_datasets,
+        include=cfg.datasets,
         transform=transform,
     )
     # In Lightning, testing only happens once, at the end of training. To get the
@@ -85,13 +84,17 @@ def run_training(cfg: DictConfig):
     val_dataset = Dataset(
         cfg.data_root,
         "test",
-        include=cfg.val_datasets,
+        include=cfg.datasets,
         transform=val_tokenizer
     )
 
     # register units and sessions
     model.unit_emb.initialize_vocab(train_dataset.unit_ids)
     model.session_emb.initialize_vocab(train_dataset.session_ids)
+
+    
+    import pdb; pdb.set_trace()
+
 
     # sampler and dataloader
     train_sampler = RandomFixedWindowSampler(

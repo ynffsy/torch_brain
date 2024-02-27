@@ -176,7 +176,6 @@ class POYOTokenizer:
         unit_tokenizer,
         session_tokenizer,
         decoder_registry,
-        weight_registry,
         latent_step,
         num_latents_per_step,
         using_memory_efficient_attn: bool = True,
@@ -186,7 +185,6 @@ class POYOTokenizer:
         self.session_tokenizer = session_tokenizer
 
         self.decoder_registry = decoder_registry
-        self.weight_registry = weight_registry
 
         self.latent_step = latent_step
         self.num_latents_per_step = num_latents_per_step
@@ -240,7 +238,7 @@ class POYOTokenizer:
             output_weights,
             output_subtask_index,
         ) = prepare_for_multitask_readout(
-            data, self.decoder_registry, self.weight_registry
+            data, self.decoder_registry,
         )
 
         if not self.using_memory_efficient_attn:

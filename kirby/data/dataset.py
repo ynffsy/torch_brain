@@ -76,7 +76,7 @@ class Dataset(torch.utils.data.Dataset):
 
         if keep_files_open:
             self._open_files = {
-                session_id: h5py.File(session_info.filename, "r")
+                session_id: h5py.File(session_info["filename"], "r")
                 for session_id, session_info in self.session_info_dict.items()
             }
 
@@ -326,8 +326,8 @@ class Dataset(torch.utils.data.Dataset):
         for session_id, session_info in self.session_info_dict.items():
             intervals[session_id] = list(
                 zip(
-                    session_info["sampling_interval"].start,
-                    session_info["sampling_interval"].end,
+                    session_info["sampling_intervals"].start,
+                    session_info["sampling_intervals"].end,
                 )
             )
         return intervals

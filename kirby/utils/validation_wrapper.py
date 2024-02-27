@@ -12,7 +12,7 @@ from lightning.pytorch.callbacks import Callback
 import logging
 
 from kirby.nn import compute_loss_or_metric
-from kirby.taxonomy.taxonomy import Output, OutputType
+from kirby.taxonomy.multitask_readout import Decoder, OutputType
 
 
 class CustomValidator(Callback):
