@@ -13,7 +13,7 @@ train_transforms:
 
 data_root: ./data/processed/
 seed: 42
-batch_size: 64
+batch_size: 128
 eval_epochs: 10
 epochs: 1000
 steps: 0  # Note we either specify epochs or steps, not both.
