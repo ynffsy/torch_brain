@@ -74,7 +74,7 @@ def run_training(cfg: DictConfig):
     train_dataset = Dataset(
         cfg.data_root,
         "train",
-        include=cfg.datasets,
+        include=OmegaConf.to_container(cfg.datasets),  # converts to native list[dicts]
         transform=transform,
     )
     # In Lightning, testing only happens once, at the end of training. To get the
@@ -84,7 +84,7 @@ def run_training(cfg: DictConfig):
     val_dataset = Dataset(
         cfg.data_root,
         "test",
-        include=cfg.datasets,
+        include=OmegaConf.to_container(cfg.datasets),  # converts to native list[dicts]
         transform=val_tokenizer
     )
 

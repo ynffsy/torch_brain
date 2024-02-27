@@ -151,10 +151,10 @@ def prepare_for_multitask_readout(
         
         if decoder["subtask_key"] is not None:
             subtask_index[key] = data.get_nested_attribute(decoder["subtask_key"])
-            num_subtasks = Task.from_string(next(subtask_weights.keys())).max_value()
+            num_subtasks = Task.from_string(list(subtask_weights.keys())[0]).max_value()
             subtask_weight_map = np.ones(num_subtasks, dtype=np.float32)
-            for subtask, weight in subtask_weights.items():
-                subtask_weight_map[Task.from_string(subtask).value] = weight
+            for subtask, subtask_weight in subtask_weights.items():
+                subtask_weight_map[Task.from_string(subtask).value] = subtask_weight
             
             subtask_weight_map *= weight
             weights[key] = subtask_weight_map[subtask_index[key]]
