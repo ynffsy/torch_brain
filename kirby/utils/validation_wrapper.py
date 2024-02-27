@@ -12,7 +12,7 @@ from lightning.pytorch.callbacks import Callback
 import logging
 
 from kirby.nn import compute_loss_or_metric
-from kirby.taxonomy.multitask_readout import Decoder, OutputType
+from kirby.taxonomy import Decoder, OutputType, Task
 
 
 class CustomValidator(Callback):
@@ -71,7 +71,7 @@ class CustomValidator(Callback):
 
             # collect ground truth
             for taskname, spec in pl_module.model.readout.task_specs.items():
-                taskid = Output.from_string(taskname).value
+                taskid = Decoder.from_string(taskname).value
 
                 # get the mask of tokens that belong to this task
                 mask = batch["output_task_index"] == taskid
@@ -179,39 +179,57 @@ class CustomValidator(Callback):
             session_gt_output,
             desc=f"Compiling metrics @ Epoch {trainer.current_epoch}",
             disable=(trainer.local_rank != 0),
-        ):
+        ):            
             for taskname in session_gt_output[session_id]:
-                gt = session_gt_output[session_id][taskname]
-                pred = session_pred_output[session_id][taskname]
-                timestamps = session_timestamp[session_id][taskname]
-                subtask_index = session_subtask_index[session_id][taskname]
+                decoders = self.loader.dataset.session_info_dict[session_id]["config"]["multitask_readout"]
+                
+                decoder = None
+                for decoder_ in decoders:
+                    if decoder_["decoder_id"] == taskname:
+                        decoder = decoder_
+                
+                assert decoder is not None, f"Decoder not found for {taskname}"
+                metrics = decoder["metrics"]
+                for metric in metrics:
+                    gt = session_gt_output[session_id][taskname]
+                    pred = session_pred_output[session_id][taskname]
+                    timestamps = session_timestamp[session_id][taskname]
+                    subtask_index = session_subtask_index[session_id][taskname]
 
-                # pool
-                output_type = pl_module.model.readout.task_specs[taskname].type
-                if output_type == OutputType.CONTINUOUS:
-                    pred = avg_pool(timestamps, pred)
-                    gt = avg_pool(timestamps, gt)
-                elif output_type in [
-                    OutputType.BINARY,
-                    OutputType.MULTINOMIAL,
-                    OutputType.MULTILABEL,
-                ]:
-                    assert gt.ndim == 2
-                    assert gt.shape[1] == 1, "Only one label per trial is supported."
-                    if gt.shape[0] > 1:
-                        assert all(
-                            torch.all(gt[0] == x) for x in gt
-                        ), "All labels must be the same for a trial."
-                    gt = gt[0].unsqueeze(0)
-                    pred = pred.mean(dim=0).unsqueeze(0)
+                    metric_subtask = metric.get("subtask", None)
+                    if metric_subtask is not None:
+                        select_subtask_index = Task.from_string(metric_subtask).value
+                        mask = subtask_index == select_subtask_index
+                        gt = gt[mask]
+                        pred = pred[mask]
+                        timestamps = timestamps[mask]
+                    
+                    # pool
+                    output_type = pl_module.model.readout.task_specs[taskname].type
+                    if output_type == OutputType.CONTINUOUS:
+                        pred = avg_pool(timestamps, pred)
+                        gt = avg_pool(timestamps, gt)
+                    elif output_type in [
+                        OutputType.BINARY,
+                        OutputType.MULTINOMIAL,
+                        OutputType.MULTILABEL,
+                    ]:
+                        assert gt.ndim == 2
+                        assert gt.shape[1] == 1, "Only one label per trial is supported."
+                        if gt.shape[0] > 1:
+                            assert all(
+                                torch.all(gt[0] == x) for x in gt
+                            ), "All labels must be the same for a trial."
+                        gt = gt[0].unsqueeze(0)
+                        pred = pred.mean(dim=0).unsqueeze(0)
 
-                # Compute metrics
-                task_spec = pl_module.model.readout.task_specs[taskname]
+                    # Compute metrics
+                    task_spec = pl_module.model.readout.task_specs[taskname]
 
-                # Resolve the appropriate loss function.
-                metrics[f"val/{session_id}/{str(taskname.lower())}/r2"] = (
-                    compute_loss_or_metric("r2", task_spec.type, pred, gt, 1.0).item()
-                )
+                    # Resolve the appropriate loss function.
+                    metrics[f"val_{session_id}_{str(taskname.lower())}_r2"] = (
+                        compute_loss_or_metric(metric["metric"], task_spec.type, pred, gt, 1.0).item()
+                    )
 
         pl_module.log_dict(metrics)
         logging.info(f"Logged {len(metrics)} validation metrics.")
