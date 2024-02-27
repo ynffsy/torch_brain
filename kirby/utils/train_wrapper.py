@@ -9,6 +9,7 @@ import lightning.pytorch.loggers as pl_loggers
 from lightning.pytorch.callbacks import Callback
 
 from kirby.utils import logging
+from kirby.utils.validation_wrapper import ValidationWrapper
 
 console = logging(header="TRAIN WRAPPER", header_color="red")
 
