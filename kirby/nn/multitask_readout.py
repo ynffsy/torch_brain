@@ -133,7 +133,7 @@ def prepare_for_multitask_readout(
         weight = decoder.get("weight", 1.0)
         subtask_weights = decoder.get("subtask_weights", {})
 
-        decoder = decoder_registry[key].__dict__
+        decoder = decoder_registry[key].__dict__ | decoder  # config overrides registry
 
         decoder_index.append(Decoder.from_string(key).value)
         timestamps.append(data.get_nested_attribute(decoder["timestamp_key"]))
