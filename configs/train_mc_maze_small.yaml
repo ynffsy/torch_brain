@@ -10,8 +10,6 @@ train_transforms:
     min_units: 60
     mode_units: 300
     peak: 4
-  - _target_: kirby.transforms.RandomCrop
-    crop_len: 1.0
 
 data_root: ./data/processed/
 seed: 42
