@@ -2,8 +2,7 @@
 defaults:
   - _self_
   - model: poyo_single_session.yaml
-  - train_datasets: perich_multi_session.yaml
-  - val_datasets: perich_multi_session.yaml
+  - datasets: perich_miller_population_2018.yaml
 
 train_transforms:
   - _target_: kirby.transforms.UnitDropout
