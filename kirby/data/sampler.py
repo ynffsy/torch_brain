@@ -82,7 +82,6 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
                 interval_length = end - start
                 if interval_length < self.window_length:
                     if self.drop_short:
-                        total_short_dropped += interval_length
                         continue
                     else:
                         raise ValueError (
