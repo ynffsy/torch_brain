@@ -1,7 +1,7 @@
 # Center-out reaching 
 - selection:
   - dandiset: perich_miller_population_2018
-    sessions:
+    sortsets:
       - c_20131003
       - c_20131022
       - c_20131023
@@ -98,7 +98,7 @@
 # Random target reaching
 - selection:
   - dandiset: "perich_miller_population_2018"
-    sessions:
+    sortsets:
     - c_20131009
     - c_20131010
     - c_20131011
