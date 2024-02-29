@@ -14,11 +14,11 @@ train_transforms:
 data_root: ./data/processed/
 seed: 42
 batch_size: 128
-eval_epochs: 10
+eval_epochs: 1
 epochs: 1000
 steps: 0  # Note we either specify epochs or steps, not both.
-base_lr: 1.5625e-5
-weight_decay: 0.0001
+base_lr: 3.125e-5
+weight_decay: 1e-4
 # Fraction of epochs to warmup for.
 pct_start: 0.5
 num_workers: 4

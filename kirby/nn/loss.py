@@ -29,7 +29,7 @@ def compute_loss_or_metric(
         if loss_or_metric == "mse":
             # MSE loss
             loss_noreduce = F.mse_loss(output, target, reduction="none").mean(dim=1)
-            return (weights * loss_noreduce).mean()
+            return (weights * loss_noreduce).sum() / weights.sum()
         elif loss_or_metric == "r2":
             r2score = R2Score(num_outputs=target.shape[1])
             return r2score(output, target)
@@ -48,7 +48,7 @@ def compute_loss_or_metric(
             loss_noreduce = F.cross_entropy(output, target, reduction="none")
             if loss_noreduce.ndim > 1:
                 loss_noreduce = loss_noreduce.mean(dim=1)
-            return (weights * loss_noreduce).mean()
+            return (weights * loss_noreduce).sum() / weights.sum()
         elif loss_or_metric == "accuracy":
             pred_class = torch.argmax(output, dim=1)
             return (pred_class == target.squeeze()).sum() / len(target)
