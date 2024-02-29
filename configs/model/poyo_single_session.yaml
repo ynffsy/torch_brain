@@ -8,3 +8,4 @@ self_heads: 8
 ffn_dropout: 0.2
 lin_dropout: 0.4
 atn_dropout: 0.2
+use_memory_efficient_attn: False
