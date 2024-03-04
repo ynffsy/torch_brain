@@ -1,12 +1,8 @@
+import logging
 import numpy as np
-import torch
-
-from kirby.utils import logging
-
-log = logging(header="UNIT DROPOUT", header_color="cyan")
 
 
-class UnitCustomDistribution:
+class TriangleDistribution:
     r"""Triangular distribution with a peak at mode_units, going from min_units to 
     max_units.
     """
@@ -27,7 +23,8 @@ class UnitCustomDistribution:
         self.peak = peak
         self.M = M
         self.max_attempts = max_attempts
-
+        
+        # TODO pass a generator?
         self.rng = np.random.default_rng(seed=seed)
 
     def unnormalized_density_function(self, x):
@@ -48,7 +45,6 @@ class UnitCustomDistribution:
 
     def sample(self, num_units):
         if num_units < self.min_units:
-            # log.warning(f"Requested {num_units} units, but minimum is {self.min_units}")
             return num_units
 
         # uses rejection sampling
@@ -64,40 +60,45 @@ class UnitCustomDistribution:
                 return x
             num_attempts += 1
             if num_attempts > self.max_attempts:
-                # warning
-                log.warning(
-                    f"Could not sample from distribution after {num_attempts} attempts, using all units"
+                logging.warning(
+                    f"Could not sample from distribution after {num_attempts} attempts,"
+                     " using all units."
                 )
                 return num_units
 
 
 class UnitDropout:
-    r"""Augmentation that randomly drops units from the data object.
+    r"""Augmentation that randomly drops units from the sample. This will remove the 
+    dropped units from `data.units` and all spikes from the dropped units. This will
+    also relabel the unit_index in `data.spikes`. 
     
-    ..note:: 
-        Use `UnitDropout` before `RandomCrop` would be more efficient if index_maps are 
-        precomputed. 
+    This currently assumes that the data object contains `data.units.id` and 
+    `data.spikes.unit_index`.
     """
     def __init__(self, *args, **kwargs):
-        self.distribution = UnitCustomDistribution(*args, **kwargs)
+        # TODO this currently assumes the type of distribution we use, in the future,
+        # the distribution might be passed as an argument. 
+        self.distribution = TriangleDistribution(*args, **kwargs)
 
     def __call__(self, data):
-        # get units
+        # get units from data
         unit_ids = data.units.id
         num_units = len(unit_ids)
 
+        # sample the number of units to keep from the population
         num_units_to_sample = int(self.distribution.sample(num_units))
 
         # shuffle units and take the first num_units_to_sample
-        # torch.randperm(num_units)[:num_units_to_sample]
-        unit_splits = np.random.permutation(num_units)
-        drop_indices = np.sort(unit_splits[num_units_to_sample:])
+        keep_indices = np.random.permutation(num_units)[:num_units_to_sample]
 
-        unit_mask = np.ones_like(unit_ids, dtype=bool)
-        unit_mask[drop_indices] = False
+        unit_mask = np.zeros_like(unit_ids, dtype=bool)
+        unit_mask[keep_indices] = True
 
-        spike_mask = ~np.isin(data.spikes.unit_index, drop_indices)
+        # make a mask to select spikes that are from the units we want to keep
+        spike_mask = np.isin(data.spikes.unit_index, keep_indices)
         
+        # using lazy masking, we will apply the mask for all attributes from spikes
+        # and units. 
         data.spikes = data.spikes.select_by_mask(spike_mask)
         data.units = data.units.select_by_mask(unit_mask)
 
