@@ -50,22 +50,31 @@ class MultitaskReadout(nn.Module):
                 output_weights[task] is the weight for a given task.
         """
 
-        if output_batch_index is not None:
-            # Inputs were chained, make sure input dimensions make sense
-            assert output_latents.dim() == 2
-            assert output_task_index.dim() == 1
-            assert output_batch_index.dim() == 1
-            batch_size = output_batch_index.max().item() + 1
-        else:
-            # Inputs were not chained, make sure input dimensions make sense
-            assert output_latents.dim() == 3
-            assert output_task_index.dim() == 2
-            batch_size = output_latents.shape[0]
+        batch_type = None  # "chained" or "padded"
+        with torch.no_grad():
+            if output_batch_index is not None:
+                batch_type = "chained"
+
+                # Make sure input dimensions make sense
+                assert output_latents.dim() == 2
+                assert output_task_index.dim() == 1
+                assert output_batch_index.dim() == 1
+
+                batch_size = output_batch_index.max().item() + 1
+            else:
+                batch_type = "padded"
+
+                # Make sure input dimensions make sense
+                assert output_latents.dim() == 3
+                assert output_task_index.dim() == 2
+
+                batch_size = output_latents.shape[0]
+
 
         outputs = [{} for _ in range(batch_size)]
         taskwise_loss = {}
         loss = torch.tensor(0, device=output_latents.device, dtype=torch.float32)
-
+        
         for taskname, spec in self.task_specs.items():
             # the taskid is a universal unique identifier for the task
             taskid = Decoder.from_string(taskname).value
@@ -80,6 +89,17 @@ class MultitaskReadout(nn.Module):
             # apply the projection
             task_output = self.projections[taskname](output_latents[mask])
 
+            # we need to distribute the outputs to their respective samples
+            if batch_type == "padded":
+                token_batch = torch.where(mask)[0]
+            elif batch_type == "chained":
+                token_batch = output_batch_index[mask]
+
+            unique_batch_indices = torch.unique(token_batch)
+            for batch_idx in unique_batch_indices:
+                outputs[batch_idx][taskname] = task_output[token_batch == batch_idx]
+
+            # compute loss
             if output_values is not None:
                 target = output_values[taskname]
                 
@@ -91,22 +111,10 @@ class MultitaskReadout(nn.Module):
                     spec.loss_fn, spec.type, task_output, target, weights
                 )
 
-            # we need to distribute the outputs to their respective samples
-            if output_batch_index is None:
-                token_batch = torch.where(mask)[0]
-            else:
-                # Inputs where chained, and we have batch-indices for each token
-                token_batch = output_batch_index[mask]
-
-            batch, token_batch = torch.unique(token_batch, return_inverse=True)
-            for i in range(len(batch)):
-                outputs[batch[i]][taskname] = task_output[token_batch == i]
-
-            if output_values is not None:
                 # Since we calculate a mean across all elements, scale by the number of
                 # items in the batch so we don't get wild swings in loss depending on
                 # whether we have large or small numbers of non-dominant classes.
-                loss = loss + taskwise_loss[taskname] * len(batch)
+                loss = loss + taskwise_loss[taskname] * len(unique_batch_indices)
 
         loss = loss / batch_size
 

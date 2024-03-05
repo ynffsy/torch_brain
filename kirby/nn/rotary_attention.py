@@ -312,9 +312,20 @@ def rotary_memory_efficient_attention(
             kv_seqlen=kv_seqlen,
         )
 
-    # perform attention, by default will use the optimal attention implementation
+    op = None
+    if dropout_p != 0.0:
+        # There's a bug in xformers where the backward pass for the implementation
+        # it chooses by default doesn't really work with dropout. FlashAttention
+        # has been tested to work with dropout, so we use that instead.
+        op = xops.MemoryEfficientAttentionFlashAttentionOp
+
     out = xops.memory_efficient_attention(
-        q, k, v, attn_bias=attn_bias, p=dropout_p,
+        query=q, 
+        key=k, 
+        value=v, 
+        attn_bias=attn_bias, 
+        p=dropout_p,
+        op=op,
     )
 
     if rotate_value:
