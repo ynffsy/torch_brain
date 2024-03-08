@@ -2,7 +2,7 @@
 defaults:
   - _self_
   - model: poyo_single_session.yaml
-  - datasets: perich_miller_population_2018.yaml
+  - datasets: mc_maze_small.yaml
 
 train_transforms:
   - _target_: kirby.transforms.UnitDropout
@@ -14,17 +14,16 @@ train_transforms:
 data_root: ./data/processed/
 seed: 42
 batch_size: 128
-eval_epochs: 1
+eval_epochs: 10
 epochs: 1000
 steps: 0  # Note we either specify epochs or steps, not both.
-base_lr: 3.125e-5
-weight_decay: 1e-4
+base_lr: 1.5625e-5
+weight_decay: 0.0001
 # Fraction of epochs to warmup for.
 pct_start: 0.5
 num_workers: 4
 log_dir: ./logs
-name: poyo_mp_mini
-backend_config: gpu_fp32
+name: mc_maze_small
 precision: 32
 nodes: 1
 gpus: 1

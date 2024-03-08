@@ -22,26 +22,25 @@ def find_files_by_extension(folder_path, extension):
 def make_directory(path, prompt_if_exists=False):
     if not os.path.exists(path):
         os.makedirs(path)
-        logging.info('New directory [u]{}[/u] created.'.format(path))
+        logging.info("New directory [u]{}[/u] created.".format(path))
     else:
-        logging.info('Directory [u]{}[/u] already exists.'.format(path))
+        logging.info("Directory [u]{}[/u] already exists.".format(path))
         if not prompt_if_exists:
             return
-        
-        # tree = get_dir_tree(path)
-        # print(tree)
 
-        rm_dir = Confirm.ask("Do you want to delete the folder? "
-                             "[bold red blink]This will permanently remove its contents.[/bold red blink]",
-                             default=False)
+        rm_dir = Confirm.ask(
+            "Do you want to delete the folder? "
+            "[bold red blink]This will permanently remove its contents.[/bold red blink]",
+            default=False,
+        )
 
         if rm_dir:
             shutil.rmtree(path)
             os.makedirs(path)
-            logging.info('New directory [u]{}[/u] created.'.format(path))
+            logging.info("New directory [u]{}[/u] created.".format(path))
         else:
             # kill process
-            logging.info('Killing process.')
+            logging.info("Killing process.")
             exit()
 
 
@@ -84,6 +83,13 @@ def walk_directory(directory: pathlib.Path, tree: Tree) -> None:
                 text_filename.append(f" ({create_time})", "blue")
             except:
                 pass
-            icon = defaultdict(lambda: "📄 ", py="🐍 ", cfg="🛠 ", pt="🔥 ", nwb="🧠 ",
-                               npy="🐍 ", mat="📊 ")[path.suffix[1:]]
+            icon = defaultdict(
+                lambda: "📄 ",
+                py="🐍 ",
+                cfg="🛠 ",
+                pt="🔥 ",
+                nwb="🧠 ",
+                npy="🐍 ",
+                mat="📊 ",
+            )[path.suffix[1:]]
             tree.add(Text(icon) + text_filename)

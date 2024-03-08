@@ -24,4 +24,3 @@ def seed_everything(seed: int) -> None:
         np.random.seed(seed)
         random.seed(seed)
         os.environ['PYTHONHASHSEED'] = str(seed)
-	

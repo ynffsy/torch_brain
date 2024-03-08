@@ -1,4 +1,5 @@
 import math
+import logging
 from typing import List, Dict, Tuple, Optional
 from functools import cached_property
 
@@ -35,23 +36,40 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
         interval_dict: Dict[str, List[Tuple[int, int]]],
         window_length: float,
         generator: Optional[torch.Generator],
+        drop_short: bool = True,
     ):
         self.interval_dict = interval_dict
         self.window_length = window_length
         self.generator = generator
+        self.drop_short = drop_short
 
     @cached_property
     def _estimated_len(self):
         num_samples = 0
+        total_short_dropped = 0.
+        
         for session_name, sampling_intervals in self.interval_dict.items():
             for start, end in sampling_intervals:
                 interval_length = end - start
-                assert interval_length >= self.window_length, (
-                    f"Interval {(start, end)} is too short to sample from. "
-                    f"Minimum length is {self.window_length}."
-                )
+                if interval_length < self.window_length:
+                    if self.drop_short:
+                        total_short_dropped += interval_length
+                        continue
+                    else:
+                        raise ValueError (
+                            f"Interval {(start, end)} is too short to sample from. "
+                            f"Minimum length is {self.window_length}."
+                            )
 
                 num_samples += math.floor(interval_length / self.window_length)
+
+        if self.drop_short and total_short_dropped > 0:
+            logging.warning(
+                f"Skipping {total_short_dropped} seconds of data due to short "
+                f"intervals. Will train on {num_samples * self.window_length} seconds."
+                )
+            if num_samples == 0:
+                raise ValueError("All intervals are too short to sample from.")
         return num_samples
 
     def __len__(self):
@@ -62,10 +80,14 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
         for session_name, sampling_intervals in self.interval_dict.items():
             for start, end in sampling_intervals:
                 interval_length = end - start
-                assert interval_length >= self.window_length, (
-                    f"Interval {(start, end)} is too short to sample from. "
-                    f"Minimum length is {self.window_length}."
-                )
+                if interval_length < self.window_length:
+                    if self.drop_short:
+                        continue
+                    else:
+                        raise ValueError (
+                            f"Interval {(start, end)} is too short to sample from. "
+                            f"Minimum length is {self.window_length}."
+                            )
 
                 # sample a random offset
                 left_offset = (
@@ -130,6 +152,7 @@ class SequentialFixedWindowSampler(torch.utils.data.Sampler):
         interval_dict: Dict[str, List[Tuple[int, int]]],
         window_length: float,
         step: Optional[float] = None,
+        drop_short=False,
     ):
         self.interval_dict = interval_dict
         self.window_length = window_length

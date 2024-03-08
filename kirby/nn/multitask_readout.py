@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torchtyping import TensorType
 
-from kirby.taxonomy import DecoderSpec, Output
+from kirby.taxonomy import DecoderSpec, Decoder, Task
 from kirby.data.collate import collate, chain, track_batch
 from kirby.nn import compute_loss_or_metric
 
@@ -14,25 +14,32 @@ class MultitaskReadout(nn.Module):
     def __init__(
         self,
         latent_dim: int,
-        task_specs: Dict[str, DecoderSpec],
+        decoder_specs: Dict[str, DecoderSpec],
+        batch_type="stacked",
     ):
         super().__init__()
 
         # Create a bunch of projection layers. One for each task
         self.projections = nn.ModuleDict({})
-        for taskname, spec in task_specs.items():
-            self.projections[taskname] = nn.Linear(latent_dim, spec.dim)
+        for decoder_id, spec in decoder_specs.items():
+            self.projections[decoder_id] = nn.Linear(latent_dim, spec.dim)
 
         # Need task specs layer to decide loss type
-        self.task_specs = task_specs
+        self.decoder_specs = decoder_specs
+        self.batch_type = batch_type
 
     def forward(
         self,
-        output_latents: Union[TensorType["batch", "max_ntout", "dim"], TensorType["total_ntout", "dim"]],
-        output_task_index: Union[TensorType["batch", "max_ntout"], TensorType["total_ntout"]],
-        output_batch_index: Optional[TensorType["max_ntout"]] = None,
+        output_latents: Union[
+            TensorType["batch", "max_ntout", "dim"], TensorType["total_ntout", "dim"]
+        ],
+        output_decoder_index: Union[
+            TensorType["batch", "max_ntout"], TensorType["total_ntout"]
+        ],
+        output_batch_index: Optional[TensorType["total_ntout"]] = None,
         output_values: Dict[str, TensorType["*ntout_task", "*nchannelsout"]] = None,
         output_weights: Dict[str, TensorType["*ntout_task"]] = None,
+        unpack_output: bool = False,
     ) -> Tuple[
         Dict[str, TensorType["batch", "*nqueries", "*nchannelsout"]],
         Union[None, torch.Tensor],
@@ -51,60 +58,80 @@ class MultitaskReadout(nn.Module):
         if output_batch_index is not None:
             # Inputs were chained, make sure input dimensions make sense
             assert output_latents.dim() == 2
-            assert output_task_index.dim() == 1
+            assert output_decoder_index.dim() == 1
             assert output_batch_index.dim() == 1
             batch_size = output_batch_index.max().item() + 1
         else:
             # Inputs were not chained, make sure input dimensions make sense
             assert output_latents.dim() == 3
-            assert output_task_index.dim() == 2
+            assert output_decoder_index.dim() == 2
             batch_size = output_latents.shape[0]
 
         outputs = [{} for _ in range(batch_size)]
         taskwise_loss = {}
         loss = torch.tensor(0, device=output_latents.device, dtype=torch.float32)
 
-        for taskname, spec in self.task_specs.items():
+        for decoder_id, spec in self.decoder_specs.items():
             # the taskid is a universal unique identifier for the task
-            taskid = Output.from_string(taskname).value
+            decoder_index = Decoder.from_string(decoder_id).value
 
             # get the mask of tokens that belong to this task
-            mask = output_task_index == taskid
-            
+            mask = output_decoder_index == decoder_index
+
             if not torch.any(mask):
-                # there is not a single token for this task, so we skip
+                # there is not a single token in the batch for this task, so we skip
                 continue
-            
+
             # apply the projection
-            task_output = self.projections[taskname](output_latents[mask])
+            task_output = self.projections[decoder_id](output_latents[mask])
 
+            # we need to distribute the outputs to their respective samples
+            if self.batch_type == "stacked":
+                token_batch = torch.where(mask)[0]
+            elif self.batch_type == "chained":
+                token_batch = output_batch_index[mask]
+            else:
+                raise ValueError(f"Unknown batch_type: {self.batch_type}")
+
+            unique_batch_indices = torch.unique(token_batch)
+            for batch_idx in unique_batch_indices:
+                outputs[batch_idx][decoder_id] = task_output[token_batch == batch_idx]
+
+            # compute loss
             if output_values is not None:
-                target = output_values[taskname]
-                
-                weights = 1.0
-                if taskname in output_weights and output_weights[taskname] is not None:
-                    weights = output_weights[taskname]
+                target = output_values[decoder_id]
 
-                taskwise_loss[taskname] = compute_loss_or_metric(
+                weights = 1.0
+                if (
+                    decoder_id in output_weights
+                    and output_weights[decoder_id] is not None
+                ):
+                    weights = output_weights[decoder_id]
+
+                taskwise_loss[decoder_id] = compute_loss_or_metric(
                     spec.loss_fn, spec.type, task_output, target, weights
                 )
 
             # we need to distribute the outputs to their respective samples
             if output_batch_index is None:
-                token_batch = torch.where(mask)[0]
+                batch_index_filtered_by_decoder = torch.where(mask)[0]
             else:
                 # Inputs where chained, and we have batch-indices for each token
-                token_batch = output_batch_index[mask]
+                batch_index_filtered_by_decoder = output_batch_index[mask]
 
-            batch, token_batch = torch.unique(token_batch, return_inverse=True)
-            for i in range(len(batch)):
-                outputs[batch[i]][taskname] = task_output[token_batch == i]
+            targeted_batch_elements, batch_index_filtered_by_decoder = torch.unique(
+                batch_index_filtered_by_decoder, return_inverse=True
+            )
+            for i in range(len(targeted_batch_elements)):
+                outputs[targeted_batch_elements[i]][decoder_id] = task_output[
+                    batch_index_filtered_by_decoder == i
+                ]
 
             if output_values is not None:
                 # Since we calculate a mean across all elements, scale by the number of
                 # items in the batch so we don't get wild swings in loss depending on
                 # whether we have large or small numbers of non-dominant classes.
-                loss = loss + taskwise_loss[taskname] * len(batch)
+                loss = loss + taskwise_loss[decoder_id] * len(targeted_batch_elements)
 
         loss = loss / batch_size
 
@@ -115,48 +142,51 @@ class MultitaskReadout(nn.Module):
 
 
 def prepare_for_multitask_readout(
-    data, decoder_registry: Dict[str, DecoderSpec], weight_registry
+    data,
+    decoder_registry: Dict[str, DecoderSpec],
 ):
+    decoder_index = list()
     timestamps = list()
-    task_index = list()
-    subtask_index = dict()
     values = dict()
+    # task_index = dict()
+    subtask_index = dict()
     weights = dict()
 
-    for metric in data.description["metrics"]:
-        key = metric["output_key"]
+    config = data.config["multitask_readout"]
 
-        task_index.append(Output.from_string(key).value)
-        timestamps.append(
-            data.get_nested_attribute(decoder_registry[key].timestamp_key)
-        )
+    for decoder in config:
+        key = decoder["decoder_id"]
+        weight = decoder.get("weight", 1.0)
+        subtask_weights = decoder.get("subtask_weights", {})
 
-        values[key] = data.get_nested_attribute(decoder_registry[key].value_key)
-        
+        decoder = decoder_registry[key].__dict__ | decoder  # config overrides registry
+
+        decoder_index.append(Decoder.from_string(key).value)
+        timestamps.append(data.get_nested_attribute(decoder["timestamp_key"]))
+
+        values[key] = data.get_nested_attribute(decoder["value_key"])
         # here we assume that we won't be running a model at float64 precision
+        # TODO do this in decoder spec?
         if values[key].dtype == np.float64:
             values[key] = values[key].astype(np.float32)
 
-        if decoder_registry[key].subtask_key is not None:
-            subtask_index[key] = data.get_nested_attribute(decoder_registry[key].subtask_key)
+        # if decoder["task_index"] is not None:
+        #     task_index[key] = data.get_nested_attribute(decoder["task_index"])
+        # else:
+        #     task_index[key] = np.zeros(len(values[key]), dtype=np.int64)
+
+        if decoder["subtask_key"] is not None:
+            subtask_index[key] = data.get_nested_attribute(decoder["subtask_key"])
+            num_subtasks = Task.from_string(list(subtask_weights.keys())[0]).max_value()
+            subtask_weight_map = np.ones(num_subtasks, dtype=np.float32)
+            for subtask, subtask_weight in subtask_weights.items():
+                subtask_weight_map[Task.from_string(subtask).value] = subtask_weight
+
+            subtask_weight_map *= weight
+            weights[key] = subtask_weight_map[subtask_index[key]]
         else:
             subtask_index[key] = np.zeros(len(values[key]), dtype=np.int64)
-        
-        weights_ = torch.tensor(
-            [weight_registry.get(int(x.item()), -1.0) for x in subtask_index[key]]
-        )
-
-        # Either we have weights for all or for none (implicitly, everything
-        # has a weight of 1 in that case). There shouldn't be any
-        # in-between cases, which would mean there's an undefined behaviour.
-        if torch.any(weights_ == -1.0) and not torch.all(weights_ == -1.0):
-            idx = torch.where(weights_ == 0)[0][0]
-            raise ValueError(
-                f"Could not find weights for behavior #{subtask_index[key][idx]}"
-            )
-
-        weights_[weights_ == -1.0] = 1.0
-        weights[key] = weights_ * metric.get("weight", 1.0)
+            weights[key] = np.ones(len(values[key]), dtype=np.float32) * weight
 
     # chain
     timestamps, batch = collate(
@@ -165,6 +195,6 @@ def prepare_for_multitask_readout(
             for i in range(len(timestamps))
         ]
     )
-    task_index = torch.tensor(task_index)[batch]
+    decoder_index = torch.tensor(decoder_index)[batch]
 
-    return timestamps, task_index, values, weights, subtask_index
+    return timestamps, decoder_index, values, weights, subtask_index

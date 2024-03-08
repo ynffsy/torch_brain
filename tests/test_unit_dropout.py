@@ -1,12 +1,12 @@
 import numpy as np
 
-from kirby.data.data import Data, IrregularTimeSeries
-from kirby.transforms.unit_dropout import UnitCustomDistribution, UnitDropout
+from kirby.data.data import Data, ArrayDict, IrregularTimeSeries
+from kirby.transforms.unit_dropout import TriangleDistribution, UnitDropout
 
 
 def test_distro():
     for i in range(100):
-        num_units = UnitCustomDistribution(
+        num_units = TriangleDistribution(
             min_units=100, mode_units=150, max_units=200
         ).sample(196)
         assert num_units >= 100 and num_units <= 200
@@ -16,6 +16,8 @@ def test_spikes():
     timestamps = np.zeros(100)
     unit_index = [0] * 10 + [1] * 20 + [2] * 70
     unit_index = np.array(unit_index)
+    # shuffle units
+    np.random.shuffle(unit_index)
     types = np.zeros(100)
 
     for i in range(100):
@@ -24,23 +26,29 @@ def test_spikes():
                 timestamps=timestamps,
                 unit_index=unit_index,
                 types=types,
+                domain="auto",
             ),
-            units=Data(
-                unit_name=["a", "b", "c"],
+            units=ArrayDict(
+                id=np.array(["a", "b", "c"]),
             ),
+            domain="auto",
         )
-        do = UnitDropout(min_units=1, mode_units=2, max_units=3)
-        data_t = do(data)
+        transform = UnitDropout(min_units=1, mode_units=2, max_units=2)
+        data_t = transform(data)
         assert data_t.spikes.timestamps.shape[0] in (10, 20, 30, 70, 80, 90, 100)
-        print(np.unique(data_t.spikes.unit_index), data_t.units.unit_name)
-        assert len(data_t.units.unit_name) == 3  # We don't currently remove units
+        assert 1 <= len(data_t.units.id) <= 2
         assert len(data_t.spikes.timestamps) == len(data_t.spikes.unit_index)
+        assert np.unique(data_t.spikes.unit_index).shape[0] == len(data_t.units.id)
 
-        for key, value in data.spikes.__dict__.items():
-            if value is None:
-                continue
+        original_unit_ids = data.units.id[data.spikes.unit_index]
+        original_timestamps = data.spikes.timestamps
 
-            if key.startswith("_"):
-                continue
+        transformed_unit_ids = data_t.units.id[data_t.spikes.unit_index]
+        transformed_timestamps = data_t.spikes.timestamps
 
-            assert value.shape[0] == len(data_t.spikes.timestamps)
+        for unit_id in data.units.id:
+            if unit_id in transformed_unit_ids:
+                assert np.allclose(
+                    original_timestamps[original_unit_ids == unit_id],
+                    transformed_timestamps[transformed_unit_ids == unit_id],
+                )

@@ -28,8 +28,10 @@ from kirby.data.sampler import RandomFixedWindowSampler, SequentialFixedWindowSa
 from kirby.taxonomy import decoder_registry
 from kirby.transforms import Compose
 from kirby.utils import logging, seed_everything, train_wrapper
-from kirby.models import POYOPlusTokenizer
+from kirby.models.capoyo import CaPOYOTokenizer
 
+import os
+wandb_project = os.environ.get('WANDB_PROJECT')
 
 def run_training(cfg: DictConfig):
     # Fix random seed, skipped if cfg.seed is None
@@ -46,8 +48,7 @@ def run_training(cfg: DictConfig):
     # make model
     model = hydra.utils.instantiate(
         cfg.model,
-        task_specs=decoder_registry,
-        backend_config=cfg.backend_config,
+        decoder_specs=decoder_registry,
         _convert_="object",
     )
 
@@ -60,10 +61,12 @@ def run_training(cfg: DictConfig):
     )
 
     # build tokenizer
-    tokenizer = POYOPlusTokenizer(
+    tokenizer = CaPOYOTokenizer(
         model.unit_emb.tokenizer,
         model.session_emb.tokenizer,
         decoder_registry=decoder_registry,
+        dim=model.dim,
+        patch_size=model.patch_size,
         latent_step=1 / 8,
         num_latents_per_step=cfg.model.num_latents,
         batch_type=model.batch_type,
@@ -75,9 +78,10 @@ def run_training(cfg: DictConfig):
     train_dataset = Dataset(
         cfg.data_root,
         "train",
-        include=OmegaConf.to_container(cfg.datasets),  # converts to native list[dicts]
+        include=OmegaConf.to_container(cfg.dataset),  # converts to native list[dicts]
         transform=transform,
     )
+    train_dataset.disable_data_leakage_check()
     # In Lightning, testing only happens once, at the end of training. To get the
     # intended behavior, we need to specify a validation set instead.
     val_tokenizer = copy.copy(tokenizer)
@@ -85,10 +89,9 @@ def run_training(cfg: DictConfig):
     val_dataset = Dataset(
         cfg.data_root,
         "test",
-        include=OmegaConf.to_container(cfg.datasets),  # converts to native list[dicts]
+        include=OmegaConf.to_container(cfg.dataset),  # converts to native list[dicts]
         transform=val_tokenizer
     )
-
     # register units and sessions
     model.unit_emb.initialize_vocab(train_dataset.unit_ids)
     model.session_emb.initialize_vocab(train_dataset.session_ids)
@@ -183,8 +186,8 @@ def run_training(cfg: DictConfig):
 
     wandb = lightning.pytorch.loggers.WandbLogger(
         name=cfg.name,
-        project="poyo",
-        log_model=True,
+        project=wandb_project,
+        log_model=True
     )
     print(f"Wandb ID: {wandb.version}")
 
@@ -225,7 +228,7 @@ def run_training(cfg: DictConfig):
     )
 
     log.info(
-        f"Local rank/node rank/world size/num nodes: {trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/{trainer.num_nodes}"
+        f"Local rank/node rank/world size/num nodes: {trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/trainer.num_nodes"
     )
 
     for logger in trainer.loggers:

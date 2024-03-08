@@ -4,14 +4,14 @@ from einops import repeat, rearrange
 
 
 class RotaryEmbedding(nn.Module):
-    r"""Custom rotary positional embedding layer. This function generates sinusoids of 
-    different frequencies, which are then used to modulate the input data. Half of the 
+    r"""Custom rotary positional embedding layer. This function generates sinusoids of
+    different frequencies, which are then used to modulate the input data. Half of the
     dimensions are not rotated.
 
     The frequencies are computed as follows:
-    
+
     .. math::
-        f(i) = \frac{2\pi}{t_{\min}} \cdot \frac{t_{\max}}{t_\{min}}^{2i/dim}}
+        f(i) = {t_{\min}} \cdot \frac{t_{\max}}{t_\{min}}^{2i/dim}}
 
     To rotate the input data, use :func:`apply_rotary_pos_emb`.
 
@@ -20,10 +20,11 @@ class RotaryEmbedding(nn.Module):
         t_min (float, optional): Minimum period of the sinusoids.
         t_max (float, optional): Maximum period of the sinusoids.
     """
+
     def __init__(self, dim, t_min=1e-4, t_max=4.0):
         super().__init__()
-        inv_freq = torch.zeros(dim // 2)
-        inv_freq[: dim // 4] = (
+        omega = torch.zeros(dim // 2)
+        omega[: dim // 4] = (
             2
             * torch.pi
             / (
@@ -35,17 +36,17 @@ class RotaryEmbedding(nn.Module):
             )
         )
 
-        self.register_buffer("inv_freq", inv_freq)
+        self.register_buffer("omega", omega)
 
     def forward(self, timestamps):
         r"""Computes the rotation matrices for given timestamps.
-        
+
         Args:
             timestamps (torch.Tensor): timestamps tensor.
         """
-        freqs = torch.einsum("..., f -> ... f", timestamps, self.inv_freq)
-        freqs = repeat(freqs, "... n -> ... (n r)", r=2)
-        return freqs
+        angles = torch.einsum("..., f -> ... f", timestamps, self.omega)
+        angles = repeat(angles, "... n -> ... (n r)", r=2)
+        return angles
 
 
 def rotate_half(x):
@@ -55,18 +56,20 @@ def rotate_half(x):
     return rearrange(x, "... d r -> ... (d r)")
 
 
-def apply_rotary_pos_emb(freqs, x, dim=2):
+def apply_rotary_pos_emb(pos_emb, x, head_dim=2):
     r"""Apply the rotary positional embedding to the input data.
-    
+
     Args:
-        freqs (torch.Tensor): Frequencies of the sinusoids.
+        pos_emb (torch.Tensor): Angles for different rotations.
         x (torch.Tensor): Input data.
-        dim (int, optional): Dimension along which to rotate.
+        head_dim (int, optional): Dimension of the head. Defaults to 2.
     """
     dtype = x.dtype
-    if dim == 1:
-        freqs = rearrange(freqs, "n ... -> n () ...")
-    elif dim == 2:
-        freqs = rearrange(freqs, "n m ... -> n m () ...")
-    x = (x * freqs.cos().to(dtype)) + (rotate_half(x) * freqs.sin().to(dtype))
+    # TODO this basically unsqueeze, fix it
+    if head_dim == 1:
+        pos_emb = rearrange(pos_emb, "n ... -> n () ...")
+    elif head_dim == 2:
+        pos_emb = rearrange(pos_emb, "n m ... -> n m () ...")
+
+    x = (x * pos_emb.cos().to(dtype)) + (rotate_half(x) * pos_emb.sin().to(dtype))
     return x
