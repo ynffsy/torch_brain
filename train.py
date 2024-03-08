@@ -28,7 +28,7 @@ from kirby.data.sampler import RandomFixedWindowSampler, SequentialFixedWindowSa
 from kirby.taxonomy import decoder_registry
 from kirby.transforms import Compose
 from kirby.utils import logging, seed_everything, train_wrapper
-from kirby.models import POYOTokenizer
+from kirby.models import POYOPlusTokenizer
 
 
 def run_training(cfg: DictConfig):
@@ -47,6 +47,7 @@ def run_training(cfg: DictConfig):
     model = hydra.utils.instantiate(
         cfg.model,
         task_specs=decoder_registry,
+        backend_config=cfg.backend_config,
         _convert_="object",
     )
 
@@ -59,13 +60,13 @@ def run_training(cfg: DictConfig):
     )
 
     # build tokenizer
-    tokenizer = POYOTokenizer(
+    tokenizer = POYOPlusTokenizer(
         model.unit_emb.tokenizer,
         model.session_emb.tokenizer,
         decoder_registry=decoder_registry,
         latent_step=1 / 8,
         num_latents_per_step=cfg.model.num_latents,
-        using_memory_efficient_attn=model.using_memory_efficient_attn,
+        batch_type=model.batch_type,
     )
 
     transform = Compose([*transforms, tokenizer])
@@ -224,7 +225,7 @@ def run_training(cfg: DictConfig):
     )
 
     log.info(
-        f"Local rank/node rank/world size/num nodes: {trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/trainer.num_nodes"
+        f"Local rank/node rank/world size/num nodes: {trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/{trainer.num_nodes}"
     )
 
     for logger in trainer.loggers:

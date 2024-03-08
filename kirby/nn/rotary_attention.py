@@ -1,4 +1,3 @@
-import logging
 from typing import Optional
 
 import torch
@@ -10,6 +9,13 @@ try:
     import xformers.ops as xops
 except ImportError:
     xops = None
+
+try:
+    from flash_attn import flash_attn_func, flash_attn_varlen_func
+except ImportError:
+    flash_attn_func = None
+    flash_attn_varlen_func = None
+
 
 from kirby.nn.rotary_embedding import apply_rotary_pos_emb
 
@@ -24,22 +30,54 @@ class RotaryCrossAttention(nn.Module):
         dim_head: int = 64,
         dropout: float = 0.0,
         rotate_value: bool = False,
-        use_memory_efficient_attn: bool =True,
+        batch_type: str = "stacked",
+        backend: str = "mem_efficient",
     ):
         super().__init__()
-
-        if use_memory_efficient_attn and xops is None:
-            logging.warning(
-                "xformers is not installed, falling back to default attention"
-            )
-            use_memory_efficient_attn = False
 
         inner_dim = dim_head * heads
         context_dim = context_dim or dim
         self.heads = heads
         self.dropout = dropout
         self.rotate_value = rotate_value
-        self.using_memory_efficient_attn = use_memory_efficient_attn
+
+        if batch_type not in ["stacked", "chained"]:
+            raise ValueError(
+                f"Unknown batch_type: {batch_type}, must be one of 'stacked', 'chained'"
+            )
+        self.batch_type = batch_type
+
+        if backend not in ["math", "mem_efficient", "flash"]:
+            raise ValueError(
+                f"Unknown backend: {backend}, must be one of 'math', "
+                "'mem_efficient', 'flash'"
+            )
+
+        if backend == "mem_efficient" and xops is None:
+            raise ImportError(
+                "xformers not installed, please install `xformers` "
+                "to use the mem_efficient backend or choose "
+                "another backend."
+            )
+        
+        if backend == "mem_efficient" and batch_type == "chained" and dropout > 0.:
+            raise ValueError(
+                "Dropout is not supported with the mem_efficient backend when the input"
+                " is chained. This is caused by a current bug in xformers, either set "
+                "`dropout` to 0 or choose another backend."
+            )
+
+        if backend == "math" and batch_type == "chained":
+            raise ValueError(
+                f"Chained batching is not supported with the math backend."
+            )
+
+        if backend == "flash" and flash_attn_func is None:
+            raise ImportError(
+                "flash_attn not installed, please install `flash_attn`"
+                " to use the flash backend, or choose another backend."
+            )
+        self.backend = backend
 
         # build networks
         self.norm = nn.LayerNorm(dim)
@@ -53,14 +91,13 @@ class RotaryCrossAttention(nn.Module):
         self,
         x_query,
         x_context,
-        rotary_time_emb_query,
-        rotary_time_emb_context,
+        query_pos_emb,
+        context_pos_emb,
         *,
         context_mask=None,
         query_seqlen=None,
         context_seqlen=None,
     ):
-
         # normalize and project to q, k, v
         x_query = self.norm(x_query)
         x_context = self.norm_context(x_context)
@@ -68,26 +105,40 @@ class RotaryCrossAttention(nn.Module):
         q = self.to_q(x_query)
         k, v = self.to_kv(x_context).chunk(2, dim=-1)
 
-        if self.using_memory_efficient_attn:
-            if context_mask is not None:
-                raise NotImplementedError(
-                    f"Got non-None `attn_mask`. "
-                    f"This implementation with memory efficient attention only works "
-                    f"with `x_seqlen` for handling unequal sample lengths. Traditional "
-                    f"padding approach is supported with normal non-memory efficient "
-                    f"attention."
-                )
+        if self.batch_type == "stacked":
+            assert query_seqlen is None and context_seqlen is None
+
+            rotary_attn_func = rotary_attn_backend_map[self.backend]
+
+            out = rotary_attn_func(
+                query=q,
+                key=k,
+                value=v,
+                q_pos_emb=query_pos_emb,
+                kv_pos_emb=context_pos_emb,
+                num_heads=self.heads,
+                dropout_p=self.dropout if self.training else 0,
+                rotate_value=self.rotate_value,
+                attn_mask=context_mask,
+            )
+
+        elif self.batch_type == "chained":
+            assert context_mask is None
 
             if query_seqlen is None or context_seqlen is None:
                 raise ValueError(
-                    f"Both `query_seqlen` and `context_seqlen` must be valid "
-                    f"sequence lengths."
+                    "Both `query_seqlen` and `context_seqlen` must be "
+                    "provided for chained batching."
                 )
 
-            out = rotary_memory_efficient_attention(
-                q=q, k=k, v=v,
-                rotary_time_emb_q=rotary_time_emb_query, 
-                rotary_time_emb_kv=rotary_time_emb_context,
+            rotary_attn_varlen_func = rotary_attn_varlen_backend_map[self.backend]
+
+            out = rotary_attn_varlen_func(
+                query=q,
+                key=k,
+                value=v,
+                q_pos_emb=query_pos_emb,
+                kv_pos_emb=context_pos_emb,
                 num_heads=self.heads,
                 dropout_p=self.dropout if self.training else 0,
                 rotate_value=self.rotate_value,
@@ -95,26 +146,7 @@ class RotaryCrossAttention(nn.Module):
                 kv_seqlen=context_seqlen,
             )
 
-        else:
-            if query_seqlen is not None or context_seqlen is not None:
-                raise NotImplementedError(
-                    f"Got non-None `*_seqlen`. "
-                    f"You are using torch's attention implementation, which only "
-                    f"accepts `attn_mask`."
-                    f"If you wish to use seqlen, please use memory efficient "
-                    f"attention. "
-                )
-
-            out = rotary_default_attention(
-                q=q, k=k, v=v,
-                rotary_time_emb_q=rotary_time_emb_query, 
-                rotary_time_emb_kv=rotary_time_emb_context,
-                num_heads=self.heads,
-                dropout_p=self.dropout if self.training else 0,
-                rotate_value=self.rotate_value,
-                kv_mask=context_mask,
-            )
-        
+        # project back to dim
         out = self.to_out(out)
         return out
 
@@ -128,21 +160,46 @@ class RotarySelfAttention(nn.Module):
         dim_head: int = 64,
         dropout: float = 0.0,
         rotate_value: bool = False,
-        use_memory_efficient_attn: bool = True,
+        batch_type: str = "stacked",
+        backend: str = "mem_efficient",
     ):
         super().__init__()
-
-        if use_memory_efficient_attn and xops is None:
-            logging.warning(
-                "xformers is not installed, falling back to default attention"
-            )
-            use_memory_efficient_attn = False
 
         inner_dim = dim_head * heads
         self.heads = heads
         self.dropout = dropout
-        self.using_memory_efficient_attn = use_memory_efficient_attn
         self.rotate_value = rotate_value
+
+        if batch_type not in ["stacked", "chained"]:
+            raise ValueError(
+                f"Unknown batch_type: {batch_type}, must be one of 'stacked', 'chained'"
+            )
+        self.batch_type = batch_type
+
+        if backend not in ["math", "mem_efficient", "flash"]:
+            raise ValueError(
+                f"Unknown backend: {backend}, must be one of 'math', "
+                "'mem_efficient', 'flash'"
+            )
+
+        if backend == "mem_efficient" and xops is None:
+            raise ImportError(
+                "xformers not installed, please install `xformers` "
+                "to use the mem_efficient backend or choose "
+                "another backend."
+            )
+
+        if backend == "math" and batch_type == "chained":
+            raise ValueError(
+                f"Chained batching is not supported with the math backend."
+            )
+
+        if backend == "flash" and flash_attn_func is None:
+            raise ImportError(
+                "flash_attn not installed, please install `flash_attn`"
+                " to use the flash backend, or choose another backend."
+            )
+        self.backend = backend
 
         # build networks
         self.norm = nn.LayerNorm(dim)
@@ -151,9 +208,9 @@ class RotarySelfAttention(nn.Module):
         self.to_out = nn.Linear(inner_dim, dim)
 
     def forward(
-        self, 
-        x, 
-        rotary_time_emb, 
+        self,
+        x,
+        rotary_time_emb,
         *,
         x_mask=None,
         x_seqlen=None,
@@ -161,176 +218,275 @@ class RotarySelfAttention(nn.Module):
 
         x = self.norm(x)
         q, k, v = self.to_qkv(x).chunk(3, dim=-1)
-        
-        if self.using_memory_efficient_attn:
-            if x_mask is not None:
-                raise NotImplementedError(
-                    f"Got non-None `attn_mask`. "
-                    f"This implementation with memory efficient attention only works "
-                    f"with `x_seqlen` for handling unequal sample lengths. Traditional "
-                    f"padding approach is supported with normal non-memory efficient "
-                    f"attention."
-                )
+
+        if self.batch_type == "stacked":
+            rotary_attn_func = rotary_attn_backend_map[self.backend]
+            
+            out = rotary_attn_func(
+                query=q,
+                key=k,
+                value=v,
+                q_pos_emb=rotary_time_emb,
+                kv_pos_emb=rotary_time_emb,
+                num_heads=self.heads,
+                dropout_p=self.dropout if self.training else 0,
+                rotate_value=self.rotate_value,
+                attn_mask=x_mask,
+            )
+
+        elif self.batch_type == "chained":
+            assert x_mask is None
 
             if x_seqlen is None:
-                raise ValueError(
-                    f"`x_seqlen` must be a valid sequence length."
-                )
+                raise ValueError("`x_seqlen` must be provided.")
 
-            out = rotary_memory_efficient_attention(
-                q=q, k=k, v=v,
-                rotary_time_emb_q=rotary_time_emb,
-                rotary_time_emb_kv=rotary_time_emb,
+            rotary_attn_varlen_func = rotary_attn_varlen_backend_map[self.backend]
+
+            out = rotary_attn_varlen_func(
+                query=q,
+                key=k,
+                value=v,
+                q_pos_emb=rotary_time_emb,
+                kv_pos_emb=rotary_time_emb,
                 num_heads=self.heads,
                 dropout_p=self.dropout if self.training else 0,
                 rotate_value=self.rotate_value,
                 q_seqlen=x_seqlen,
-                kv_seqlen=None, # self-attention has the same seqlen for q, k, v
+                kv_seqlen=None,  # self-attention has the same seqlen for q, k, v
             )
 
-        else:
-            if x_seqlen is not None:
-                raise NotImplementedError(
-                    f"Got non-None `x_seqlen`. "
-                    f"You are using torch's attention implementation, which only "
-                    f"accepts `attn_mask`."
-                    f"If you wish to use `x_seqlen`, please use memory efficient "
-                    f"attention. "
-                )
-
-            out = rotary_default_attention(
-                q=q, k=k, v=v,
-                rotary_time_emb_q=rotary_time_emb,
-                rotary_time_emb_kv=rotary_time_emb,
-                num_heads=self.heads,
-                dropout_p=self.dropout if self.training else 0,
-                rotate_value=self.rotate_value,
-                kv_mask=x_mask,
-            )
-        
         out = self.to_out(out)
         return out
 
 
-def rotary_default_attention(
+def rotary_attn_func(
     *,
-    q, # (b, n_q, (h d), )
-    k, # (b, n_kv, (h d), )
-    v, # (b, n_kv, (h d), )
-    rotary_time_emb_q, # (b, n_q, d)
-    rotary_time_emb_kv, # (b, n_kv, d)
+    query,
+    key,
+    value,
+    q_pos_emb,
+    kv_pos_emb,
+    attn_mask=None,
     num_heads: int,
     dropout_p: float,
     rotate_value: bool,
-    kv_mask=None, # (b, n_kv)
-): # Output: (b, n, (h d), )
+):
+    # uses the default scaled dot product attention from pytorch
+    # https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
+    # this implements basic versions of memory efficient attention and flash attention
+    # but more advanced versions are available in xformers and flash_attn (varlen)
+    # which allow us to perform complex masking operations
+    # TODO add documentation for rotate_value
     r"""Wraps the default attention implementation with rotary embedding application.
+
+    Args:
+        query: The query tensor, with shape (b, n_q, (h d))
+        key: The key tensor, with shape (b, n_kv, (h d))
+        value: The value tensor, with shape (b, n_kv, (h d))
+        q_pos_emb: The query rotary position embedding, with shape (b, n_q, d)
+        kv_pos_emb: The key rotary position embedding, with shape (b, n_kv, d)
+        num_heads: The number of attention heads
+        dropout_p: The dropout probability
+        rotate_value: Whether to rotate the value in addition to the query and key
+        attn_mask: The attention mask, with shape (b, n_kv)
+
+    Returns:
+        The output tensor, with shape (b, n_q, (h d))
     """
 
     # default attention expects shape b h n d
-    q = rearrange(q, "b n (h d) -> b h n d", h=num_heads)
-    k = rearrange(k, "b n (h d) -> b h n d", h=num_heads)
-    v = rearrange(v, "b n (h d) -> b h n d", h=num_heads)
+    query = rearrange(query, "b n (h d) -> b h n d", h=num_heads)
+    key = rearrange(key, "b n (h d) -> b h n d", h=num_heads)
+    value = rearrange(value, "b n (h d) -> b h n d", h=num_heads)
 
     # apply rotary embeddings
-    q = apply_rotary_pos_emb(rotary_time_emb_q, q, dim=1)
-    k = apply_rotary_pos_emb(rotary_time_emb_kv, k, dim=1)
+    query = apply_rotary_pos_emb(q_pos_emb, query, head_dim=1)
+    key = apply_rotary_pos_emb(kv_pos_emb, key, head_dim=1)
     if rotate_value:
-        v = apply_rotary_pos_emb(rotary_time_emb_kv, v, dim=1)
+        value = apply_rotary_pos_emb(kv_pos_emb, value, head_dim=1)
 
     # attention mask
-    if kv_mask is not None:
-        kv_mask = rearrange(kv_mask, "b n -> b () () n") 
+    if attn_mask is not None:
+        attn_mask = rearrange(attn_mask, "b n -> b () () n")
 
     # perform attention, by default will use the optimal attention implementation
     out = F.scaled_dot_product_attention(
-        q, k, v, attn_mask=kv_mask, dropout_p=dropout_p,
+        query,
+        key,
+        value,
+        attn_mask=attn_mask,
+        dropout_p=dropout_p,
     )
 
     if rotate_value:
-        out = apply_rotary_pos_emb(-rotary_time_emb_q, out, dim=1)
+        out = apply_rotary_pos_emb(-q_pos_emb, out, head_dim=1)
 
     # return (b, n, (h d), )
     out = rearrange(out, "b h n d -> b n (h d)")
     return out
 
 
-def rotary_memory_efficient_attention(
+def mem_efficient_rotary_attn_func(
     *,
-    q, # (n, (h d), )
-    k, # (n, (h d), )
-    v, # (n, (h d), )
-    rotary_time_emb_q, # (n, d)
-    rotary_time_emb_kv, # (n, d)
+    query,
+    key,
+    value,
+    q_pos_emb,
+    kv_pos_emb,
+    attn_mask=None,
     num_heads: int,
     dropout_p: float,
     rotate_value: bool,
-    q_seqlen=None,
-    kv_seqlen=None,
-): # Output: (n, (h d), )
-    r"""Wraps the memory efficient attention implementation with rotary embedding 
+):
+    r"""Wraps the memory efficient attention implementation with rotary embedding
     application.
+
+    Args:
+        query: The query tensor, with shape (b n (h d))
+        key: The key tensor, with shape (b n (h d))
+        value: The value tensor, with shape (b n (h d))
+        q_pos_emb: The query rotary position embedding, with shape (b n d)
+        kv_pos_emb: The key rotary position embedding, with shape (b n d)
+        attn_mask: The attention mask, with shape (b, n_kv)
+        num_heads: The number of attention heads
+        dropout_p: The dropout probability
+        rotate_value: Whether to rotate the value in addition to the query and key
+
+    Returns:
+        The output tensor, with shape (b n (h d))
     """
+    # xformers attention expects shape (1, n, h, d)
+    query = rearrange(query, "b n (h d) -> b n h d", h=num_heads)
+    key = rearrange(key, "b n (h d) -> b n h d", h=num_heads)
+    value = rearrange(value, "b n (h d) -> b n h d", h=num_heads)
 
-    # xformers attention expects shape (1, n, h, d, ) 
-    q = rearrange(q, "n (h d) -> n h d", h=num_heads).unsqueeze(0)
-    k = rearrange(k, "n (h d) -> n h d", h=num_heads).unsqueeze(0)
-    v = rearrange(v, "n (h d) -> n h d", h=num_heads).unsqueeze(0)
+    query = apply_rotary_pos_emb(q_pos_emb, query, head_dim=2)
+    key = apply_rotary_pos_emb(kv_pos_emb, key, head_dim=2)
 
-    q = apply_rotary_pos_emb(rotary_time_emb_q.unsqueeze(0), q)
-    k = apply_rotary_pos_emb(rotary_time_emb_kv.unsqueeze(0), k)
     if rotate_value:
-        v = apply_rotary_pos_emb(rotary_time_emb_kv.unsqueeze(0), v)
+        value = apply_rotary_pos_emb(kv_pos_emb, value, head_dim=2)
 
-    # Fill attention_bias with BlockDiagonalMask
+    # WARNING: this is very slow, avoid using attn_mask if possible, refer to xformers
+    # documentation
+    attn_mask = (
+        repeat(attn_mask, "b m -> b h n m", h=num_heads, n=query.size(1))
+        if attn_mask is not None
+        else None
+    )
+    attn_bias = (
+        attn_mask.float().masked_fill(attn_mask, float("-inf"))
+        if attn_mask is not None
+        else None
+    )
+
+    out = xops.memory_efficient_attention(
+        query,
+        key,
+        value,
+        attn_bias=attn_bias,
+        p=dropout_p,
+    )
+
+    if rotate_value:
+        out = apply_rotary_pos_emb(-q_pos_emb, out, head_dim=2)
+
+    out = rearrange(out, "b n h d -> b n (h d)")
+    return out
+
+
+def mem_efficient_rotary_attn_varlen_func(
+    *,
+    query,
+    key,
+    value,
+    q_pos_emb,
+    kv_pos_emb,
+    q_seqlen,
+    kv_seqlen,
+    num_heads: int,
+    dropout_p: float,
+    rotate_value: bool,
+):
+    r"""Wraps the memory efficient attention implementation with rotary embedding
+    application.
+
+    Args:
+        query: The query tensor, with shape (n, (h d))
+        key: The key tensor, with shape (n, (h d))
+        value: The value tensor, with shape (n, (h d))
+        query_pos_emb: The query rotary position embedding, with shape (n, d)
+        key_pos_emb: The key rotary position embedding, with shape (n, d)
+        num_heads: The number of attention heads
+        dropout_p: The dropout probability
+        rotate_value: Whether to rotate the value in addition to the query and key
+        q_seqlen: The sequence length of the query tensor
+        kv_seqlen: The sequence length of the key and value tensors
+
+    Returns:
+        The output tensor, with shape (n, (h d))
+    """
+    # xformers attention expects shape (1, n, h, d)
+    query = rearrange(query, "n (h d) -> () n h d", h=num_heads)
+    key = rearrange(key, "n (h d) -> () n h d", h=num_heads)
+    value = rearrange(value, "n (h d) -> () n h d", h=num_heads)
+
+    # TODO check rotation works
+    query = apply_rotary_pos_emb(q_pos_emb.unsqueeze(0), query)
+    key = apply_rotary_pos_emb(kv_pos_emb.unsqueeze(0), key)
+
+    if rotate_value:
+        value = apply_rotary_pos_emb(kv_pos_emb.unsqueeze(0), value)
+
+    if isinstance(q_seqlen, torch.Tensor):
+        q_seqlen = q_seqlen.tolist()
+    if isinstance(kv_seqlen, torch.Tensor):
+        kv_seqlen = kv_seqlen.tolist()
+    
+    # fill attention_bias with BlockDiagonalMask
     with torch.no_grad():
-        # xformers expects 'list' of seqlens
-        if q_seqlen is None:
-            raise ValueError(
-                f"`q_seqlen` must be a valid sequence length."
-            )
-        elif isinstance(q_seqlen, torch.Tensor):
-            q_seqlen = q_seqlen.tolist()
-        elif not isinstance(q_seqlen, list):
-            raise ValueError(
-                f"`q_seqlen` must be a list or a torch.Tensor, "
-                f"got {type(q_seqlen)}"
-            )
-
-        if kv_seqlen is not None:
-            # xformers expects 'list' of seqlens
-            if isinstance(kv_seqlen, torch.Tensor):
-                kv_seqlen = kv_seqlen.tolist()
-            elif not isinstance(kv_seqlen, list):
-                raise ValueError(
-                    f"`kv_seqlen` must be a list or a torch.Tensor, "
-                    f"got {type(kv_seqlen)}"
-                )
-            
         attn_bias = xops.fmha.BlockDiagonalMask.from_seqlens(
             q_seqlen=q_seqlen,
             kv_seqlen=kv_seqlen,
         )
 
-    op = None
-    if dropout_p != 0.0:
-        # There's a bug in xformers where the backward pass for the implementation
-        # it chooses by default doesn't really work with dropout. FlashAttention
-        # has been tested to work with dropout, so we use that instead.
-        op = xops.MemoryEfficientAttentionFlashAttentionOp
-
     out = xops.memory_efficient_attention(
-        query=q, 
-        key=k, 
-        value=v, 
-        attn_bias=attn_bias, 
+        query,
+        key,
+        value,
+        attn_bias=attn_bias,
         p=dropout_p,
-        op=op,
     )
 
     if rotate_value:
-        out = apply_rotary_pos_emb(-rotary_time_emb_q.unsqueeze(0), out)
+        out = apply_rotary_pos_emb(-q_pos_emb.unsqueeze(0), out)
 
-    # return (n, (h d), ), b = 1 is removed
-    out = rearrange(out, "b n h d -> b n (h d)").squeeze(0)
+    out = rearrange(out, "() n h d -> n (h d)")
     return out
+
+
+rotary_attn_backend_map = {
+    "math": rotary_attn_func,
+    "mem_efficient": mem_efficient_rotary_attn_func,
+    "flash": None,  # not implemented
+}
+
+rotary_attn_varlen_backend_map = {
+    "mem_efficient": mem_efficient_rotary_attn_varlen_func,
+    "flash": None,  # not implemented
+}
+
+
+# op = None
+# if dropout_p != 0.0:
+#     # There's a bug in xformers where the backward pass for the implementation
+#     # it chooses by default doesn't really work with dropout. FlashAttention
+#     # has been tested to work with dropout, so we use that instead.
+#     op = xops.MemoryEfficientAttentionFlashAttentionOp
+
+# out = xops.memory_efficient_attention(
+#     query=q, 
+#     key=k, 
+#     value=v, 
+#     attn_bias=attn_bias, 
+#     p=dropout_p,
+#     op=op,

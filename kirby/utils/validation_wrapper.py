@@ -70,11 +70,11 @@ class CustomValidator(Callback):
             gt_output = [{} for _ in range(batch_size)]
 
             # collect ground truth
-            for taskname, spec in pl_module.model.readout.task_specs.items():
+            for taskname, spec in pl_module.model.readout.decoder_specs.items():
                 taskid = Decoder.from_string(taskname).value
 
                 # get the mask of tokens that belong to this task
-                mask = batch["output_task_index"] == taskid
+                mask = batch["output_decoder_index"] == taskid
 
                 if not torch.any(mask):
                     # there is not a single token for this task, so we skip
@@ -205,7 +205,7 @@ class CustomValidator(Callback):
                         timestamps = timestamps[mask]
                     
                     # pool
-                    output_type = pl_module.model.readout.task_specs[taskname].type
+                    output_type = pl_module.model.readout.decoder_specs[taskname].type
                     if output_type == OutputType.CONTINUOUS:
                         pred = avg_pool(timestamps, pred)
                         gt = avg_pool(timestamps, gt)
@@ -224,7 +224,7 @@ class CustomValidator(Callback):
                         pred = pred.mean(dim=0).unsqueeze(0)
 
                     # Compute metrics
-                    task_spec = pl_module.model.readout.task_specs[taskname]
+                    task_spec = pl_module.model.readout.decoder_specs[taskname]
 
                     # Resolve the appropriate loss function.
                     metrics[f"val_{session_id}_{str(taskname.lower())}_r2"] = (

@@ -24,6 +24,7 @@ pct_start: 0.5
 num_workers: 4
 log_dir: ./logs
 name: poyo_mp_mini
+backend_config: gpu_fp32
 precision: 32
 nodes: 1
 gpus: 1

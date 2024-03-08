@@ -1,4 +1,4 @@
-_target_: kirby.models.poyo.POYO
+_target_: kirby.models.POYOPlus
 dim: 64
 dim_head: 64
 num_latents: 16
