@@ -5,7 +5,7 @@ from kirby.data import Data, RegularTimeSeries, IrregularTimeSeries
 
 
 class TriangleDistribution:
-    r"""Triangular distribution with a peak at mode_units, going from min_units to 
+    r"""Triangular distribution with a peak at mode_units, going from min_units to
     max_units.
     """
     def __init__(
@@ -25,7 +25,7 @@ class TriangleDistribution:
         self.peak = peak
         self.M = M
         self.max_attempts = max_attempts
-        
+
         # TODO pass a generator?
         self.rng = np.random.default_rng(seed=seed)
 
@@ -70,18 +70,18 @@ class TriangleDistribution:
 
 
 class UnitDropout:
-    r"""Augmentation that randomly drops units from the sample. This will remove the 
+    r"""Augmentation that randomly drops units from the sample. This will remove the
     dropped units from `data.units` and all spikes from the dropped units. This will
-    also relabel the unit_index in `data.spikes`. 
-    
-    This currently assumes that the data object contains `data.units.id` and 
+    also relabel the unit_index in `data.spikes`.
+
+    This currently assumes that the data object contains `data.units.id` and
     `data.spikes.unit_index`.
     """
     def __init__(self, field="spikes", *args, **kwargs):
         # TODO allow multiple fields (example: spikes + LFP)
         self.field = field
         # TODO this currently assumes the type of distribution we use, in the future,
-        # the distribution might be passed as an argument. 
+        # the distribution might be passed as an argument.
         self.distribution = TriangleDistribution(*args, **kwargs)
 
     def __call__(self, data: Data):
@@ -99,16 +99,16 @@ class UnitDropout:
         unit_mask[keep_indices] = True
 
         data.units = data.units.select_by_mask(unit_mask)
-        
+
         nested_attr = self.field.split(".")
         target_obj = getattr(data, nested_attr[0])
         if isinstance(target_obj, IrregularTimeSeries):
             # make a mask to select spikes that are from the units we want to keep
             spike_mask = np.isin(target_obj.unit_index, keep_indices)
-            
+
             # using lazy masking, we will apply the mask for all attributes from spikes
-            # and units. 
-            setattr(target_obj.select_by_mask(spike_mask), self.field)
+            # and units.
+            setattr(data, self.field, target_obj.select_by_mask(spike_mask))
 
             relabel_map = np.zeros(num_units, dtype=np.long)
             relabel_map[unit_mask] = np.arange(unit_mask.sum())

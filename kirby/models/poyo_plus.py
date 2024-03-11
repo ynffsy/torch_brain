@@ -34,7 +34,7 @@ BACKEND_CONFIGS = {
         ("mem_efficient", "mem_efficient", "mem_efficient"),
     ),
     "gpu_fp16": (
-        ("chained", "stacked", "chained"), 
+        ("chained", "stacked", "chained"),
         ("flash", "flash", "flash")
     ),
 }
@@ -62,7 +62,7 @@ class POYOPlus(nn.Module):
         self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.session_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.spike_type_emb = Embedding(4, dim, init_scale=emb_init_scale)
-        self.task_emb = Embedding(Decoder.max_value(), dim, init_scale=emb_init_scale)
+        self.task_emb = Embedding(Decoder.max_value()+1, dim, init_scale=emb_init_scale)
         self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
 
         # determine backend
