@@ -8,27 +8,28 @@ hydra:
   searchpath:
     - pkg://kirby/configs
 
-train_transforms: []
-  # - _target_: kirby.transforms.UnitDropout
-  #   max_units: 1000
-  #   min_units: 20
-  #   mode_units: 60
-  #   peak: 4
+train_transforms:
+  - _target_: kirby.transforms.UnitDropout
+    field: "calcium_traces.df_over_f"
+    max_units: 1000
+    min_units: 20
+    mode_units: 60
+    peak: 4
 
 data_root: ./data/processed/
 seed: 42
 batch_size: 128
 eval_epochs: 10
 steps: 0  # Note we either specify epochs or steps, not both.
-epochs: 100
+epochs: 500
 base_lr: 1.5625e-5
-weight_decay: 0.0001
+weight_decay: 1e-4
 # Fraction of epochs to warmup for.
 pct_start: 0.5
 num_workers: 4
 log_dir: ./logs
 name: calcium_openscope_single_sess_all
-backend_config: gpu_fp32_var
+backend_config: gpu_fp32
 precision: 32
 nodes: 1
 gpus: 1

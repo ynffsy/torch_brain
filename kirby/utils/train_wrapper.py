@@ -1,5 +1,6 @@
 import time
 import subprocess
+import logging
 from typing import Optional
 
 import torch
@@ -8,10 +9,7 @@ from lightning import LightningModule
 import lightning.pytorch.loggers as pl_loggers
 from lightning.pytorch.callbacks import Callback
 
-from kirby.utils import logging
 from kirby.utils.validation_wrapper import CustomValidator
-
-console = logging(header="TRAIN WRAPPER", header_color="red")
 
 
 class TrainWrapper(LightningModule):
@@ -58,7 +56,7 @@ class TrainWrapper(LightningModule):
             result = ""
 
         # Log the output
-        console.info(f"Memory info: \n{result}")
+        logging.info(f"Memory info: \n{result}")
 
     def on_train_epoch_start(self):
         self.epoch_time = time.time()
@@ -71,8 +69,8 @@ class TrainWrapper(LightningModule):
             output_predictions = torch.cat(
                 [pred[name] for pred in output if name in pred], dim=0
             )
-            self.log(f"outputs/mean_{name}", output_predictions.mean(), prog_bar=False)
-            self.log(f"outputs/std_{name}", output_predictions.std(), prog_bar=False)
+            self.log(f"predictions/mean_{name}", output_predictions.mean(), prog_bar=False)
+            self.log(f"predictions/std_{name}", output_predictions.std(), prog_bar=False)
             self.log(
                 f"targets/mean_{name}",
                 data["output_values"][name].to(torch.float).mean(),
@@ -84,10 +82,10 @@ class TrainWrapper(LightningModule):
                 prog_bar=False,
             )
 
-        if "spike_ids" in data:
-            s = data["spike_ids"].to(torch.float)
-            self.log("inputs/mean_spike_ids", s.mean(), prog_bar=False)
-            self.log("inputs/std_spike_ids", s.std(), prog_bar=False)
+        if "unit_index" in data:
+            s = data["unit_index"].to(torch.float)
+            self.log("inputs/mean_unit_index", s.mean(), prog_bar=False)
+            self.log("inputs/std_unit_index", s.std(), prog_bar=False)
 
         self.log("train_loss", loss, prog_bar=True)
 
@@ -95,8 +93,8 @@ class TrainWrapper(LightningModule):
 
     def on_train_epoch_end(self):
         for tag, value in self.model.named_parameters():
-            self.log(f"vals/mean_{tag}", value.cpu().mean(), sync_dist=True)
-            self.log(f"vals/std_{tag}", value.cpu().std(), sync_dist=True)
+            self.log(f"weights/mean_{tag}", value.cpu().mean(), sync_dist=True)
+            self.log(f"weights/std_{tag}", value.cpu().std(), sync_dist=True)
             if value.grad is not None:
                 self.log(
                     f"grads/mean_{tag}",
@@ -118,7 +116,7 @@ class UnfreezeAtEpoch(Callback):
 
     def on_train_epoch_start(self, trainer, pl_module):
         if trainer.current_epoch == self._unfreeze_at_epoch:
-            console.info(
+            logging.info(
                 f"Reached epoch {trainer.current_epoch}, unfreezing entire model"
             )
             for module in pl_module.model.children():

@@ -165,7 +165,6 @@ class CustomValidator(Callback):
 
         # Gather
         if trainer.world_size > 1:
-            raise NotImplementedError("Gathering is not yet fully tested.")
             session_timestamp = gather_concat_dict(session_timestamp)
             session_gt_output = gather_concat_dict(session_gt_output)
             session_pred_output = gather_concat_dict(session_pred_output)
@@ -214,20 +213,14 @@ class CustomValidator(Callback):
                         OutputType.MULTINOMIAL,
                         OutputType.MULTILABEL,
                     ]:
-                        assert gt.ndim == 2
-                        assert gt.shape[1] == 1, "Only one label per trial is supported."
-                        if gt.shape[0] > 1:
-                            assert all(
-                                torch.all(gt[0] == x) for x in gt
-                            ), "All labels must be the same for a trial."
-                        gt = gt[0].unsqueeze(0)
-                        pred = pred.mean(dim=0).unsqueeze(0)
+                        gt = avg_pool(timestamps, gt).long()
+                        pred = avg_pool(timestamps, pred)
 
                     # Compute metrics
                     task_spec = pl_module.model.readout.decoder_specs[taskname]
 
                     # Resolve the appropriate loss function.
-                    metrics[f"val_{session_id}_{str(taskname.lower())}_r2"] = (
+                    metrics[f"val_{session_id}_{str(taskname.lower())}_{metric['metric']}"] = (
                         compute_loss_or_metric(metric["metric"], task_spec.type, pred, gt, 1.0).item()
                     )
 
@@ -245,9 +238,13 @@ class CustomValidator(Callback):
 
 def avg_pool(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
     unique_timestamps, indices = torch.unique(timestamps, return_inverse=True)
-    averages = torch.zeros((len(unique_timestamps), values.shape[1]))
+    averages = torch.zeros((len(unique_timestamps), *values.shape[1:]))
 
     for i in range(len(unique_timestamps)):
         group_values = values[indices == i]
-        averages[i] = torch.mean(group_values, dim=0)
+
+        if group_values.dtype == torch.long:
+            averages[i] = torch.mode(group_values, dim=0).values
+        else:
+            averages[i] = torch.mean(group_values, dim=0)
     return averages

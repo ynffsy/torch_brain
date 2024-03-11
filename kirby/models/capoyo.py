@@ -62,11 +62,12 @@ class CaPOYO(nn.Module):
 
         # determine backend
         if backend_config not in BACKEND_CONFIGS.keys():
-            raise ValueError(f"Invalid backend config: {backend_config}, must be one of"
-                             f" {list(BACKEND_CONFIGS.keys())}")
+            raise ValueError(
+                f"Invalid backend config: {backend_config}, must be one of"
+                f" {list(BACKEND_CONFIGS.keys())}"
+            )
 
         self.batch_type = BACKEND_CONFIGS[backend_config][0]
-
 
         self.perceiver_io = PerceiverRotary(
             dim=dim,
