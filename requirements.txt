@@ -33,7 +33,7 @@ snakemake~=7.32.3
 torchtyping~=0.1
 torchtext==0.17.0 # required, from here: https://github.com/pytorch/text#installation
 mne~=1.5
-pydantic==1.10.13
+pydantic==2.6.3
 seaborn~=0.13
 dandi==0.60.0
 allensdk==2.16.2
