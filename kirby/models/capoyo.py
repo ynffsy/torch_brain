@@ -51,7 +51,7 @@ class CaPOYO(nn.Module):
         self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.token_type_emb = Embedding(4, dim, init_scale=emb_init_scale)
         self.value_embedding_layer = nn.Linear(patch_size, dim, bias=False)
-        self.unit_feat_embedding_layer = nn.Linear(3, dim, bias=False)
+        self.unit_feat_embedding_layer = nn.Linear(3, dim, bias=True)
 
         # latent embs
         self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
@@ -235,12 +235,12 @@ class CaPOYOTokenizer:
 
         ### prepare input
         unit_ids = data.units.id
-        unit_spatial_emb = get_sinusoidal_encoding(
+        unit_lvl_spatial_emb = get_sinusoidal_encoding(
             data.units.imaging_plane_xy[:, 0],
             data.units.imaging_plane_xy[:, 1],
             self.dim // 2,
         ).astype(np.float32)
-        unit_feats = np.stack(
+        unit_lvl_feats = np.stack(
             [
                 data.units.imaging_plane_area,
                 data.units.imaging_plane_width,
@@ -276,9 +276,9 @@ class CaPOYOTokenizer:
         # now flatten
         patches = rearrange(calcium_traces, "t d c -> (t c) d")
         unit_index = repeat(np.arange(num_rois), "c -> (t c)", t=timestamps.shape[0])
-        unit_feats = repeat(unit_feats, "c f -> (t c) f", t=timestamps.shape[0])
+        unit_feats = repeat(unit_lvl_feats, "c f -> (t c) f", t=timestamps.shape[0])
         unit_spatial_emb = repeat(
-            unit_spatial_emb, "c d -> (t c) d", t=timestamps.shape[0]
+            unit_lvl_spatial_emb, "c d -> (t c) d", t=timestamps.shape[0]
         )
         timestamps = repeat(timestamps, "t -> (t c)", c=num_rois)
 
@@ -303,15 +303,13 @@ class CaPOYOTokenizer:
         )
         unit_feats = np.concatenate(
             [
-                np.zeros(
-                    (se_unit_index.shape[0], unit_feats.shape[1]), dtype=np.float32
-                ),
+                unit_lvl_feats[se_unit_index],
                 unit_feats,
             ]
         )
         unit_spatial_emb = np.concatenate(
             [
-                np.zeros((se_unit_index.shape[0], unit_spatial_emb.shape[1]), dtype=np.float32),
+                unit_lvl_spatial_emb[se_unit_index],
                 unit_spatial_emb,
             ]
         )

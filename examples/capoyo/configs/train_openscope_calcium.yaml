@@ -1,7 +1,7 @@
 # Path: configs/train.yaml
 defaults:
   - _self_
-  - model: capoyo2.5M.yaml
+  - model: capoyo1.3M.yaml
   - dataset: gillon_richards_responses_2023.yaml
 
 hydra:
