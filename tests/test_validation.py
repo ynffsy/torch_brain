@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import torch
 import pytest
 import lightning
 import util
@@ -10,7 +11,7 @@ from kirby.data.sampler import SequentialFixedWindowSampler
 from kirby.data.collate import collate
 from kirby.models import POYOPlus, POYOPlusTokenizer
 from kirby.taxonomy import decoder_registry
-from kirby.utils import train_wrapper
+from kirby.utils import train_wrapper, validation_wrapper
 
 import util
 
@@ -93,6 +94,97 @@ def test_validation():
     metrics = validator.on_validation_epoch_start(trainer, wrapper)
 
     assert "val_mc_maze_small/jenkins_20090928_maze_armvelocity2d_r2" == metrics.iloc[0].name
+
+
+def avg_pool_naive(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
+    unique_timestamps, indices = torch.unique(timestamps, return_inverse=True)
+    averages = torch.zeros((len(unique_timestamps), *values.shape[1:]))
+
+    for i in range(len(unique_timestamps)):
+        group_values = values[indices == i]
+
+        if group_values.dtype == torch.long:
+            averages[i] = torch.mode(group_values, dim=0).values
+        else:
+            averages[i] = torch.mean(group_values, dim=0)
+    return averages
+
+
+def test_avg_pool():
+    # Test cases with different input shapes and data types
+    test_cases = [
+        # case: ground truth, float32. Should meanpool.
+        (
+            torch.tensor([0, 0, 1, 1, 2]),
+            torch.tensor([[1.5], [2.5], [3.9], [4.0], [5.0]]),
+        ),
+        # case: ground truth, int64. Should modepool.
+        (torch.tensor([0, 0, 1, 1, 2]), torch.tensor([[1], [2], [3], [4], [5]])),
+        # case: pred tensors with 2 classes. Should meanpool.
+        (
+            torch.tensor([0, 0, 1, 1, 2]),
+            torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0], [1.0, 0.0]]),
+        ),
+    ]
+
+    for timestamps, values in test_cases:
+        # Fast implementation
+        fast_output = validation_wrapper.avg_pool(timestamps, values)
+        # Naive implementation
+        naive_output = avg_pool_naive(timestamps, values)
+        if values.dtype == torch.long:
+            fast_output = fast_output.long()
+            naive_output = naive_output.long()
+        # Compare the outputs
+        assert torch.allclose(
+            fast_output, naive_output, atol=1e-6
+        ), f"Fast and naive outputs do not match for inputs:\ntimestamps: {timestamps}\nvalues: {values}"
+
+
+def avg_pool_naive(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
+    unique_timestamps, indices = torch.unique(timestamps, return_inverse=True)
+    averages = torch.zeros((len(unique_timestamps), *values.shape[1:]))
+
+    for i in range(len(unique_timestamps)):
+        group_values = values[indices == i]
+
+        if group_values.dtype == torch.long:
+            averages[i] = torch.mode(group_values, dim=0).values
+        else:
+            averages[i] = torch.mean(group_values, dim=0)
+    return averages
+def test_avg_pool():
+    # Test cases with different input shapes and data types
+    test_cases = [
+        # case: ground truth, float32. Should meanpool.
+        (
+            torch.tensor([0, 0, 1, 1, 2]),
+            torch.tensor([[1.5], [2.5], [3.9], [4.0], [5.0]])
+        ),
+        # case: ground truth, int64. Should modepool.
+        (
+            torch.tensor([0, 0, 1, 1, 2]),
+            torch.tensor([[1], [2], [3], [4], [5]])
+        ),
+        # case: pred tensors with 2 classes. Should meanpool.
+        (
+            torch.tensor([0, 0, 1, 1, 2]),
+            torch.tensor([[1., 0.], [0., 1.], [1., 0.], [0., 1.], [1., 0.]])
+        ),
+    ]
+
+    for timestamps, values in test_cases:
+        # Fast implementation
+        fast_output = validation_wrapper.avg_pool(timestamps, values)
+        # Naive implementation
+        naive_output = avg_pool_naive(timestamps, values)
+        if values.dtype == torch.long:
+            fast_output = fast_output.long()
+            naive_output = naive_output.long()
+        # Compare the outputs
+        assert torch.allclose(
+            fast_output, naive_output, atol=1e-6
+        ), f"Fast and naive outputs do not match for inputs:\ntimestamps: {timestamps}\nvalues: {values}"
 
 
 # def test_validation_willett():

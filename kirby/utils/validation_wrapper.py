@@ -126,20 +126,28 @@ class CustomValidator(Callback):
                         )
                     else:
                         session_pred_output[session_id][taskname] = torch.cat(
-                            (session_pred_output[session_id][taskname],
-                            pred_values.detach().cpu(),)
+                            (
+                                session_pred_output[session_id][taskname],
+                                pred_values.detach().cpu(),
+                            )
                         )
                         session_gt_output[session_id][taskname] = torch.cat(
-                            (session_gt_output[session_id][taskname],
-                            gt_output[i][taskname].detach().cpu(),)
+                            (
+                                session_gt_output[session_id][taskname],
+                                gt_output[i][taskname].detach().cpu(),
+                            )
                         )
                         session_timestamp[session_id][taskname] = torch.cat(
-                            (session_timestamp[session_id][taskname],
-                            timestamps[i][taskname].detach().cpu(),)
+                            (
+                                session_timestamp[session_id][taskname],
+                                timestamps[i][taskname].detach().cpu(),
+                            )
                         )
                         session_subtask_index[session_id][taskname] = torch.cat(
-                            (session_subtask_index[session_id][taskname],
-                            subtask_index[i][taskname].detach().cpu(),)
+                            (
+                                session_subtask_index[session_id][taskname],
+                                subtask_index[i][taskname].detach().cpu(),
+                            )
                         )
 
         def gather_concat_dict(obj):
@@ -178,15 +186,17 @@ class CustomValidator(Callback):
             session_gt_output,
             desc=f"Compiling metrics @ Epoch {trainer.current_epoch}",
             disable=(trainer.local_rank != 0),
-        ):            
+        ):
             for taskname in session_gt_output[session_id]:
-                decoders = self.loader.dataset.session_info_dict[session_id]["config"]["multitask_readout"]
-                
+                decoders = self.loader.dataset.session_info_dict[session_id]["config"][
+                    "multitask_readout"
+                ]
+
                 decoder = None
                 for decoder_ in decoders:
                     if decoder_["decoder_id"] == taskname:
                         decoder = decoder_
-                
+
                 assert decoder is not None, f"Decoder not found for {taskname}"
                 metrics_spec = decoder["metrics"]
                 for metric in metrics_spec:
@@ -202,7 +212,7 @@ class CustomValidator(Callback):
                         gt = gt[mask]
                         pred = pred[mask]
                         timestamps = timestamps[mask]
-                    
+
                     # pool
                     output_type = pl_module.model.readout.decoder_specs[taskname].type
                     if output_type == OutputType.CONTINUOUS:
@@ -213,16 +223,18 @@ class CustomValidator(Callback):
                         OutputType.MULTINOMIAL,
                         OutputType.MULTILABEL,
                     ]:
-                        gt = avg_pool(timestamps, gt).long()
+                        gt = gt_pool(timestamps, gt)
                         pred = avg_pool(timestamps, pred)
 
                     # Compute metrics
                     task_spec = pl_module.model.readout.decoder_specs[taskname]
 
                     # Resolve the appropriate loss function.
-                    metrics[f"val_{session_id}_{str(taskname.lower())}_{metric['metric']}"] = (
-                        compute_loss_or_metric(metric["metric"], task_spec.type, pred, gt, 1.0).item()
-                    )
+                    metrics[
+                        f"val_{session_id}_{str(taskname.lower())}_{metric['metric']}"
+                    ] = compute_loss_or_metric(
+                        metric["metric"], task_spec.type, pred, gt, 1.0
+                    ).item()
 
         pl_module.log_dict(metrics)
         logging.info(f"Logged {len(metrics)} validation metrics.")
@@ -237,14 +249,68 @@ class CustomValidator(Callback):
 
 
 def avg_pool(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
-    unique_timestamps, indices = torch.unique(timestamps, return_inverse=True)
-    averages = torch.zeros((len(unique_timestamps), *values.shape[1:]))
+    r"""This function performs pooling operations (mean or mode) on a tensor based on
+    unique timestamps and the datatype of the values.
 
-    for i in range(len(unique_timestamps)):
-        group_values = values[indices == i]
+    Args:
+        timestamps (torch.Tensor): A 1D tensor containing timestamps.
+        values (torch.Tensor): A tensor of values that correspond to the timestamps. It
+            expects a tensor of shape (N, ...), where N is the number of timestamps.
 
-        if group_values.dtype == torch.long:
-            averages[i] = torch.mode(group_values, dim=0).values
-        else:
-            averages[i] = torch.mean(group_values, dim=0)
+    Returns:
+        torch.Tensor: A tensor with the pooled values for each unique timestamp. If the
+          values are continuous, the function performs mean pooling, averaging the
+          values for each unique timestamp. If the values are categorical (labels),
+          the function returns the mode of the values for each unique timestamp.
+
+    Note:
+        For mean pooling, this function leverages `torch.scatter_add_` to efficiently
+        aggregate values for each unique timestamp
+    """
+    # Find unique timestamps and their inverse indices
+    unique_timestamps, indices = torch.unique(
+        timestamps, return_inverse=True, sorted=True
+    )
+
+    # Prepare a tensor for summing values for each unique timestamp
+    pooled_sum = torch.zeros(
+        (len(unique_timestamps), *values.shape[1:]),
+        device=values.device,
+        dtype=values.dtype,
+    )
+
+    # Use mode for integers
+    if values.dtype == torch.long:
+        # NOT IDEAL, IT IS FASTER TO AVERAGE THE LOGITS THAN TO PERFORM A VOTE
+        mode_values = torch.zeros_like(pooled_sum)
+        for i, timestamp in enumerate(unique_timestamps):
+            mask = timestamps == timestamp
+            group_values = values[mask]
+            mode, _ = torch.mode(group_values, dim=0)
+            mode_values[i] = mode
+        return mode_values
+
+    # Count occurrences of each unique timestamp
+    counts = torch.zeros(
+        len(unique_timestamps), device=timestamps.device, dtype=values.dtype
+    )
+    counts = counts.scatter_add_(
+        0, indices, torch.ones_like(indices, dtype=values.dtype)
+    )
+    # Accumulate values for each unique timestamp
+    indices_expanded = indices.unsqueeze(-1).expand_as(values)
+    pooled_sum.scatter_add_(0, indices_expanded, values)
+    # Calculate the average
+    epsilon = 1e-8  # small constant to prevent division by zero
+    averages = torch.div(pooled_sum, counts.unsqueeze(-1) + epsilon)
+
     return averages
+
+
+def gt_pool(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
+    r"""Wrapper over `avg_pool` specifically for pooling ground truth categorical 
+    values.
+    """
+    return (
+        torch.round(avg_pool(timestamps, values.float().view(-1, 1))).long().squeeze()
+    )
