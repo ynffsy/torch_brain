@@ -76,6 +76,9 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
         return self._estimated_len
 
     def __iter__(self):
+        if len(self) == 0.:
+            raise ValueError("All intervals are too short to sample from.")
+
         indices = []
         for session_name, sampling_intervals in self.interval_dict.items():
             for start, end in sampling_intervals:

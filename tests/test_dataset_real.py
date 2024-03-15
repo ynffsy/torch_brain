@@ -1,91 +1,86 @@
-import os
-from collections import OrderedDict
 from pathlib import Path
 
-import msgpack
-import numpy.testing as npt
 import pytest
 import torch
-import torchtext
 import util
-from dateutil import parser
 from torch.utils.data import DataLoader
 
 from kirby.data import Dataset
-from kirby.data.dataset import Collate, DatasetIndex
 from kirby.data.sampler import SequentialFixedWindowSampler
-from kirby.models import PerceiverNM
-from kirby.taxonomy import (
-    ChunkDescription,
-    DandisetDescription,
-    SessionDescription,
-    SortsetDescription,
-    TrialDescription,
-    decoder_registry,
-    description_helper,
-    to_serializable,
-    weight_registry,
-)
-from kirby.taxonomy.taxonomy import Output, Task
+from kirby.data.collate import collate
+from kirby.models import POYOPlus, POYOPlusTokenizer
+from kirby.nn import InfiniteVocabEmbedding
+from kirby.taxonomy import decoder_registry
 from kirby.utils import move_to
 
 DATA_ROOT = Path(util.get_data_paths()["processed_dir"]) / "processed"
 
 
 def test_load_real_data():
-    ds = Dataset(DATA_ROOT, "train", [{"selection": {"dandiset": "mc_maze_small"}}])
-    first_interval = ds.session_info_dict[
-        "mc_maze_small/jenkins_20090928_maze"
-    ].sampling_interval[0]
+    ds = Dataset(DATA_ROOT, "train", [{"selection": [{"dandiset": "mc_maze_small"}]}])
+    sampling_intervals = ds.session_info_dict["mc_maze_small/jenkins_20090928_maze"][
+        "sampling_intervals"
+    ]
     assert (
         ds.get(
             "mc_maze_small/jenkins_20090928_maze",
-            first_interval.start,
-            first_interval.end,
+            sampling_intervals.start[0],
+            sampling_intervals.end[0],
         ).start
         >= 0
     )
 
 
-@pytest.skip("Not adapted to dev yet")
 def test_collate_data():
+    unit_emb = InfiniteVocabEmbedding(2)
+    sess_emb = InfiniteVocabEmbedding(2)
+
+    tokenizer = POYOPlusTokenizer(
+        unit_tokenizer=unit_emb.tokenizer,
+        session_tokenizer=sess_emb.tokenizer,
+        decoder_registry=decoder_registry,
+        latent_step=1.0 / 8,
+        num_latents_per_step=4,
+        batch_type=["stacked", "stacked", "stacked"],
+    )
+
     ds = Dataset(
         DATA_ROOT,
         "train",
         [
             {
-                "selection": {
-                    "dandiset": "mc_maze_small",
-                    "session": "jenkins_20090928_maze",
+                "selection": [
+                    {
+                        "dandiset": "mc_maze_small",
+                        "session": "jenkins_20090928_maze",
+                    }
+                ],
+                "config": {
+                    "multitask_readout": [
+                        {
+                            "decoder_id": "ARMVELOCITY2D",
+                            "weight": 2.0,
+                            "subtask_key": None,
+                        }
+                    ],
                 },
-                "metrics": [{"output_key": "ARMVELOCITY2D", "weight": 2.0}],
             }
         ],
+        transform=tokenizer,
     )
 
+    unit_emb.initialize_vocab(ds.unit_ids)
+    sess_emb.initialize_vocab(ds.session_ids)
+
     sampler = SequentialFixedWindowSampler(
-        interval_dict=ds.get_interval_dict(),
+        interval_dict=ds.get_sampling_intervals(),
         window_length=1.0,
     )
     assert len(sampler) > 0
 
-    od = OrderedDict({x: 1 for x in ds.unit_names})
-    vocab = torchtext.vocab.vocab(od, specials=["NA"])
-
-    collate_fn = Collate(
-        num_latents_per_step=128,  # This was tied in train_poyo_1.py
-        step=1.0 / 8,
-        sequence_length=128,
-        unit_vocab=vocab,
-        decoder_registry=decoder_registry,
-        weight_registry=weight_registry,
-    )
-    train_loader = DataLoader(ds, collate_fn=collate_fn, batch_size=16, sampler=sampler)
+    train_loader = DataLoader(ds, collate_fn=collate, batch_size=16, sampler=sampler)
     for data in train_loader:
         assert data["spike_timestamps"].shape[0] == 16
-        # npt.assert_allclose(
-        #     data["output_weights"]["ARMVELOCITY2D"].detach().cpu().numpy(), 2.0
-        # )
         break
 
 
@@ -169,57 +164,66 @@ def test_collate_data():
 #         )
 #         break
 
-@pytest.skip("Not adapted to dev yet")
+
 def test_collated_data_model():
+    model = POYOPlus(
+        task_specs=decoder_registry,
+        backend_config="cpu",
+    )
+
+    tokenizer = POYOPlusTokenizer(
+        unit_tokenizer=model.unit_emb.tokenizer,
+        session_tokenizer=model.session_emb.tokenizer,
+        decoder_registry=decoder_registry,
+        latent_step=1.0 / 8,
+        num_latents_per_step=4,
+        batch_type=["stacked", "stacked", "stacked"],
+    )
+
     ds = Dataset(
         DATA_ROOT,
         "train",
         [
             {
-                "selection": {
-                    "dandiset": "mc_maze_small",
-                    "session": "jenkins_20090928_maze",
+                "selection": [
+                    {
+                        "dandiset": "mc_maze_small",
+                        "session": "jenkins_20090928_maze",
+                    }
+                ],
+                "config": {
+                    "multitask_readout": [
+                        {
+                            "decoder_id": "ARMVELOCITY2D",
+                            "weight": 2.0,
+                            "subtask_key": None,
+                        }
+                    ],
                 },
-                "metrics": [{"output_key": "ARMVELOCITY2D"}],
             }
         ],
+        transform=tokenizer,
     )
+
+    model.unit_emb.initialize_vocab(ds.unit_ids)
+    model.session_emb.initialize_vocab(ds.session_ids)
 
     sampler = SequentialFixedWindowSampler(
-        interval_dict=ds.get_interval_dict(),
+        interval_dict=ds.get_sampling_intervals(),
         window_length=1.0,
     )
+    assert len(sampler) > 0
 
-    batch_size = 16
-    od = OrderedDict({x: 1 for x in ds.unit_names})
-    vocab = torchtext.vocab.vocab(od, specials=["NA"])
+    train_loader = DataLoader(ds, collate_fn=collate, batch_size=16, sampler=sampler)
+    device = "cpu"
 
-    collate_fn = Collate(
-        num_latents_per_step=16,  # This was tied in train_poyo_1.py
-        step=1.0 / 8,
-        sequence_length=1.0,
-        unit_vocab=vocab,
-        decoder_registry=decoder_registry,
-        weight_registry=weight_registry,
-    )
-    train_loader = DataLoader(
-        ds, collate_fn=collate_fn, batch_size=batch_size, sampler=sampler
-    )
-    model = PerceiverNM(
-        unit_vocab=vocab,
-        session_names=ds.session_names,
-        num_latents=16,
-        task_specs=decoder_registry,
-    )
-
-    model = model.to("cuda")
+    model = model.to(device)
     assert len(train_loader) > 0
     for data in train_loader:
-        data = move_to(data, "cuda")
-        output, loss, losses_taskwise = model(**data, compute_loss=True)
+        data = move_to(data, device)
+        output, loss, losses_taskwise = model(**data)
 
-        for taskname in data["output_values"].keys():
-            assert data["output_values"][taskname].shape[0] == output[taskname].shape[0]
+        assert len(output) == 16
         assert loss.shape == torch.Size([])  # it should be a scalar
         assert len(losses_taskwise.keys()) == len(data["output_values"].keys())
         break

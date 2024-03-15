@@ -103,17 +103,19 @@ def test_checkpointing():
         "word3": 3,
     }
 
+    ### UPDATE: The below test is no longer valid, since words are always sorted.
     # load checkpoint after vocab is initialized but the order of the words is different
-    emb = InfiniteVocabEmbedding(embedding_dim=128)
-    emb.initialize_vocab(["word3", "word1", "word2"])
-    state_dict = torch.load("checkpoint.pth")
-    emb.load_state_dict(state_dict)
+    # emb = InfiniteVocabEmbedding(embedding_dim=128)
+    # emb.initialize_vocab(["word3", "word1", "word2"])
+    # state_dict = torch.load("checkpoint.pth")
+    # emb.load_state_dict(state_dict)
 
-    assert emb.vocab == {
-        "NA": 0,
-        "word3": 1,
-        "word1": 2,
-        "word2": 3,
-    }
+    # assert emb.vocab == {
+    #     "NA": 0,
+    #     "word3": 1,
+    #     "word1": 2,
+    #     "word2": 3,
+    # }
 
-    assert torch.allclose(emb.weight, state_dict["weight"][[0, 3, 1, 2]])
+    # assert torch.allclose(emb.weight, state_dict["weight"][[0, 3, 1, 2]])
+    ###

@@ -1,33 +1,22 @@
-import os
-from collections import OrderedDict
 from pathlib import Path
 
 import msgpack
-import numpy.testing as npt
 import pytest
-import torch
-import torchtext
 import util
 from dateutil import parser
-from torch.utils.data import DataLoader
 import numpy as np
 import h5py
 
-from kirby.data import Dataset, Data, IrregularTimeSeries
-from kirby.models import PerceiverNM
+from kirby.data import Dataset, Data, IrregularTimeSeries, Interval
+from kirby.data.dataset_builder import encode_datetime
 from kirby.taxonomy import (
-    ChunkDescription,
     DandisetDescription,
     SessionDescription,
     SortsetDescription,
-    TrialDescription,
-    decoder_registry,
-    description_helper,
     to_serializable,
-    weight_registry,
 )
-from kirby.taxonomy.taxonomy import Output, Task
-from kirby.utils import move_to
+from kirby.taxonomy import Task
+
 
 DATA_ROOT = Path(util.get_data_paths()["uncompressed_dir"]) / "uncompressed"
 
@@ -55,11 +44,8 @@ def description_mpk(tmp_path):
                     SessionDescription(
                         id="20100101_01",
                         recording_date=parser.parse("2010-01-01T00:00:00"),
-                        task=Task.CONTINUOUS_REACHING,
-                        fields={Output.CURSOR2D: "cursor2d"},
-                        splits={
-                            "train": [(0, 1), (1, 2)]
-                        },
+                        task=Task.REACHING,
+                        splits={"train": [(0, 1), (1, 2)]},
                         trials=[],
                     )
                 ],
@@ -74,11 +60,8 @@ def description_mpk(tmp_path):
                     SessionDescription(
                         id="20100102_01",
                         recording_date=parser.parse("2010-01-01T00:00:00"),
-                        task=Task.CONTINUOUS_REACHING,
-                        fields={Output.FINGER3D: "finger3d"},
-                        splits={
-                            "train": [(0, 1), (1, 2), (2, 3)]
-                        },
+                        task=Task.REACHING,
+                        splits={"train": [(0, 1), (1, 2), (2, 3)]},
                         trials=[],
                     )
                 ],
@@ -89,7 +72,9 @@ def description_mpk(tmp_path):
 
     with open(tmp_path / id / "description.mpk", "wb") as f:
         msgpack.dump(
-            to_serializable(struct), f, default=description_helper.encode_datetime
+            to_serializable(struct),
+            f,
+            default=encode_datetime,
         )
 
     # Create dummy session files
@@ -97,15 +82,15 @@ def description_mpk(tmp_path):
         for session in sortset.sessions:
             filename = tmp_path / id / f"{session.id}.h5"
             dummy_data = Data(
-                start=0.0,
-                end=1.0,
                 spikes=IrregularTimeSeries(
                     timestamps=np.arange(0, 1, 0.1),
-                    ),
+                    domain="auto",
+                ),
+                domain=Interval(0, 1),
             )
             with h5py.File(filename, "w") as f:
                 dummy_data.to_hdf5(f)
-                
+
     return tmp_path
 
 
@@ -113,72 +98,73 @@ def test_dataset_selection(description_mpk):
     ds = Dataset(
         description_mpk,
         "train",
-        [{"selection": {"dandiset": "odoherty_sabes"}}],
+        [{"selection": [{"dandiset": "odoherty_sabes"}]}],
     )
     assert len(ds.session_info_dict) == 2
 
-    assert ds.session_info_dict["odoherty_sabes/20100101_01"].filename == (
+    assert ds.session_info_dict["odoherty_sabes/20100101_01"]["filename"] == (
         description_mpk / "odoherty_sabes" / "20100101_01.h5"
     )
-    assert ds.session_info_dict["odoherty_sabes/20100101_01"].session_id == "odoherty_sabes/20100101_01"
-    assert len(ds.session_info_dict["odoherty_sabes/20100101_01"].sampling_interval) == 2
+    assert (
+        len(ds.session_info_dict["odoherty_sabes/20100101_01"]["sampling_intervals"])
+        == 2
+    )
 
-    assert ds.session_info_dict["odoherty_sabes/20100102_01"].filename == (
+    assert ds.session_info_dict["odoherty_sabes/20100102_01"]["filename"] == (
         description_mpk / "odoherty_sabes" / "20100102_01.h5"
     )
-    assert ds.session_info_dict["odoherty_sabes/20100102_01"].session_id == "odoherty_sabes/20100102_01"
-    assert len(ds.session_info_dict["odoherty_sabes/20100102_01"].sampling_interval) == 3
+    assert (
+        len(ds.session_info_dict["odoherty_sabes/20100102_01"]["sampling_intervals"])
+        == 3
+    )
 
     ds = Dataset(
         description_mpk,
         "train",
-        [{"selection": {"dandiset": "odoherty_sabes", "subject": "alice"}}],
+        [{"selection": [{"dandiset": "odoherty_sabes", "subject": "alice"}]}],
     )
     assert len(ds.session_info_dict) == 1
-    assert ds.session_info_dict["odoherty_sabes/20100101_01"].filename == (
+    assert ds.session_info_dict["odoherty_sabes/20100101_01"]["filename"] == (
         description_mpk / "odoherty_sabes" / "20100101_01.h5"
     )
-    assert ds.session_info_dict["odoherty_sabes/20100101_01"].session_id == "odoherty_sabes/20100101_01"
-    assert len(ds.session_info_dict["odoherty_sabes/20100101_01"].sampling_interval) == 2
+    assert (
+        len(ds.session_info_dict["odoherty_sabes/20100101_01"]["sampling_intervals"])
+        == 2
+    )
 
     ds = Dataset(
         description_mpk,
         "train",
-        [{"selection": {"dandiset": "odoherty_sabes", "sortset": "20100101"}}],
+        [{"selection": [{"dandiset": "odoherty_sabes", "sortset": "20100101"}]}],
     )
     assert len(ds.session_info_dict) == 1
-    assert ds.session_info_dict["odoherty_sabes/20100101_01"].filename == (
+    assert ds.session_info_dict["odoherty_sabes/20100101_01"]["filename"] == (
         description_mpk / "odoherty_sabes" / "20100101_01.h5"
     )
-    assert ds.session_info_dict["odoherty_sabes/20100101_01"].session_id == "odoherty_sabes/20100101_01"
-    assert len(ds.session_info_dict["odoherty_sabes/20100101_01"].sampling_interval) == 2
+    assert (
+        len(ds.session_info_dict["odoherty_sabes/20100101_01"]["sampling_intervals"])
+        == 2
+    )
 
     ds = Dataset(
         description_mpk,
         "train",
         [
             {
-                "selection": {
-                    "dandiset": "odoherty_sabes",
-                    "session": "20100102_01",
-                }
+                "selection": [
+                    {
+                        "dandiset": "odoherty_sabes",
+                        "session": "20100102_01",
+                    }
+                ]
             }
         ],
     )
 
-    assert ds.session_info_dict["odoherty_sabes/20100102_01"].filename == (
+    assert ds.session_info_dict["odoherty_sabes/20100102_01"]["filename"] == (
         description_mpk / "odoherty_sabes" / "20100102_01.h5"
     )
-    assert ds.session_info_dict["odoherty_sabes/20100102_01"].session_id == "odoherty_sabes/20100102_01"
-    assert len(ds.session_info_dict["odoherty_sabes/20100102_01"].sampling_interval) == 3
-
-    ds = Dataset(
-        description_mpk,
-        "train",
-        [{"selection": {"dandiset": "odoherty_sabes", "output": "CURSOR2D"}}],
+    assert (
+        len(ds.session_info_dict["odoherty_sabes/20100102_01"]["sampling_intervals"])
+        == 3
     )
-    assert ds.session_info_dict["odoherty_sabes/20100101_01"].filename == (
-        description_mpk / "odoherty_sabes" / "20100101_01.h5"
-    )
-    assert ds.session_info_dict["odoherty_sabes/20100101_01"].session_id == "odoherty_sabes/20100101_01"
-    assert len(ds.session_info_dict["odoherty_sabes/20100101_01"].sampling_interval) == 2

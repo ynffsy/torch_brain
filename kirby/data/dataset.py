@@ -254,11 +254,12 @@ class Dataset(torch.utils.data.Dataset):
 
                 # Similarly, select for certain outputs
                 if sel_output is not None:
-                    sessions = [
-                        session
-                        for session in sessions
-                        if sel_output in session["fields"].keys()
-                    ]
+                    raise ValueError("Selecting dataset by 'output' is no longer possible.")
+                    # sessions = [
+                    #     session
+                    #     for session in sessions
+                    #     if sel_output in session["fields"].keys()
+                    # ]
 
                 # Now we get the session-level information
                 for session in sessions:

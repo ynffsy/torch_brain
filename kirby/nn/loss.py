@@ -27,6 +27,8 @@ def compute_loss_or_metric(
     """
     if output_type == OutputType.CONTINUOUS:
         if loss_or_metric == "mse":
+            # TODO mse could be used as a loss or as a metric. Currently it fails when
+            # called as a metric
             # MSE loss
             loss_noreduce = F.mse_loss(output, target, reduction="none").mean(dim=1)
             return (weights * loss_noreduce).sum() / weights.sum()

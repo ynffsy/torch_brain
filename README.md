@@ -7,7 +7,6 @@ Clone the project, enter the project's root directory, and then run the followin
 ```bash
 python3.9 -m venv venv           # create an empty virtual environment
 source venv/bin/activate         # activate it
-pip install pip==20.0.2 --upgrade  # downgrade pip, pip 23 is strict about conflicts. this is a temporary fix
 pip install -e .                 # install project-kirby into your path
 ```
 

@@ -105,11 +105,11 @@ def test_random_sampler():
 
 
     # Having window_length bigger than any interval should raise an error
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         sampler = RandomFixedWindowSampler(
             interval_dict=interval_dict,
-            window_length=3,
+            window_length=5,
             generator=torch.Generator().manual_seed(42),
         )
 
-        [_ for _ in sampler]
+        len(sampler)

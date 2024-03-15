@@ -1,16 +1,15 @@
-import os
-from collections import OrderedDict
 from pathlib import Path
 
+import pytest
 import lightning
-import torch
-import torchtext
-from omegaconf import DictConfig, OmegaConf
+import util
+from torch.utils.data import DataLoader
 
 from kirby.data import Dataset
-from kirby.data.dataset import Collate
-from kirby.models import PerceiverNM
-from kirby.taxonomy import decoder_registry, weight_registry
+from kirby.data.sampler import SequentialFixedWindowSampler
+from kirby.data.collate import collate
+from kirby.models import POYOPlus, POYOPlusTokenizer
+from kirby.taxonomy import decoder_registry
 from kirby.utils import train_wrapper
 
 import util
@@ -20,77 +19,80 @@ DATA_ROOT = Path(util.get_data_paths()["processed_dir"]) / "processed"
 
 # this test only passes when only one gpu is visible
 def test_validation():
+    model = POYOPlus(
+        task_specs=decoder_registry,
+        backend_config="cpu",
+    )
+
+    tokenizer = POYOPlusTokenizer(
+        unit_tokenizer=model.unit_emb.tokenizer,
+        session_tokenizer=model.session_emb.tokenizer,
+        decoder_registry=decoder_registry,
+        latent_step=1.0 / 8,
+        num_latents_per_step=4,
+        batch_type=["stacked", "stacked", "stacked"],
+        eval=True,
+    )
+
     ds = Dataset(
         DATA_ROOT,
         "valid",
-        OmegaConf.create(
-            [
-                {
-                    "selection": {
+        [
+            {
+                "selection": [
+                    {
                         "dandiset": "mc_maze_small",
                         "session": "jenkins_20090928_maze",
-                    },
-                    "metrics": [{"output_key": "ARMVELOCITY2D"}],
-                }
-            ]
-        ),
+                    }
+                ],
+                "config": {
+                    "multitask_readout": [
+                        {
+                            "decoder_id": "ARMVELOCITY2D",
+                            "weight": 2.0,
+                            "subtask_key": None,
+                            "metrics": [
+                                {
+                                    "metric": "r2",
+                                    "task": "REACHING",
+                                },
+                            ]
+                        }
+                    ],
+                },
+            }
+        ],
+        transform=tokenizer,
     )
-    batch_size = 16
 
-    od = OrderedDict({x: 1 for x in ds.unit_names})
-    vocab = torchtext.vocab.vocab(od, specials=["NA"])
+    model.unit_emb.initialize_vocab(ds.unit_ids)
+    model.session_emb.initialize_vocab(ds.session_ids)
 
-    collate_fn = Collate(
-        num_latents_per_step=16,  # This was tied in train_poyo_1.py
-        step=1.0 / 8,
-        sequence_length=1.0,
-        unit_vocab=vocab,
-        decoder_registry=decoder_registry,
-        weight_registry=weight_registry,
+    sampler = SequentialFixedWindowSampler(
+        interval_dict=ds.get_sampling_intervals(),
+        window_length=1.0,
     )
+    assert len(sampler) > 0
 
-    model = PerceiverNM(
-        unit_vocab=vocab,
-        session_names=ds.session_names,
-        num_latents=16,
-        task_specs=decoder_registry,
-    )
-    model = model.to("cuda")
+    loader = DataLoader(ds, collate_fn=collate, batch_size=16, sampler=sampler)
+
+    device = "cpu"
+
+    model = model.to(device)
 
     wrapper = train_wrapper.TrainWrapper(
         model=model,
         optimizer=None,
         scheduler=None,
     )
-    wrapper.to("cuda")
+    wrapper.to(device)
 
-    trainer = lightning.Trainer(accelerator="cuda")
+    trainer = lightning.Trainer(accelerator=device)
 
-    validator = train_wrapper.CustomValidator(ds, collate_fn)
-    r2 = validator.on_validation_epoch_start(trainer, wrapper)
+    validator = train_wrapper.CustomValidator(loader)
+    metrics = validator.on_validation_epoch_start(trainer, wrapper)
 
-    assert "mse_armvelocity2d" in r2.columns
-
-    ds = Dataset(
-        DATA_ROOT,
-        "valid",
-        OmegaConf.create(
-            [
-                {
-                    "selection": {
-                        "dandiset": "mc_maze_small",
-                        "session": "jenkins_20090928_maze",
-                    },
-                    "metrics": [{"output_key": "ARMVELOCITY2D", "metric": "r2"}],
-                }
-            ]
-        ),
-    )
-
-    validator = train_wrapper.CustomValidator(ds, collate_fn)
-    r2 = validator.on_validation_epoch_start(trainer, wrapper)
-
-    assert "r2_armvelocity2d" in r2.columns
+    assert "val_mc_maze_small/jenkins_20090928_maze_armvelocity2d_r2" == metrics.iloc[0].name
 
 
 # def test_validation_willett():
