@@ -59,8 +59,8 @@ class RotaryCrossAttention(nn.Module):
                 "to use the mem_efficient backend or choose "
                 "another backend."
             )
-        
-        if backend == "mem_efficient" and batch_type == "chained" and dropout > 0.:
+
+        if backend == "mem_efficient" and batch_type == "chained" and dropout > 0.0:
             raise ValueError(
                 "Dropout is not supported with the mem_efficient backend when the input"
                 " is chained. This is caused by a current bug in xformers, either set "
@@ -72,11 +72,16 @@ class RotaryCrossAttention(nn.Module):
                 f"Chained batching is not supported with the math backend."
             )
 
-        if backend == "flash" and flash_attn_func is None:
+        if backend == "flash" and xops is None:
             raise ImportError(
-                "flash_attn not installed, please install `flash_attn`"
-                " to use the flash backend, or choose another backend."
+                "xformers not installed, please install `xformers` "
+                "to use the flash backend or choose "
+                "another backend."
             )
+            # raise ImportError(
+            #     "flash_attn not installed, please install `flash_attn`"
+            #     " to use the flash backend, or choose another backend."
+            # )
         self.backend = backend
 
         # build networks
@@ -194,9 +199,9 @@ class RotarySelfAttention(nn.Module):
                 f"Chained batching is not supported with the math backend."
             )
 
-        if backend == "flash" and flash_attn_func is None:
+        if backend == "flash" and xops is None:
             raise ImportError(
-                "flash_attn not installed, please install `flash_attn`"
+                "xformers not installed, please install `xformers`"
                 " to use the flash backend, or choose another backend."
             )
         self.backend = backend
@@ -221,7 +226,7 @@ class RotarySelfAttention(nn.Module):
 
         if self.batch_type == "stacked":
             rotary_attn_func = rotary_attn_backend_map[self.backend]
-            
+
             out = rotary_attn_func(
                 query=q,
                 key=k,
@@ -441,7 +446,7 @@ def mem_efficient_rotary_attn_varlen_func(
         q_seqlen = q_seqlen.tolist()
     if isinstance(kv_seqlen, torch.Tensor):
         kv_seqlen = kv_seqlen.tolist()
-    
+
     # fill attention_bias with BlockDiagonalMask
     with torch.no_grad():
         attn_bias = xops.fmha.BlockDiagonalMask.from_seqlens(
@@ -464,6 +469,77 @@ def mem_efficient_rotary_attn_varlen_func(
     return out
 
 
+def flash_rotary_attn_varlen_func(
+    *,
+    query,
+    key,
+    value,
+    q_pos_emb,
+    kv_pos_emb,
+    q_seqlen,
+    kv_seqlen,
+    num_heads: int,
+    dropout_p: float,
+    rotate_value: bool,
+):
+    r"""Wraps the flash attention implementation (from xformers) with rotary embedding
+    application.
+
+    Args:
+        query: The query tensor, with shape (n, (h d))
+        key: The key tensor, with shape (n, (h d))
+        value: The value tensor, with shape (n, (h d))
+        query_pos_emb: The query rotary position embedding, with shape (n, d)
+        key_pos_emb: The key rotary position embedding, with shape (n, d)
+        num_heads: The number of attention heads
+        dropout_p: The dropout probability
+        rotate_value: Whether to rotate the value in addition to the query and key
+        q_seqlen: The sequence length of the query tensor
+        kv_seqlen: The sequence length of the key and value tensors
+
+    Returns:
+        The output tensor, with shape (n, (h d))
+    """
+    # xformers attention expects shape (1, n, h, d)
+    query = rearrange(query, "n (h d) -> () n h d", h=num_heads)
+    key = rearrange(key, "n (h d) -> () n h d", h=num_heads)
+    value = rearrange(value, "n (h d) -> () n h d", h=num_heads)
+
+    # TODO check rotation works
+    query = apply_rotary_pos_emb(q_pos_emb.unsqueeze(0), query)
+    key = apply_rotary_pos_emb(kv_pos_emb.unsqueeze(0), key)
+
+    if rotate_value:
+        value = apply_rotary_pos_emb(kv_pos_emb.unsqueeze(0), value)
+
+    if isinstance(q_seqlen, torch.Tensor):
+        q_seqlen = q_seqlen.tolist()
+    if isinstance(kv_seqlen, torch.Tensor):
+        kv_seqlen = kv_seqlen.tolist()
+
+    # fill attention_bias with BlockDiagonalMask
+    with torch.no_grad():
+        attn_bias = xops.fmha.BlockDiagonalMask.from_seqlens(
+            q_seqlen=q_seqlen,
+            kv_seqlen=kv_seqlen,
+        )
+
+    out = xops.memory_efficient_attention(
+        query,
+        key,
+        value,
+        attn_bias=attn_bias,
+        p=dropout_p,
+        op=xops.MemoryEfficientAttentionFlashAttentionOp,
+    )
+
+    if rotate_value:
+        out = apply_rotary_pos_emb(-q_pos_emb.unsqueeze(0), out)
+
+    out = rearrange(out, "() n h d -> n (h d)")
+    return out
+
+
 rotary_attn_backend_map = {
     "math": rotary_attn_func,
     "mem_efficient": mem_efficient_rotary_attn_func,
@@ -472,21 +548,5 @@ rotary_attn_backend_map = {
 
 rotary_attn_varlen_backend_map = {
     "mem_efficient": mem_efficient_rotary_attn_varlen_func,
-    "flash": None,  # not implemented
+    "flash": flash_rotary_attn_varlen_func,
 }
-
-
-# op = None
-# if dropout_p != 0.0:
-#     # There's a bug in xformers where the backward pass for the implementation
-#     # it chooses by default doesn't really work with dropout. FlashAttention
-#     # has been tested to work with dropout, so we use that instead.
-#     op = xops.MemoryEfficientAttentionFlashAttentionOp
-
-# out = xops.memory_efficient_attention(
-#     query=q, 
-#     key=k, 
-#     value=v, 
-#     attn_bias=attn_bias, 
-#     p=dropout_p,
-#     op=op,

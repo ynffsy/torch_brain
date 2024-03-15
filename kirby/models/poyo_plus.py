@@ -34,7 +34,7 @@ BACKEND_CONFIGS = {
         ("mem_efficient", "mem_efficient", "mem_efficient"),
     ),
     "gpu_fp16": (
-        ("chained", "stacked", "chained"),
+        ("chained", "chained", "chained"),
         ("flash", "flash", "flash")
     ),
 }

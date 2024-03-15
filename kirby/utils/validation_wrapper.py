@@ -57,8 +57,9 @@ class CustomValidator(Callback):
             move_to_gpu(batch)
 
             # forward pass
-            with torch.inference_mode():
-                pred_output, loss, losses_taskwise = pl_module.model(**batch)
+            with torch.cuda.amp.autocast(enabled=trainer.precision == "16-mixed"):
+                with torch.inference_mode():
+                    pred_output, loss, losses_taskwise = pl_module.model(**batch)
 
             # we need to get the timestamps, the ground truth values, the task ids as well
             # as the subtask ids. since the batch is padded and chained, this is a bit tricky
