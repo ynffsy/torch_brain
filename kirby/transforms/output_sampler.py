@@ -14,7 +14,7 @@ class RandomOutputSampler:
 
         # sample from timestamps
         mask = torch.zeros(len(timestamps), dtype=bool)
-        mask[torch.randperm(len(timestamps))[:self.num_output_tokens]] = True
+        mask[torch.randperm(len(timestamps))[: self.num_output_tokens]] = True
 
         for key, value in out.__dict__.items():
             out.__dict__[key] = value[mask].clone()

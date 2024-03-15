@@ -13,7 +13,7 @@ def test_embedding():
     emb.initialize_vocab(["word1", "word2", "word3"])
     assert not emb.is_lazy(), "Embedding should not be lazy, vocabulary set."
     assert emb.weight.shape == (4, 128), "Weight matrix should be initialized."
-    
+
     assert emb.vocab == {
         "NA": 0,
         "word1": 1,
@@ -30,7 +30,7 @@ def test_embedding():
 
     # subset vocabulary
     subset_emb = emb.subset_vocab(["word1", "word3"], inplace=False)
-    
+
     print(emb.vocab)
     print(subset_emb.vocab)
 
@@ -56,7 +56,7 @@ def test_embedding():
         "word5": 5,
     }, "Vocabulary should be extended."
     assert torch.allclose(extended_emb.weight[:4], emb.weight)
-    
+
 
 def test_checkpointing():
     # checkpointing a lazy embedding
@@ -71,7 +71,7 @@ def test_checkpointing():
     # checkpointing a non-lazy embedding
     emb = InfiniteVocabEmbedding(embedding_dim=128)
     emb.initialize_vocab(["word1", "word2", "word3"])
-    
+
     # checkpoint
     torch.save(emb.state_dict(), "checkpoint.pth")
     del emb

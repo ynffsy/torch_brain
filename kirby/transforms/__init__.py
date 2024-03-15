@@ -9,6 +9,7 @@ class Compose:
     in order, and must accept and return a single :obj:`kirby.data.Data` object, except
     the last transform, which can return any object.
     """
+
     def __init__(self, transforms):
         self.transforms = transforms
 

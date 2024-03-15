@@ -13,10 +13,10 @@ PaddedObject = namedtuple("PaddedObject", ["obj"])
 
 
 def pad(obj):
-    r"""Wrap an object to specify that it (or any of its members) should be padded to 
+    r"""Wrap an object to specify that it (or any of its members) should be padded to
     the maximum length in the batch. The object can be any of the objects that PyTorch's
     :obj:`default_collate` already supports.
-    
+
     Args:
         obj: Can be tensors, numpy arrays, lists, tuples, or dictionaries.
     """
@@ -25,7 +25,7 @@ def pad(obj):
 
 def track_mask(input: Union[torch.Tensor, np.ndarray]):
     r"""Wrap an array or tensor to specify that its padding mask should be tracked.
-    
+
     Args:
         input: An array or tensor.
     """
@@ -61,7 +61,7 @@ def pad8(obj):
     r"""Wrap an object to specify that it (or any of its members) should be padded to
     the maximum length in the batch. This function is similar to :obj:`pad` except that
     the padding length is rounded up to the nearest multiple of 8.
-    
+
     Args:
         obj: Can be tensors, numpy arrays, lists, tuples, or dictionaries.
     """
@@ -116,12 +116,12 @@ ChainBatchTrackerObject = namedtuple("ChainBatchTrackerObject", ["obj"])
 
 
 def chain(obj):
-    r"""Wrap an object to specify that it (or any of its members) should be stacked 
-    along the first dimension when batching. This approach is similar to PyTorch 
+    r"""Wrap an object to specify that it (or any of its members) should be stacked
+    along the first dimension when batching. This approach is similar to PyTorch
     Geometric's collate approach for graphs. This function will chain all the sequences
-    in the batch into one large sequence. To track which sample from the batch an 
+    in the batch into one large sequence. To track which sample from the batch an
     element of the sequence came from use :func:`track_batch`.
-    
+
     Args:
         obj: Can be tensors, numpy arrays, lists, tuples, or dictionaries.
     """

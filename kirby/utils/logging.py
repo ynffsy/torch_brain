@@ -51,6 +51,7 @@ class logging:
     Args:
         level (int, Optional): Logging level. (Default: :obj:`logging.INFO`)
     """
+
     level = logging_.INFO
     rank = None
 

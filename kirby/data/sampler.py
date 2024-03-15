@@ -9,16 +9,16 @@ from kirby.data.dataset import DatasetIndex
 
 
 class RandomFixedWindowSampler(torch.utils.data.Sampler):
-    r"""Samples fixed-length windows randomly, given intervals defined in the 
-    :obj:`interval_dict` parameter. :obj:`interval_dict` is a dictionary where the keys 
-    are the session ids and the values are lists of tuples representing the 
+    r"""Samples fixed-length windows randomly, given intervals defined in the
+    :obj:`interval_dict` parameter. :obj:`interval_dict` is a dictionary where the keys
+    are the session ids and the values are lists of tuples representing the
     start and end of the intervals from which to sample. The samples are shuffled, and
     random temporal jitter is applied.
 
 
     In one epoch, the number of samples that is generated from a given sampling interval
     is given by:
-    
+
     .. math::
         N = \left\lfloor\frac{\text{interval_length}}{\text{window_length}}\right\rfloor
 
@@ -46,8 +46,8 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
     @cached_property
     def _estimated_len(self):
         num_samples = 0
-        total_short_dropped = 0.
-        
+        total_short_dropped = 0.0
+
         for session_name, sampling_intervals in self.interval_dict.items():
             for start, end in sampling_intervals:
                 interval_length = end - start
@@ -56,10 +56,10 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
                         total_short_dropped += interval_length
                         continue
                     else:
-                        raise ValueError (
+                        raise ValueError(
                             f"Interval {(start, end)} is too short to sample from. "
                             f"Minimum length is {self.window_length}."
-                            )
+                        )
 
                 num_samples += math.floor(interval_length / self.window_length)
 
@@ -67,7 +67,7 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
             logging.warning(
                 f"Skipping {total_short_dropped} seconds of data due to short "
                 f"intervals. Will train on {num_samples * self.window_length} seconds."
-                )
+            )
             if num_samples == 0:
                 raise ValueError("All intervals are too short to sample from.")
         return num_samples
@@ -76,7 +76,7 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
         return self._estimated_len
 
     def __iter__(self):
-        if len(self) == 0.:
+        if len(self) == 0.0:
             raise ValueError("All intervals are too short to sample from.")
 
         indices = []
@@ -87,10 +87,10 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
                     if self.drop_short:
                         continue
                     else:
-                        raise ValueError (
+                        raise ValueError(
                             f"Interval {(start, end)} is too short to sample from. "
                             f"Minimum length is {self.window_length}."
-                            )
+                        )
 
                 # sample a random offset
                 left_offset = (
@@ -98,13 +98,18 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
                 )
 
                 indices_ = [
-                        DatasetIndex(
-                            session_name, t.item(), (t + self.window_length).item()
-                        )
-                        for t in torch.arange(start + left_offset, end, self.window_length, dtype=torch.float64)
-                        if t + self.window_length <= end
-                    ]
-                
+                    DatasetIndex(
+                        session_name, t.item(), (t + self.window_length).item()
+                    )
+                    for t in torch.arange(
+                        start + left_offset,
+                        end,
+                        self.window_length,
+                        dtype=torch.float64,
+                    )
+                    if t + self.window_length <= end
+                ]
+
                 if len(indices_) > 0:
                     indices.extend(indices_)
                     right_offset = end - indices[-1].end
@@ -132,9 +137,9 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
 
 class SequentialFixedWindowSampler(torch.utils.data.Sampler):
     r"""Samples fixed-length windows sequentially, always in the same order. The
-    sampling intervals are defined in the :obj:`interval_dict` parameter. 
-    :obj:`interval_dict` is a dictionary where the keys are the session ids and the 
-    values are lists of tuples representing the start and end of the intervals 
+    sampling intervals are defined in the :obj:`interval_dict` parameter.
+    :obj:`interval_dict` is a dictionary where the keys are the session ids and the
+    values are lists of tuples representing the start and end of the intervals
     from which to sample.
 
     If the length of a sequence is not evenly divisible by the step, the last
@@ -177,11 +182,11 @@ class SequentialFixedWindowSampler(torch.utils.data.Sampler):
                 )
 
                 indices_ = [
-                        DatasetIndex(
-                            session_name, t.item(), (t + self.window_length).item()
-                        )
-                        for t in torch.arange(start, end, self.step, dtype=torch.float64)
-                        if t + self.window_length <= end
+                    DatasetIndex(
+                        session_name, t.item(), (t + self.window_length).item()
+                    )
+                    for t in torch.arange(start, end, self.step, dtype=torch.float64)
+                    if t + self.window_length <= end
                 ]
 
                 indices.extend(indices_)

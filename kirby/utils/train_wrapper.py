@@ -69,8 +69,12 @@ class TrainWrapper(LightningModule):
             output_predictions = torch.cat(
                 [pred[name] for pred in output if name in pred], dim=0
             )
-            self.log(f"predictions/mean_{name}", output_predictions.mean(), prog_bar=False)
-            self.log(f"predictions/std_{name}", output_predictions.std(), prog_bar=False)
+            self.log(
+                f"predictions/mean_{name}", output_predictions.mean(), prog_bar=False
+            )
+            self.log(
+                f"predictions/std_{name}", output_predictions.std(), prog_bar=False
+            )
             self.log(
                 f"targets/mean_{name}",
                 data["output_values"][name].to(torch.float).mean(),

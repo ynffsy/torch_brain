@@ -10,7 +10,7 @@ class RandomCrop:
 
         if sequence_len <= self.crop_len:
             return data
-        
+
         start = torch.rand(1).item() * (sequence_len - self.crop_len)
         end = start + self.crop_len
 

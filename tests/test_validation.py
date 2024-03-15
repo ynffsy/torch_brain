@@ -57,7 +57,7 @@ def test_validation():
                                     "metric": "r2",
                                     "task": "REACHING",
                                 },
-                            ]
+                            ],
                         }
                     ],
                 },
@@ -93,7 +93,10 @@ def test_validation():
     validator = train_wrapper.CustomValidator(loader)
     metrics = validator.on_validation_epoch_start(trainer, wrapper)
 
-    assert "val_mc_maze_small/jenkins_20090928_maze_armvelocity2d_r2" == metrics.iloc[0].name
+    assert (
+        "val_mc_maze_small/jenkins_20090928_maze_armvelocity2d_r2"
+        == metrics.iloc[0].name
+    )
 
 
 def avg_pool_naive(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
@@ -153,23 +156,22 @@ def avg_pool_naive(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tens
         else:
             averages[i] = torch.mean(group_values, dim=0)
     return averages
+
+
 def test_avg_pool():
     # Test cases with different input shapes and data types
     test_cases = [
         # case: ground truth, float32. Should meanpool.
         (
             torch.tensor([0, 0, 1, 1, 2]),
-            torch.tensor([[1.5], [2.5], [3.9], [4.0], [5.0]])
+            torch.tensor([[1.5], [2.5], [3.9], [4.0], [5.0]]),
         ),
         # case: ground truth, int64. Should modepool.
-        (
-            torch.tensor([0, 0, 1, 1, 2]),
-            torch.tensor([[1], [2], [3], [4], [5]])
-        ),
+        (torch.tensor([0, 0, 1, 1, 2]), torch.tensor([[1], [2], [3], [4], [5]])),
         # case: pred tensors with 2 classes. Should meanpool.
         (
             torch.tensor([0, 0, 1, 1, 2]),
-            torch.tensor([[1., 0.], [0., 1.], [1., 0.], [0., 1.], [1., 0.]])
+            torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0], [1.0, 0.0]]),
         ),
     ]
 

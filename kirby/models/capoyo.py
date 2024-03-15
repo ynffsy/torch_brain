@@ -58,7 +58,9 @@ class CaPOYO(nn.Module):
 
         # output embs
         self.session_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
-        self.task_emb = Embedding(Decoder.max_value()+1, dim, init_scale=emb_init_scale)
+        self.task_emb = Embedding(
+            Decoder.max_value() + 1, dim, init_scale=emb_init_scale
+        )
 
         # determine backend
         if backend_config not in BACKEND_CONFIGS.keys():

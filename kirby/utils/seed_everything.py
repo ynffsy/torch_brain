@@ -6,7 +6,7 @@ import numpy as np
 
 from kirby.utils import logging
 
-log = logging(header='RANDOM SEED', header_color='red')
+log = logging(header="RANDOM SEED", header_color="red")
 
 
 def seed_everything(seed: int) -> None:
@@ -23,4 +23,4 @@ def seed_everything(seed: int) -> None:
         torch.backends.cudnn.benchmark = False
         np.random.seed(seed)
         random.seed(seed)
-        os.environ['PYTHONHASHSEED'] = str(seed)
+        os.environ["PYTHONHASHSEED"] = str(seed)

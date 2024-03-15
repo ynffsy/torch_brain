@@ -309,7 +309,7 @@ def avg_pool(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
 
 
 def gt_pool(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
-    r"""Wrapper over `avg_pool` specifically for pooling ground truth categorical 
+    r"""Wrapper over `avg_pool` specifically for pooling ground truth categorical
     values.
     """
     return (

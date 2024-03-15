@@ -31,7 +31,9 @@ from kirby.utils import logging, seed_everything, train_wrapper
 from kirby.models.capoyo import CaPOYOTokenizer
 
 import os
-wandb_project = os.environ.get('WANDB_PROJECT')
+
+wandb_project = os.environ.get("WANDB_PROJECT")
+
 
 def run_training(cfg: DictConfig):
     # Fix random seed, skipped if cfg.seed is None
@@ -90,7 +92,7 @@ def run_training(cfg: DictConfig):
         cfg.data_root,
         "test",
         include=OmegaConf.to_container(cfg.dataset),  # converts to native list[dicts]
-        transform=val_tokenizer
+        transform=val_tokenizer,
     )
     # register units and sessions
     model.unit_emb.initialize_vocab(train_dataset.unit_ids)
@@ -123,7 +125,7 @@ def run_training(cfg: DictConfig):
     val_sampler = SequentialFixedWindowSampler(
         interval_dict=val_dataset.get_sampling_intervals(),
         window_length=sequence_length,
-        step=sequence_length/2,
+        step=sequence_length / 2,
     )
 
     val_loader = DataLoader(
@@ -185,9 +187,7 @@ def run_training(cfg: DictConfig):
     )
 
     wandb = lightning.pytorch.loggers.WandbLogger(
-        name=cfg.name,
-        project=wandb_project,
-        log_model=True
+        name=cfg.name, project=wandb_project, log_model=True
     )
     print(f"Wandb ID: {wandb.version}")
 
@@ -217,7 +217,9 @@ def run_training(cfg: DictConfig):
         check_val_every_n_epoch=cfg.eval_epochs,
         max_epochs=epochs,
         log_every_n_steps=1,
-        strategy="ddp_find_unused_parameters_true" if torch.cuda.is_available() else "auto",
+        strategy=(
+            "ddp_find_unused_parameters_true" if torch.cuda.is_available() else "auto"
+        ),
         callbacks=callbacks,
         num_sanity_val_steps=0,
         precision=cfg.precision,

@@ -21,10 +21,7 @@ from kirby.utils import (
 
 
 BACKEND_CONFIGS = {
-    "cpu": (
-        ("stacked", "stacked", "stacked"),
-        ("math", "math", "math")
-    ),
+    "cpu": (("stacked", "stacked", "stacked"), ("math", "math", "math")),
     "gpu_fp32": (
         ("stacked", "stacked", "stacked"),
         ("math", "mem_efficient", "math"),
@@ -33,10 +30,7 @@ BACKEND_CONFIGS = {
         ("chained", "stacked", "chained"),
         ("mem_efficient", "mem_efficient", "mem_efficient"),
     ),
-    "gpu_fp16": (
-        ("chained", "chained", "chained"),
-        ("flash", "flash", "flash")
-    ),
+    "gpu_fp16": (("chained", "chained", "chained"), ("flash", "flash", "flash")),
 }
 
 
@@ -62,13 +56,17 @@ class POYOPlus(nn.Module):
         self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.session_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.spike_type_emb = Embedding(4, dim, init_scale=emb_init_scale)
-        self.task_emb = Embedding(Decoder.max_value()+1, dim, init_scale=emb_init_scale)
+        self.task_emb = Embedding(
+            Decoder.max_value() + 1, dim, init_scale=emb_init_scale
+        )
         self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
 
         # determine backend
         if backend_config not in BACKEND_CONFIGS.keys():
-            raise ValueError(f"Invalid backend config: {backend_config}, must be one of"
-                             f" {list(BACKEND_CONFIGS.keys())}")
+            raise ValueError(
+                f"Invalid backend config: {backend_config}, must be one of"
+                f" {list(BACKEND_CONFIGS.keys())}"
+            )
 
         self.batch_type = BACKEND_CONFIGS[backend_config][0]
 

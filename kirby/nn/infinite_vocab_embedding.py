@@ -19,7 +19,7 @@ class InfiniteVocabEmbedding(nn.Module):
     matrix is initialized when:
 
     - The vocabulary is initialized via :meth:`initialize_vocab()`.
-    
+
     - or The model is loaded from a checkpoint that contains the vocabulary.
 
     If the vocabulary is initialized before :meth:`load_state_dict` is called,
@@ -32,7 +32,7 @@ class InfiniteVocabEmbedding(nn.Module):
 
     - :meth:`extend_vocab()` to add new words to the vocabulary. The embeddings for the new
     words will be initialized randomly.
-    
+
     - :meth:`subset_vocab()` to select a subset of the vocabulary. The embeddings for the
     selected words will be copied from the original embeddings, and the ids for the
     selected words will change and :meth:`tokenizer` will be updated accordingly.
@@ -83,7 +83,7 @@ class InfiniteVocabEmbedding(nn.Module):
             vocab = ["apple", "banana", "cherry"]
             embedding.initialize_vocab(vocab)
 
-            embedding.vocab 
+            embedding.vocab
             >>> OrderedDict([('NA', 0), ('apple', 1), ('banana', 2), ('cherry', 3)])
 
             embedding.weight.shape
@@ -173,9 +173,9 @@ class InfiniteVocabEmbedding(nn.Module):
         self.initialize_parameters(len(self.vocab))
 
         # copy existing embeddings into new weight matrix
-        self.weight.data[
-            : len(embeddings_for_existing_words)
-        ] = embeddings_for_existing_words
+        self.weight.data[: len(embeddings_for_existing_words)] = (
+            embeddings_for_existing_words
+        )
         return self
 
     def subset_vocab(self, vocab: List[str], inplace=True):
@@ -243,25 +243,25 @@ class InfiniteVocabEmbedding(nn.Module):
 
     def tokenizer(self, words: Union[str, List[str]]):
         r"""Convert a word or a list of words to their token indices.
-        
+
         Args:
             words (Union[str, List[str]]): A word or a list of words.
-        
+
         Returns:
             Union[int, List[int]]: A token index or a list of token indices.
 
         .. code-block:: python
-            
+
                 from kirby.nn import InfiniteVocabEmbedding
-    
+
                 embedding = InfiniteVocabEmbedding(64)
-    
+
                 vocab = ["apple", "banana", "cherry"]
                 embedding.initialize_vocab(vocab)
-    
+
                 embedding.tokenizer("banana")
                 >>> 2
-    
+
                 embedding.tokenizer(["apple", "cherry", "apple"])
                 >>> [1, 3, 1]
         """
@@ -271,22 +271,22 @@ class InfiniteVocabEmbedding(nn.Module):
 
     def detokenizer(self, index: int):
         r"""Convert a token index to a word.
-        
+
         Args:
             index (int): A token index.
-            
+
         Returns:
             str: A word.
 
         .. code-block:: python
-            
+
                 from kirby.nn import InfiniteVocabEmbedding
-    
+
                 embedding = InfiniteVocabEmbedding(64)
-    
+
                 vocab = ["apple", "banana", "cherry"]
                 embedding.initialize_vocab(vocab)
-    
+
                 embedding.detokenizer(2)
                 >>> 'banana'
         """
@@ -294,9 +294,9 @@ class InfiniteVocabEmbedding(nn.Module):
 
     def is_lazy(self):
         r"""Returns True if the module is not initialized.
-        
+
         .. code-block:: python
-                
+
             from kirby.nn import InfiniteVocabEmbedding
 
             embedding = InfiniteVocabEmbedding(64)

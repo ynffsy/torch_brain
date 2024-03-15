@@ -8,6 +8,7 @@ class TriangleDistribution:
     r"""Triangular distribution with a peak at mode_units, going from min_units to
     max_units.
     """
+
     def __init__(
         self,
         min_units=20,
@@ -64,7 +65,7 @@ class TriangleDistribution:
             if num_attempts > self.max_attempts:
                 logging.warning(
                     f"Could not sample from distribution after {num_attempts} attempts,"
-                     " using all units."
+                    " using all units."
                 )
                 return num_units
 
@@ -77,6 +78,7 @@ class UnitDropout:
     This currently assumes that the data object contains `data.units.id` and
     `data.spikes.unit_index`.
     """
+
     def __init__(self, field="spikes", *args, **kwargs):
         # TODO allow multiple fields (example: spikes + LFP)
         self.field = field
@@ -117,7 +119,11 @@ class UnitDropout:
             target_obj.unit_index = relabel_map[target_obj.unit_index]
         elif isinstance(target_obj, RegularTimeSeries):
             assert len(nested_attr) == 2
-            setattr(target_obj, nested_attr[1], getattr(target_obj, nested_attr[1])[:, unit_mask])
+            setattr(
+                target_obj,
+                nested_attr[1],
+                getattr(target_obj, nested_attr[1])[:, unit_mask],
+            )
         else:
             raise ValueError(f"Unsupported type for {self.field}: {type(target_obj)}")
 

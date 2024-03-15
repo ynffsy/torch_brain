@@ -15,6 +15,7 @@ from kirby.data import Data, Interval
 @dataclass
 class DatasetIndex:
     """Accessing the dataset is done by specifying a session id and a time interval."""
+
     session_id: str
     start: float
     end: float
@@ -124,9 +125,7 @@ class Dataset(torch.utils.data.Dataset):
 
                 try:
                     with open(description_file, "rb") as f:
-                        description = msgpack.load(
-                            f, object_hook=decode_datetime
-                        )
+                        description = msgpack.load(f, object_hook=decode_datetime)
                 except FileNotFoundError:
                     raise FileNotFoundError(
                         f"Could not find description file {description_file}. This error "
@@ -254,7 +253,9 @@ class Dataset(torch.utils.data.Dataset):
 
                 # Similarly, select for certain outputs
                 if sel_output is not None:
-                    raise ValueError("Selecting dataset by 'output' is no longer possible.")
+                    raise ValueError(
+                        "Selecting dataset by 'output' is no longer possible."
+                    )
                     # sessions = [
                     #     session
                     #     for session in sessions
@@ -277,12 +278,14 @@ class Dataset(torch.utils.data.Dataset):
                             f"Session {session_id} is already included in the dataset."
                             "Please verify that it is only selected once."
                         )
-                    
+
                     session_ids.append(session_id)
 
                     session_info_dict[session_id] = dict(
                         filename=(Path(self.root) / (session_id + ".h5")),
-                        sampling_intervals=Interval.from_list(session["splits"][self.split]),
+                        sampling_intervals=Interval.from_list(
+                            session["splits"][self.split]
+                        ),
                         config=config,
                     )
 
@@ -302,7 +305,7 @@ class Dataset(torch.utils.data.Dataset):
         """
         session_info = self.session_info_dict[session_id]
         if self._data_objects is None:
-            with h5py.File(session_info['filename'], "r") as f:
+            with h5py.File(session_info["filename"], "r") as f:
                 data = Data.from_hdf5(f)
                 sample = data.slice(start, end)
         else:

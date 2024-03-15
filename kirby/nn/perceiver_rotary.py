@@ -124,7 +124,7 @@ class PerceiverRotary(nn.Module):
         output_query_timestamps,  # (B, N_out) or (N_all_out,)
         input_mask=None,  # (B, N_in) or None
         input_seqlen=None,  # None or (B,)
-        latent_mask=None, # (B, N_latent) or None
+        latent_mask=None,  # (B, N_latent) or None
         latent_seqlen=None,  # None or (B,)
         output_query_seqlen=None,  # None or (B,)
     ) -> Union[
@@ -133,7 +133,7 @@ class PerceiverRotary(nn.Module):
     ]:
         if latent_mask is not None:
             raise NotImplementedError("latent_mask is not supported yet.")
-        
+
         # compute timestamp embeddings
         input_timestamp_emb = self.rotary_emb(input_timestamps)
         latent_timestamp_emb = self.rotary_emb(latent_timestamps)
@@ -149,9 +149,9 @@ class PerceiverRotary(nn.Module):
                 f"Expected stacked latents with 3 dimensions (batch, num_tokens, dim), "
                 f"got ({latents.shape})."
             )
-            assert input_seqlen is None, (
-                f"input_seqlen should be None as it will not be used."
-            )
+            assert (
+                input_seqlen is None
+            ), f"input_seqlen should be None as it will not be used."
         elif self.batch_type[0] == "chained":
             assert inputs.dim() == 2, (
                 f"Expected chained inputs with 2 dimensions (num_tokens, dim), "
@@ -161,15 +161,11 @@ class PerceiverRotary(nn.Module):
                 f"Expected chained latents with 2 dimensions (num_tokens, dim), "
                 f"got ({latents.shape})."
             )
-            assert input_mask is None, (
-                f"input_mask should be None as it will not be used."
-            )
-            assert input_seqlen is not None, (
-                f"input_seqlen should be provided."
-            )
-            assert latent_seqlen is not None, (
-                f"latent_seqlen should be provided."
-            )
+            assert (
+                input_mask is None
+            ), f"input_mask should be None as it will not be used."
+            assert input_seqlen is not None, f"input_seqlen should be provided."
+            assert latent_seqlen is not None, f"latent_seqlen should be provided."
 
         # encode
         latents = latents + self.enc_atn(
@@ -199,7 +195,9 @@ class PerceiverRotary(nn.Module):
                     f"Got {latent_seqlen}."
                 )
             latents = latents.view(len(latent_seqlen), latent_seqlen[0], self.dim)
-            latent_timestamp_emb = latent_timestamp_emb.view(len(latent_seqlen), latent_seqlen[0], self.dim)
+            latent_timestamp_emb = latent_timestamp_emb.view(
+                len(latent_seqlen), latent_seqlen[0], self.dim
+            )
 
         # process
         for self_attn, self_ff in self.proc_layers:
@@ -225,7 +223,9 @@ class PerceiverRotary(nn.Module):
                     "length. Moving from chained to stacked is not supported yet."
                 )
             latents = latents.view(len(latent_seqlen), latent_seqlen[0], self.dim)
-            latent_timestamp_emb = latent_timestamp_emb.view(len(latent_seqlen), latent_seqlen[0], self.dim)
+            latent_timestamp_emb = latent_timestamp_emb.view(
+                len(latent_seqlen), latent_seqlen[0], self.dim
+            )
 
         # decode
         output_queries = output_queries + self.dec_atn(
