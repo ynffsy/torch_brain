@@ -61,6 +61,14 @@ the artifacts make sense.
 
 Set up a conda environment with the right packages, as defined in `requirements.txt`.
 
+## Setting up a compute environment
+When building the dataset on the Mila clusters, it's important to have a sufficient 
+amount of memory and compute or else errors will occur, resulting in incomplete 
+datasets. Here is an example allocation request that works:
+```
+salloc -c 10 --mem 32G --gres gpu:1
+```
+
 ## Partitions
 
 Mila has a number of partitions, `unkillable`, `short-unkillable`, `main` and `long`. 
@@ -69,6 +77,7 @@ very quick results (3 hours max, but equivalent to 12 hours of a 1 GPU job). Use
 main and long partitions for longer jobs.
 
 [Reference](https://docs.mila.quebec/Userguide.html#partitioning)
+
 
 ## wandb credentials
 

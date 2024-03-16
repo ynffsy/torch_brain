@@ -1,5 +1,4 @@
 # project-kirby
-Poyo!
 
 # Installation
 ## Environment setup with `venv`
@@ -16,12 +15,17 @@ Currently this project requires the following:
 - CUDA 11.3 - 11.7 
 - xformers is optional, but recommended for training with memory efficient attention
 
-## Setting up a compute environment (Mila-specific)
-When building the dataset on the Mila clusters, it's important to have a sufficient amount of memory and compute or else errors will occur, resulting in incomplete datasets. Here is an example allocation request that works:
-```
-salloc -c 10 --mem 32G --gres gpu:1
-```
+## Documentation
+> [!WARNING]  
+> The docs are hosted publically for convenience, please do not share the link.
 
+You can find the documentation for this project [here](https://chic-dragon-bc9a04.netlify.app/).
+
+## Contributing
+Make sure you have `black` and `pre-commit` installed. You can run the following once:
+```bash
+pre-commit install
+``` 
 
 ## Downloading and preparing the data
 Run the following to download and prepare the data:
