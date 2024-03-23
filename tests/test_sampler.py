@@ -3,7 +3,11 @@ import pytest
 import numpy as np
 import torch
 
-from kirby.data.sampler import SequentialFixedWindowSampler, RandomFixedWindowSampler
+from kirby.data.sampler import (
+    SequentialFixedWindowSampler,
+    RandomFixedWindowSampler,
+    RandomTrialSampler,
+)
 from kirby.data.dataset import DatasetIndex
 
 
@@ -127,3 +131,47 @@ def test_random_sampler():
         )
 
         len(sampler)
+
+
+def test_random_trial_sampler():
+    interval_dict = {
+        "session1": [
+            (0.0, 2.0),
+            (3.0, 4.5),
+        ],
+        "session2": [(0.1, 1.25), (2.5, 5.0), (15.0, 18.7)],
+        "session3": [(1000.0, 1002.0), (1002.0, 1003.0)],
+    }
+
+    sampler = RandomTrialSampler(
+        interval_dict=interval_dict,
+    )
+    assert len(sampler) == 7
+
+    # Check that the sampled interval is within the expected range
+    samples = list(sampler)
+    assert len(samples) == 7
+    assert samples_in_interval_dict(samples, interval_dict)
+
+    # With the same seed, the sampler should always give the same outputs.
+    sampler1 = RandomTrialSampler(
+        interval_dict=interval_dict,
+        generator=torch.Generator().manual_seed(42),
+    )
+    sampler2 = RandomTrialSampler(
+        interval_dict=interval_dict,
+        generator=torch.Generator().manual_seed(42),
+    )
+    samples1 = list(sampler1)
+    samples2 = list(sampler2)
+    assert compare_slice_indices(samples1[0], samples2[0])
+
+    # There should be that specific slice somewhere
+    # (though unlikely to be in position 0).
+    matches = []
+    for sample in samples1:
+        matches.append(
+            compare_slice_indices(sample, DatasetIndex("session1", 0.0, 2.0))
+        )
+
+    assert len([x for x in matches if x]) == 1 and not matches[0]

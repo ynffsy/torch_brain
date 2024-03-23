@@ -33,7 +33,7 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
     def __init__(
         self,
         *,
-        interval_dict: Dict[str, List[Tuple[int, int]]],
+        interval_dict: Dict[str, List[Tuple[float, float]]],
         window_length: float,
         generator: Optional[torch.Generator],
         drop_short: bool = True,
@@ -157,7 +157,7 @@ class SequentialFixedWindowSampler(torch.utils.data.Sampler):
     def __init__(
         self,
         *,
-        interval_dict: Dict[str, List[Tuple[int, int]]],
+        interval_dict: Dict[str, List[Tuple[float, float]]],
         window_length: float,
         step: Optional[float] = None,
         drop_short=False,
@@ -204,3 +204,43 @@ class SequentialFixedWindowSampler(torch.utils.data.Sampler):
 
     def __iter__(self):
         yield from self._indices
+
+
+class RandomTrialSampler(torch.utils.data.Sampler):
+    r"""Randomly samples a single trial interval from the given intervals.
+
+    Args:
+        interval_dict (Dict[str, List[Tuple[int, int]]]): Sampling intervals for each
+            session in the dataset.
+        generator (Optional[torch.Generator], optional): Generator for shuffling.
+            Defaults to None.
+    """
+
+    def __init__(
+        self,
+        *,
+        interval_dict: Dict[str, List[Tuple[float, float]]],
+        generator: Optional[torch.Generator] = None,
+    ):
+        self.interval_dict = interval_dict
+        self.generator = generator
+
+    def __len__(self):
+        return sum(len(intervals) for intervals in self.interval_dict.values())
+
+    def __iter__(self):
+        # Flatten the intervals from all sessions into a single list
+        all_intervals = [
+            (session_id, start, end)
+            for session_id, intervals in self.interval_dict.items()
+            for start, end in intervals
+        ]
+
+        indices = [
+            DatasetIndex(session_id, start, end)
+            for session_id, start, end in all_intervals
+        ]
+
+        # Yield a single DatasetIndex representing the selected interval
+        for idx in torch.randperm(len(indices), generator=self.generator):
+            yield indices[idx]
