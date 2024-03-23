@@ -127,7 +127,9 @@ def run_training(cfg: DictConfig):
         val_dataset,
         sampler=val_sampler,
         collate_fn=collate,
-        batch_size=cfg.get("eval_batch_size", cfg.batch_size), # Default to training batch size, but allow override in config.
+        batch_size=cfg.get(
+            "eval_batch_size", cfg.batch_size
+        ),  # Default to training batch size, but allow override in config.
         num_workers=2,
     )
 

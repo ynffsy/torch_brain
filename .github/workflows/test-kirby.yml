@@ -20,7 +20,7 @@ jobs:
       with:
         python-version: '3.9'
     - run: pip install black==24.2.0
-    - run: black .
+    - run: black --check .
 
   test:
     runs-on: self-hosted

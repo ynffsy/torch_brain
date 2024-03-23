@@ -243,9 +243,7 @@ class CustomValidator(Callback):
 
         metrics_data = []
         for metric_name, metric_value in metrics.items():
-            metrics_data.append(
-                {"metric": metric_name, "value": metric_value}
-            )
+            metrics_data.append({"metric": metric_name, "value": metric_value})
 
         metrics_df = pd.DataFrame(metrics_data)
         if pl_module.tb is not None:

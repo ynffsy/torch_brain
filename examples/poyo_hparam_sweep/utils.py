@@ -1,4 +1,3 @@
-
 def get_sweep_run_name(cfg):
     """
     Returns the name of the sweep's run based on the hyperparameters being monitored.
