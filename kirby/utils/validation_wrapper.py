@@ -61,6 +61,9 @@ class CustomValidator(Callback):
                 with torch.inference_mode():
                     pred_output, loss, losses_taskwise = pl_module.model(**batch)
 
+            # log the val_loss
+            pl_module.log_dict({"val_loss": loss})
+
             # we need to get the timestamps, the ground truth values, the task ids as well
             # as the subtask ids. since the batch is padded and chained, this is a bit tricky
             # tldr: this extracts the ground truth in the same format as the model output
