@@ -38,3 +38,4 @@ seaborn~=0.13
 pulp==2.7.0
 black==24.2.0
 pre-commit==3.6.2
+g2p-en~=2.1.0
