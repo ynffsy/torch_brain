@@ -13,6 +13,7 @@ import logging
 
 from kirby.nn import compute_loss_or_metric
 from kirby.taxonomy import Decoder, OutputType, Task
+from rich import print as rprint
 
 
 class CustomValidator(Callback):
@@ -230,26 +231,31 @@ class CustomValidator(Callback):
                         gt = gt_pool(timestamps, gt)
                         pred = avg_pool(timestamps, pred)
 
-                    # Compute metrics
-                    task_spec = pl_module.model.readout.decoder_specs[taskname]
-
                     # Resolve the appropriate loss function.
                     metrics[
                         f"val_{session_id}_{str(taskname.lower())}_{metric['metric']}"
                     ] = compute_loss_or_metric(
-                        metric["metric"], task_spec.type, pred, gt, 1.0
+                        metric["metric"], output_type, pred, gt, 1.0
                     ).item()
 
         pl_module.log_dict(metrics)
         logging.info(f"Logged {len(metrics)} validation metrics.")
 
-        metrics = pd.DataFrame(metrics, index=["metric"]).T
-        if pl_module.tb is not None:
-            pl_module.tb.add_text("val_metrics", metrics.to_markdown())
-        if pl_module.wandb is not None:
-            pl_module.wandb.log({"val_metrics": wandb.Table(dataframe=metrics)})
+        metrics_data = []
+        for metric_name, metric_value in metrics.items():
+            metrics_data.append(
+                {"metric": metric_name, "value": metric_value}
+            )
 
-        return metrics
+        metrics_df = pd.DataFrame(metrics_data)
+        if pl_module.tb is not None:
+            pl_module.tb.add_text("val_metrics", metrics_df.to_markdown())
+        if pl_module.wandb is not None:
+            pl_module.wandb.log({"val_metrics": wandb.Table(dataframe=metrics_df)})
+
+        rprint(metrics_df)
+
+        return metrics_df
 
 
 def avg_pool(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:

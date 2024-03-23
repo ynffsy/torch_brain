@@ -91,11 +91,11 @@ def test_validation():
     trainer = lightning.Trainer(accelerator=device)
 
     validator = train_wrapper.CustomValidator(loader)
-    metrics = validator.on_validation_epoch_start(trainer, wrapper)
+    metrics_df = validator.on_validation_epoch_start(trainer, wrapper)
 
     assert (
         "val_mc_maze_small/jenkins_20090928_maze_armvelocity2d_r2"
-        == metrics.iloc[0].name
+        == metrics_df.iloc[0].metric
     )
 
 
