@@ -112,7 +112,7 @@ class UnitDropout:
             # and units.
             setattr(data, self.field, target_obj.select_by_mask(spike_mask))
 
-            relabel_map = np.zeros(num_units, dtype=np.long)
+            relabel_map = np.zeros(num_units, dtype=int)
             relabel_map[unit_mask] = np.arange(unit_mask.sum())
 
             target_obj = getattr(data, self.field)
