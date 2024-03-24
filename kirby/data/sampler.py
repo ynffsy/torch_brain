@@ -206,7 +206,7 @@ class SequentialFixedWindowSampler(torch.utils.data.Sampler):
         yield from self._indices
 
 
-class RandomTrialSampler(torch.utils.data.Sampler):
+class TrialSampler(torch.utils.data.Sampler):
     r"""Randomly samples a single trial interval from the given intervals.
 
     Args:
@@ -221,9 +221,11 @@ class RandomTrialSampler(torch.utils.data.Sampler):
         *,
         interval_dict: Dict[str, List[Tuple[float, float]]],
         generator: Optional[torch.Generator] = None,
+        shuffle: bool = True,
     ):
         self.interval_dict = interval_dict
         self.generator = generator
+        self.shuffle = shuffle
 
     def __len__(self):
         return sum(len(intervals) for intervals in self.interval_dict.values())
@@ -241,6 +243,9 @@ class RandomTrialSampler(torch.utils.data.Sampler):
             for session_id, start, end in all_intervals
         ]
 
-        # Yield a single DatasetIndex representing the selected interval
-        for idx in torch.randperm(len(indices), generator=self.generator):
-            yield indices[idx]
+        if self.shuffle:
+            # Yield a single DatasetIndex representing the selected interval
+            for idx in torch.randperm(len(indices), generator=self.generator):
+                yield indices[idx]
+        else:
+            yield from indices

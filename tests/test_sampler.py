@@ -6,7 +6,7 @@ import torch
 from kirby.data.sampler import (
     SequentialFixedWindowSampler,
     RandomFixedWindowSampler,
-    RandomTrialSampler,
+    TrialSampler,
 )
 from kirby.data.dataset import DatasetIndex
 
@@ -133,7 +133,7 @@ def test_random_sampler():
         len(sampler)
 
 
-def test_random_trial_sampler():
+def test_trial_sampler():
     interval_dict = {
         "session1": [
             (0.0, 2.0),
@@ -143,7 +143,7 @@ def test_random_trial_sampler():
         "session3": [(1000.0, 1002.0), (1002.0, 1003.0)],
     }
 
-    sampler = RandomTrialSampler(
+    sampler = TrialSampler(
         interval_dict=interval_dict,
     )
     assert len(sampler) == 7
@@ -154,11 +154,11 @@ def test_random_trial_sampler():
     assert samples_in_interval_dict(samples, interval_dict)
 
     # With the same seed, the sampler should always give the same outputs.
-    sampler1 = RandomTrialSampler(
+    sampler1 = TrialSampler(
         interval_dict=interval_dict,
         generator=torch.Generator().manual_seed(42),
     )
-    sampler2 = RandomTrialSampler(
+    sampler2 = TrialSampler(
         interval_dict=interval_dict,
         generator=torch.Generator().manual_seed(42),
     )
@@ -175,3 +175,8 @@ def test_random_trial_sampler():
         )
 
     assert len([x for x in matches if x]) == 1 and not matches[0]
+
+    # Do this again, with the sequential sampler
+    sampler1 = TrialSampler(interval_dict=interval_dict, shuffle=False)
+    samples1 = list(sampler1)
+    assert compare_slice_indices(samples1[0], DatasetIndex("session1", 0.0, 2.0))
