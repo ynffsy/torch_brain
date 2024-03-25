@@ -43,6 +43,8 @@ class PerceiverRotary(nn.Module):
         atn_dropout=0.0,
         batch_type: Union[str, Tuple[str, str, str]] = "stacked",
         backend: Union[str, Tuple[str, str, str]] = "math",
+        t_min=1e-4,
+        t_max=4.0,
     ):
         super().__init__()
 
@@ -56,7 +58,7 @@ class PerceiverRotary(nn.Module):
         assert len(backend) == 3
         self.backend = backend
 
-        self.rotary_emb = RotaryEmbedding(dim_head)
+        self.rotary_emb = RotaryEmbedding(dim_head, t_min, t_max)
 
         self.dropout = nn.Dropout(p=lin_dropout)
 
