@@ -6,6 +6,7 @@ Clone the project, enter the project's root directory, and then run the followin
 ```bash
 python3.9 -m venv venv           # create an empty virtual environment
 source venv/bin/activate         # activate it
+pip install --upgrade pip        # update to the latest version of pip
 pip install -e .                 # install project-kirby into your path
 ```
 
