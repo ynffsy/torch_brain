@@ -92,6 +92,7 @@ class TrainWrapper(LightningModule):
             self.log("inputs/std_unit_index", s.std(), prog_bar=False)
 
         self.log("train_loss", loss, prog_bar=True)
+        self.log_dict({f"losses/{k}": v for k, v in taskwise_loss.items()})
 
         return {"loss": loss}
 
