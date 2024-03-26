@@ -16,6 +16,14 @@ from kirby.taxonomy import Decoder, OutputType, Task
 from rich import print as rprint
 
 
+def move_to_gpu(d, pl_module):
+    for k, v in d.items():
+        if isinstance(v, dict):
+            move_to_gpu(v, pl_module)
+        elif isinstance(v, torch.Tensor):
+            d[k] = v.to(pl_module.device)
+
+
 class CustomValidator(Callback):
     def __init__(
         self,
@@ -48,14 +56,7 @@ class CustomValidator(Callback):
                 raise ValueError("Invalid batch format.")
 
             # move to gpu dict of dicts
-            def move_to_gpu(d):
-                for k, v in d.items():
-                    if isinstance(v, dict):
-                        move_to_gpu(v)
-                    elif isinstance(v, torch.Tensor):
-                        d[k] = v.to(pl_module.device)
-
-            move_to_gpu(batch)
+            move_to_gpu(batch, pl_module)
 
             # forward pass
             with torch.cuda.amp.autocast(enabled=trainer.precision == "16-mixed"):
