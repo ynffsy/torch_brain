@@ -111,11 +111,11 @@ def pad8_collate_object_fn(
 
 
 # chain
-ChainObject = namedtuple("ChainObject", ["obj"])
+ChainObject = namedtuple("ChainObject", ["obj", "allow_missing_keys"])
 ChainBatchTrackerObject = namedtuple("ChainBatchTrackerObject", ["obj"])
 
 
-def chain(obj):
+def chain(obj, allow_missing_keys: bool = False):
     r"""Wrap an object to specify that it (or any of its members) should be stacked
     along the first dimension when batching. This approach is similar to PyTorch
     Geometric's collate approach for graphs. This function will chain all the sequences
@@ -124,8 +124,16 @@ def chain(obj):
 
     Args:
         obj: Can be tensors, numpy arrays, lists, tuples, or dictionaries.
+        allow_missing_keys: If set to :obj:`True`, this allows the wrapped dictionary to
+            have inconsistent keys across the batch. If an instance is missing keys,
+            the corresponding values will be skipped when collating. Defaults to
+            :obj:`False`.
     """
-    return ChainObject(obj)
+    if allow_missing_keys and not isinstance(obj, dict):
+        raise TypeError(
+            f"allow_missing_keys can only be used with dictionaries, got {type(obj)}."
+        )
+    return ChainObject(obj, allow_missing_keys)
 
 
 def track_batch(input: Union[torch.Tensor, np.ndarray]):
@@ -176,7 +184,27 @@ def chain_collate_object_fn(
     *,
     collate_fn_map: Optional[Dict[Union[Type, Tuple[Type, ...]], Callable]] = None,
 ):
-    return _collate([elem.obj for elem in batch], collate_fn_map=chain_collate_fn_map)
+    allow_missing_keys = batch[0].allow_missing_keys
+    # check that flag is consistent
+    if any((elem.allow_missing_keys != allow_missing_keys) for elem in batch):
+        raise ValueError(
+            "attribute 'allow_missing_keys' must be the same for all elements in the "
+            "batch. Some elements allow missing keys while others do not."
+        )
+
+    if not allow_missing_keys:
+        return _collate(
+            [elem.obj for elem in batch], collate_fn_map=chain_collate_fn_map
+        )
+    else:
+        unique_keys = set().union(*[elem.obj.keys() for elem in batch])
+        return {
+            key: _collate(
+                [elem.obj[key] for elem in batch if key in elem.obj],
+                collate_fn_map=chain_collate_fn_map,
+            )
+            for key in unique_keys
+        }
 
 
 # add all new types to collate fn map

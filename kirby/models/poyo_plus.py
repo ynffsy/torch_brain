@@ -306,8 +306,8 @@ class POYOPlusTokenizer:
                 "session_index": pad(session_index),
                 "output_timestamps": pad(output_timestamps),
                 "output_decoder_index": pad(output_task_index),
-                "output_values": chain(output_values),
-                "output_weights": chain(output_weights),
+                "output_values": chain(output_values, allow_missing_keys=True),
+                "output_weights": chain(output_weights, allow_missing_keys=True),
             }
         else:
             batch = {
@@ -318,14 +318,16 @@ class POYOPlusTokenizer:
                 "output_decoder_index": chain(output_task_index),
                 "output_seqlen": len(output_timestamps),
                 "output_batch_index": track_batch(output_timestamps),
-                "output_values": chain(output_values),
-                "output_weights": chain(output_weights),
+                "output_values": chain(output_values, allow_missing_keys=True),
+                "output_weights": chain(output_weights, allow_missing_keys=True),
             }
 
         if self.eval:
             # we will add a few more fields needed for evaluation
             batch["session_id"] = data.session
             batch["absolute_start"] = data.absolute_start
-            batch["output_subtask_index"] = chain(output_subtask_index)
+            batch["output_subtask_index"] = chain(
+                output_subtask_index, allow_missing_keys=True
+            )
 
         return batch

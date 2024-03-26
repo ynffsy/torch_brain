@@ -220,3 +220,24 @@ def test_collate():
     assert batch["batch"].ndim == 1
     assert batch["batch"].dtype == torch.int64
     assert torch.allclose(batch["batch"], torch.tensor([0, 0, 0, 1, 1]))
+
+
+def test_chain_with_missing_keys():
+    # chaining applied to np.ndarrays
+    x = chain({"a": np.array([1, 2, 3])}, allow_missing_keys=True)
+    y = chain({"a": np.array([4, 5]), "b": np.array([14, 15])}, allow_missing_keys=True)
+
+    batch = collate([x, y])
+    assert torch.allclose(batch["a"], torch.tensor([1, 2, 3, 4, 5]))
+    assert torch.allclose(batch["b"], torch.tensor([14, 15]))
+
+    # chaining should fail if keys are missing
+    y = chain({"a": np.array([1, 2, 3])})
+    x = chain({"a": np.array([4, 5]), "b": np.array([14, 15])})
+
+    with pytest.raises(KeyError):
+        collate([x, y])
+
+    # chaining with allow_missing_keys=True should only work on dicts
+    with pytest.raises(TypeError):
+        x = chain(np.array([1, 2, 3]), allow_missing_keys=True)
