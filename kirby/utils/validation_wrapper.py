@@ -157,7 +157,7 @@ class CustomValidator(Callback):
                         )
 
         def gather_concat_dict(obj):
-            """Gather and concatenate dictionary-of-list objects onto
+            """Gather and concatenate dictionary-of-dictionary-of-tensors objects onto
             the rank=0 process
             """
             gathered_objlist = None
@@ -166,13 +166,21 @@ class CustomValidator(Callback):
 
             dist.gather_object(obj, gathered_objlist, 0)
 
-            # Concatenate all lists
+            # Concatenate all tensors in the dictionaries
             gathered_obj = None
             if trainer.local_rank == 0:
-                gathered_obj = defaultdict(list)
-                for i, objlist in enumerate(gathered_objlist):
-                    for k in objlist:
-                        gathered_obj[k] += objlist[k]
+                gathered_obj = defaultdict(lambda: defaultdict(list))
+                for objlist in gathered_objlist:
+                    for outer_key, inner_dict in objlist.items():
+                        for inner_key, tensor in inner_dict.items():
+                            gathered_obj[outer_key][inner_key].append(tensor)
+
+                # now actually concatenate the tensors in the innermost lists
+                for outer_key, inner_dict in gathered_obj.items():
+                    for inner_key, tensor_list in inner_dict.items():
+                        gathered_obj[outer_key][inner_key] = torch.cat(
+                            tensor_list, dim=0
+                        )
 
             dist.barrier()
             return gathered_obj
