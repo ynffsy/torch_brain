@@ -137,6 +137,15 @@ def track_batch(input: Union[torch.Tensor, np.ndarray]):
     return ChainBatchTrackerObject(torch.ones((len(input)), dtype=torch.long))
 
 
+def chain_collate_str_fn(
+    batch,
+    *,
+    collate_fn_map: Optional[Dict[Union[Type, Tuple[Type, ...]], Callable]] = None,
+):
+    # No-op.
+    return batch
+
+
 def chain_collate_tensor_fn(
     batch,
     *,
@@ -157,6 +166,7 @@ def chain_batch_tracker_collate_tensor_fn(
 
 
 chain_collate_fn_map = copy.deepcopy(default_collate_fn_map)
+chain_collate_fn_map[str] = chain_collate_str_fn
 chain_collate_fn_map[torch.Tensor] = chain_collate_tensor_fn
 chain_collate_fn_map[ChainBatchTrackerObject] = chain_batch_tracker_collate_tensor_fn
 
