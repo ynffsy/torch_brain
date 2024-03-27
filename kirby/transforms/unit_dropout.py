@@ -1,4 +1,6 @@
 import logging
+from typing import Optional
+
 import numpy as np
 
 from kirby.data import Data, RegularTimeSeries, IrregularTimeSeries
@@ -6,23 +8,57 @@ from kirby.data import Data, RegularTimeSeries, IrregularTimeSeries
 
 class TriangleDistribution:
     r"""Triangular distribution with a peak at mode_units, going from min_units to
-    max_units.
+    max_units. 
+
+    The unnormalized density function is defined as:
+    
+    .. math::
+        f(x) = 
+        \begin{cases} 
+        0 & \text{if } x < \text{min_units} \\
+        1 + (\text{peak} - 1) \cdot \frac{x - \text{min_units}}{\text{mode_units} - \text{min_units}} & \text{if } \text{min_units} \leq x \leq \text{mode_units} \\
+        \text{peak} - (\text{peak} - 1) \cdot \frac{x - \text{mode_units}}{\text{tail_right} - \text{mode_units}} & \text{if } \text{mode_units} \leq x \leq \text{tail_right} \\
+        1 & \text{if } \text{tail_right} \leq  x \leq \text{max_units}\\
+        0 & \text{otherwise}
+        \end{cases}
+
+    Args:
+        min_units (int): Minimum number of units to sample. If the population has fewer
+            units than this, all units will be kept.
+        mode_units (int): Mode of the distribution.
+        max_units (int): Maximum number of units to sample. 
+        tail_right (int, optional): Right tail of the distribution. If None, it is set to
+            `max_units`.
+        peak (float, optional): Height of the peak of the distribution.
+        M (float, optional): Normalization constant for the proposal distribution.
+        max_attempts (int, optional): Maximum number of attempts to sample from the
+            distribution.
+        seed (int, optional): Seed for the random number generator.
+
+    .. image:: ../_static/img/triangle_distribution.png
+
+    To sample from the distribution, we use rejection sampling. We sample from a uniform
+    distribution between `min_units` and `max_units` and accept the sample with
+    probability :math:`\frac{f(x)}{M \cdot q(x)}`, where :math:`q(x)` is the proposal
+    distribution. 
     """
 
     def __init__(
         self,
-        min_units=20,
-        mode_units=100,
-        max_units=300,
-        peak=4,
-        M=10,
-        max_attempts=100,
-        seed=None,
+        min_units: int = 20,
+        mode_units: int = 100,
+        max_units: int = 300,
+        tail_right: Optional[int] = None,
+        peak: float = 4,
+        M: int = 10,
+        max_attempts: int = 100,
+        seed: Optional[int] = None,
     ):
         super().__init__()
         self.min_units = min_units
         self.mode_units = mode_units
         self.max_units = max_units
+        self.tail_right = tail_right if tail_right is not None else max_units
         self.peak = peak
         self.M = M
         self.max_attempts = max_attempts
@@ -37,9 +73,9 @@ class TriangleDistribution:
             return 1 + (self.peak - 1) * (x - self.min_units) / (
                 self.mode_units - self.min_units
             )
-        if x <= self.max_units:
+        if x <= self.tail_right:
             return self.peak - (self.peak - 1) * (x - self.mode_units) / (
-                self.max_units - self.mode_units
+                self.tail_right - self.mode_units
             )
         return 1
 
@@ -71,15 +107,21 @@ class TriangleDistribution:
 
 
 class UnitDropout:
-    r"""Augmentation that randomly drops units from the sample. This will remove the
-    dropped units from `data.units` and all spikes from the dropped units. This will
-    also relabel the unit_index in `data.spikes`.
+    r"""Augmentation that randomly drops units from the sample. By default, the number
+    of units to keep is sampled from a triangular distribution defined in
+    :class:`TriangleDistribution`.
 
-    This currently assumes that the data object contains `data.units.id` and
-    `data.spikes.unit_index`.
+    This transform assumes that the data has a `units` object. It works for both
+    :class:`IrregularTimeSeries` and :class:`RegularTimeSeries`. For the former, it will
+    drop spikes from the units that are not kept. For the latter, it will drop the
+    corresponding columns from the data.
+
+    Args:
+        field (str, optional): Field to apply the dropout. Defaults to "spikes".
+        *args, **kwargs: Arguments to pass to the :class:`TriangleDistribution` constructor.
     """
 
-    def __init__(self, field="spikes", *args, **kwargs):
+    def __init__(self, field: str = "spikes", *args, **kwargs):
         # TODO allow multiple fields (example: spikes + LFP)
         self.field = field
         # TODO this currently assumes the type of distribution we use, in the future,
