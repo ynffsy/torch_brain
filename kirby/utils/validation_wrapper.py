@@ -58,8 +58,21 @@ class CustomValidator(Callback):
             # move to gpu dict of dicts
             move_to_gpu(batch, pl_module)
 
+            # Autocast is explicitly set based on the precision specified by the user.
+            # By default, torch autocasts to float16 for 16-bit inference.
+            # This behavior is overridden to use bfloat16 if specified in trainer.precision.
+            # If 16-bit inference is not enabled, autocast is not used.
+            def get_autocast_args(trainer):
+                if trainer.precision.startswith("bf16"):
+                    return torch.bfloat16, True
+                elif trainer.precision.startswith("16"):
+                    return torch.float16, True
+                else:
+                    return None, False
+
+            dtype, enabled = get_autocast_args(trainer)
             # forward pass
-            with torch.cuda.amp.autocast(enabled=trainer.precision == "16-mixed"):
+            with torch.cuda.amp.autocast(enabled=enabled, dtype=dtype):
                 with torch.inference_mode():
                     pred_output, loss, losses_taskwise = pl_module.model(**batch)
 
