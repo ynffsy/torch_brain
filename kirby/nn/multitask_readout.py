@@ -162,9 +162,10 @@ def prepare_for_multitask_readout(
         decoder = decoder_registry[key].__dict__ | decoder  # config overrides registry
 
         decoder_index.append(Decoder.from_string(key).value)
+        values[key] = data.get_nested_attribute(decoder["value_key"])
+
         timestamps.append(data.get_nested_attribute(decoder["timestamp_key"]))
 
-        values[key] = data.get_nested_attribute(decoder["value_key"])
         # here we assume that we won't be running a model at float64 precision
         # TODO do this in decoder spec?
         if values[key].dtype == np.float64:
