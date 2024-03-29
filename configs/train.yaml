@@ -27,6 +27,7 @@ pct_start: 0.5
 num_workers: 4
 log_dir: ./logs
 name: allen_poyo_single_session
+wandb_project: poyo
 precision: 32
 nodes: 1
 gpus: 1
