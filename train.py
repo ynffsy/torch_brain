@@ -187,7 +187,7 @@ def run_training(cfg: DictConfig):
         entity=cfg.get("wandb_entity", None),
         name=cfg.name,
         project=cfg.get("wandb_project", "poyo"),
-        log_model=True,
+        log_model=cfg.get("wandb_log_model", False),
     )
     print(f"Wandb ID: {wandb.version}")
 
