@@ -9,6 +9,7 @@ pickle.Unpickler = old_unpickler
 
 from collections import OrderedDict
 import copy
+import logging
 
 import hydra
 import torch
@@ -27,7 +28,7 @@ from kirby.data import Dataset, collate
 from kirby.data.sampler import RandomFixedWindowSampler, SequentialFixedWindowSampler
 from kirby.taxonomy import decoder_registry
 from kirby.transforms import Compose
-from kirby.utils import logging, seed_everything, train_wrapper
+from kirby.utils import seed_everything, train_wrapper
 from kirby.models.capoyo import CaPOYOTokenizer
 
 import os
@@ -42,8 +43,7 @@ def run_training(cfg: DictConfig):
     # Higher speed on machines with tensor cores.
     torch.set_float32_matmul_precision("medium")
 
-    logging.init_logger()
-    log = logging.getLogger()
+    log = logging.getLogger(__name__)
 
     # Device setup is managed by PyTorch Lightning.
 

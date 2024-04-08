@@ -1,4 +1,4 @@
-from kirby.utils import logging
+import logging
 
-log = logging(header="(੭｡╹▿╹｡)੭", header_color="#df6da9")
-log.info("Poyo!")
+log = logging.getLogger(__name__)
+log.info(f"(੭｡╹▿╹｡)੭ Poyo!")

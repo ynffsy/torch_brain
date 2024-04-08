@@ -1,12 +1,12 @@
 import os
 import random
+import logging
 
 import torch
 import numpy as np
 
-from kirby.utils import logging
 
-log = logging(header="RANDOM SEED", header_color="red")
+log = logging.getLogger(__name__)
 
 
 def seed_everything(seed: int) -> None:

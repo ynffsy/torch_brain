@@ -4,6 +4,7 @@ old_unpickler = pickle.Unpickler  # Unfortunate hack to fix a bug in Lightning.
 # https://github.com/Lightning-AI/lightning/issues/18152
 # Will likely be fixed by 2.1.0.
 import lightning
+import logging
 
 pickle.Unpickler = old_unpickler
 
@@ -27,7 +28,7 @@ from kirby.data import Dataset, collate
 from kirby.data.sampler import RandomFixedWindowSampler, SequentialFixedWindowSampler
 from kirby.taxonomy import decoder_registry
 from kirby.transforms import Compose
-from kirby.utils import logging, seed_everything, train_wrapper
+from kirby.utils import seed_everything, train_wrapper
 from kirby.models import POYOPlusTokenizer
 
 
@@ -38,8 +39,7 @@ def run_training(cfg: DictConfig):
     # Higher speed on machines with tensor cores.
     torch.set_float32_matmul_precision("medium")
 
-    logging.init_logger()
-    log = logging.getLogger()
+    log = logging.getLogger(__name__)
 
     # Device setup is managed by PyTorch Lightning.
 
