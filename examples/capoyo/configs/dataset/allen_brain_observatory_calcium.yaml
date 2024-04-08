@@ -1,0 +1,14 @@
+- selection:
+    - dandiset: "allen_brain_observatory_calcium"
+      #sortset: "653123929"
+      #sortset: "644026238"
+      sortset: "565216523"
+
+  config:
+    multitask_readout:
+      - decoder_id: DRIFTING_GRATINGS
+        metrics:
+          - metric: accuracy
+      - decoder_id: DRIFTING_GRATINGS_TEMP_FREQ
+        metrics:
+          - metric: accuracy

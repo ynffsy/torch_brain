@@ -2,7 +2,7 @@
 defaults:
   - _self_
   - model: capoyo1.3M.yaml
-  - dataset: gillon_richards_responses_2023.yaml
+  - dataset: allen_brain_observatory_calcium.yaml
 
 hydra:
   searchpath:
@@ -11,28 +11,28 @@ hydra:
 train_transforms:
   - _target_: kirby.transforms.UnitDropout
     field: "calcium_traces.df_over_f"
-    max_units: 1000
-    min_units: 20
-    mode_units: 60
-    peak: 4
+    max_units: 475
+    min_units: 10
+    mode_units: 50
+    peak: 3
 
-data_root: ./data/uncompressed/
+data_root: ${oc.env:SLURM_TMPDIR}/uncompressed
 seed: 42
 batch_size: 128
 eval_epochs: 10
 steps: 0  # Note we either specify epochs or steps, not both.
-epochs: 500
+epochs: 1000
 base_lr: 1.5625e-5
-weight_decay: 1e-4
+weight_decay: 0.0001
 # Fraction of epochs to warmup for.
 pct_start: 0.5
 num_workers: 4
 log_dir: /home/mila/x/xuejing.pan/scratch/poyo_logs
-name: calcium_openscope_single_sess_all
-backend_config: gpu_fp32
+name: allen_brain_observatory_calcium_all
 precision: 32
 nodes: 1
 gpus: 1
+patch_size: 1
 # Where to resume/finetune from. Could be null (yaml for None, meaning train from
 # scratch) or a fully qualified path to the .ckpt file.
 ckpt_path: null

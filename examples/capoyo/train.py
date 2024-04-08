@@ -1,4 +1,5 @@
 import pickle
+import pandas as pd
 
 old_unpickler = pickle.Unpickler  # Unfortunate hack to fix a bug in Lightning.
 # https://github.com/Lightning-AI/lightning/issues/18152
@@ -39,6 +40,7 @@ wandb_project = os.environ.get("WANDB_PROJECT")
 def run_training(cfg: DictConfig):
     # Fix random seed, skipped if cfg.seed is None
     seed_everything(cfg.seed)
+    cfg.data_root = os.path.join(os.environ.get("SLURM_TMPDIR"), "uncompressed")
 
     # Higher speed on machines with tensor cores.
     torch.set_float32_matmul_precision("medium")
@@ -57,7 +59,7 @@ def run_training(cfg: DictConfig):
     # prepare tokenizer and transforms
 
     # The transform list is defined in the config file.
-    sequence_length = 1.0
+    sequence_length = 1
     transforms = hydra.utils.instantiate(
         cfg.train_transforms, sequence_length=sequence_length
     )
@@ -94,6 +96,7 @@ def run_training(cfg: DictConfig):
         include=OmegaConf.to_container(cfg.dataset),  # converts to native list[dicts]
         transform=val_tokenizer,
     )
+    val_dataset.disable_data_leakage_check()
     # register units and sessions
     model.unit_emb.initialize_vocab(train_dataset.unit_ids)
     model.session_emb.initialize_vocab(train_dataset.session_ids)
@@ -132,9 +135,7 @@ def run_training(cfg: DictConfig):
         val_dataset,
         sampler=val_sampler,
         collate_fn=collate,
-        batch_size=cfg.get(
-            "eval_batch_size", cfg.batch_size
-        ),  # Default to training batch size, but allow override in config.
+        batch_size=cfg.batch_size * 10,
         num_workers=2,
     )
 
@@ -189,7 +190,10 @@ def run_training(cfg: DictConfig):
     )
 
     wandb = lightning.pytorch.loggers.WandbLogger(
-        name=cfg.name, project=wandb_project, log_model=True
+        name=cfg.name,
+        project=wandb_project,
+        log_model=True,
+        dir=os.path.join(cfg.log_dir, "wandb"),
     )
     print(f"Wandb ID: {wandb.version}")
 
@@ -251,7 +255,11 @@ def run_training(cfg: DictConfig):
 
 
 # This loads the config file using Hydra, similar to Flags, but composable.
-@hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
+@hydra.main(
+    version_base="1.3",
+    config_path="/home/mila/x/xuejing.pan/POYO/project-kirby/examples/capoyo/configs",
+    config_name="train_openscope_calcium.yaml",
+)
 def main(cfg: DictConfig):
     # Train the whole thing.
     # This inner function is unnecessary, but I keep it here to maintain
