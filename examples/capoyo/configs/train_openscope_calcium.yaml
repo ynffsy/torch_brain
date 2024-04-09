@@ -27,7 +27,7 @@ weight_decay: 1e-4
 # Fraction of epochs to warmup for.
 pct_start: 0.5
 num_workers: 4
-log_dir: /home/mila/x/xuejing.pan/scratch/poyo_logs
+log_dir: ./logs
 name: calcium_openscope_single_sess_all
 backend_config: gpu_fp32
 precision: 32

@@ -40,7 +40,6 @@ wandb_project = os.environ.get("WANDB_PROJECT")
 def run_training(cfg: DictConfig):
     # Fix random seed, skipped if cfg.seed is None
     seed_everything(cfg.seed)
-    cfg.data_root = os.path.join(os.environ.get("SLURM_TMPDIR"), "uncompressed")
 
     # Higher speed on machines with tensor cores.
     torch.set_float32_matmul_precision("medium")

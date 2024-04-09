@@ -6,9 +6,8 @@ defaults:
 
 hydra:
   searchpath:
-    #- pkg://kirby/configs
-    - pkg://home/mila/x/xuejing.pan/POYO/project-kirby/examples/capoyo/configs
-
+    - pkg://kirby/configs
+   
 train_transforms:
   - _target_: kirby.transforms.UnitDropout
     field: "calcium_traces.df_over_f"
@@ -28,7 +27,7 @@ weight_decay: 0.0001
 # Fraction of epochs to warmup for.
 pct_start: 0.5
 num_workers: 4
-log_dir: /home/mila/x/xuejing.pan/scratch/poyo_logs
+log_dir: ./logs
 name: allen_brain_observatory_calcium_all
 precision: 32
 nodes: 1
