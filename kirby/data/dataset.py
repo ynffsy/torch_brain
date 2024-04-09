@@ -153,6 +153,8 @@ class Dataset(torch.utils.data.Dataset):
                 sel_exclude_sortsets = subselection.get("exclude_sortsets", None)
 
                 sel_session = subselection.get("session", None)
+                sel_sessions = subselection.get("sessions", None)
+                sel_exclude_sessions = subselection.get("exclude_sessions", None)
                 sel_output = subselection.get("output", None)
 
                 filtered = False
@@ -242,9 +244,27 @@ class Dataset(torch.utils.data.Dataset):
 
                 # Now we get the session-level information.
                 sessions = sum([sortset["sessions"] for sortset in sortsets], [])
+
+                filtered_on_session = False
                 if sel_session is not None:
                     sessions = [
                         session for session in sessions if session["id"] == sel_session
+                    ]
+                    filtered_on_session = True
+
+                if sel_sessions is not None:
+                    assert (
+                        not filtered_on_session
+                    ), "Cannot specify session AND sessions in selection"
+                    sessions = [
+                        session for session in sessions if session["id"] in sel_sessions
+                    ]
+
+                if sel_exclude_sessions is not None:
+                    sessions = [
+                        session
+                        for session in sessions
+                        if session["id"] not in sel_exclude_sessions
                     ]
 
                 assert (
