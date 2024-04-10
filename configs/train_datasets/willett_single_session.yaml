@@ -1,7 +1,0 @@
-- selection:
-    dandiset: "willett_shenoy"
-    sortset: "willett_shenoy_t5/t5.2019.05.08"
-  metrics:
-    - output_key: WRITING_CHARACTER
-      loss: True
-      weight: 1

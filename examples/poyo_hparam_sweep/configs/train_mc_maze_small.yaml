@@ -4,10 +4,6 @@ defaults:
   - model: poyo_single_session.yaml
   - dataset: mc_maze_small.yaml
 
-hydra:
-  searchpath:
-    - pkg://kirby/configs
-
 train_transforms:
   - _target_: kirby.transforms.UnitDropout
     max_units: 1000

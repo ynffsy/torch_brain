@@ -1,9 +1,0 @@
-- selection:
-    dandiset: "perich_miller"
-    sortset: "chewie_20131003"
-  metrics:
-    - output_key: CURSORVELOCITY2D
-      metric: r2
-      weight: 1
-  exclude_input:
-    - UTAH_ARRAY_WAVEFORMS

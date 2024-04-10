@@ -1,5 +1,11 @@
+import os
+
 from hydra.core.config_search_path import ConfigSearchPath
 from hydra.plugins.search_path_plugin import SearchPathPlugin
+
+
+current_dir = os.path.dirname(__file__)
+configs_path = os.path.abspath(os.path.join(current_dir, "..", "configs"))
 
 
 class KirbySearchPathPlugin(SearchPathPlugin):
@@ -11,5 +17,5 @@ class KirbySearchPathPlugin(SearchPathPlugin):
         # Remember to verify the config is packaged properly (build sdist and look inside,
         # and verify MANIFEST.in is correct).
         search_path.append(
-            provider="kirby-searchpath-plugin", path="pkg://kirby/configs"
+            provider="kirby-searchpath-plugin", path=f"file://{configs_path}"
         )

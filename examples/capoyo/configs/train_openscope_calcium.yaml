@@ -4,10 +4,6 @@ defaults:
   - model: capoyo1.3M.yaml
   - dataset: gillon_richards_responses_2023.yaml
 
-hydra:
-  searchpath:
-    - pkg://kirby/configs
-
 train_transforms:
   - _target_: kirby.transforms.UnitDropout
     field: "calcium_traces.df_over_f"

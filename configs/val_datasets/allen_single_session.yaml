@@ -1,7 +1,0 @@
-- selection:
-    dandiset: "allen_visual_behavior_neuropixels"
-    sortset: "mouse_699733581_20190119"
-  metrics:
-    - output_key: DRIFTING_GRATINGS
-      metric: accuracy
-      weight: 1

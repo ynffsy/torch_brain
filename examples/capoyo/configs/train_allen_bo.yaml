@@ -4,10 +4,6 @@ defaults:
   - model: capoyo1.3M.yaml
   - dataset: allen_brain_observatory_calcium.yaml
 
-hydra:
-  searchpath:
-    - pkg://kirby/configs
-
 train_transforms:
   - _target_: kirby.transforms.UnitDropout
     field: "calcium_traces.df_over_f"

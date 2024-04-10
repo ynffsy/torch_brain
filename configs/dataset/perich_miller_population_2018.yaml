@@ -97,7 +97,7 @@
 
 # Random target reaching
 - selection:
-  - dandiset: "perich_miller_population_2018"
+  - dandiset: perich_miller_population_2018
     sortsets:
     - c_20131009
     - c_20131010
@@ -120,12 +120,6 @@
     - m_20140214
     - m_20140221
     - m_20140224
-    - t_20130820
-    - t_20130822
-    - t_20130830
-    - t_20130904
-    - t_20130906
-    - t_20130910
   config:
     multitask_readout:
       - decoder_id: CURSORVELOCITY2D

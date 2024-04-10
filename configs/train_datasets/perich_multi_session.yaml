@@ -1,6 +1,0 @@
-- selection:
-    dandiset: "perich_miller_population_2018"
-  metrics:
-    - output_key: CURSORVELOCITY2D
-      loss: True
-      weight: 1
