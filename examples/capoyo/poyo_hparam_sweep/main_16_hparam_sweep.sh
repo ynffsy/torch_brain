@@ -1,12 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=single_gpu_mila
-#SBATCH --output=/home/mila/x/xuejing.pan/POYO/project-kirby/examples/capoyo/slurm_outputs/slurm_output_%j.txt
-#SBATCH --error=/home/mila/x/xuejing.pan/POYO/project-kirby/examples/capoyo/slurm_outputs/slurm_error_%j.txt
+#SBATCH --output=slurm_output_%j.txt
+#SBATCH --error=slurm_error_%j.txt
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
 #SBATCH --mem=16G
+#SBATCH --time=32:00:00
 #SBATCH --partition=main
 
 dataset=allen_brain_observatory_calcium
@@ -37,4 +38,4 @@ tuning_sess_ids=(
 )
 cd /home/mila/x/xuejing.pan/POYO/project-kirby/examples/capoyo/poyo_hparam_sweep
 
-wandb agent neuro-galaxy/allen_bo_calcium/suto0ntw
+wandb agent neuro-galaxy/allen_bo_calcium/jbtytr7k

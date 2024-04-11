@@ -33,7 +33,7 @@ command:
 - ${interpreter}
 - ${program} # first line
 - --config-name=train_allen_bo.yaml 
-- ++dataset.0.selection.0.sortset="565216523" # defining the sort set / session id
+- ++dataset.0.selection.0.sortset="578674360" # defining the sort set / session id
 - epochs=300
 - +sweep=True # to make the training script "sweep-aware"
 - eval_epochs=1 # quick val_loss feedback

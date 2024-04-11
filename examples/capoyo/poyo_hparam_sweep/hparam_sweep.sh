@@ -51,4 +51,4 @@ cd /home/mila/x/xuejing.pan/POYO/project-kirby/examples/capoyo/poyo_hparam_sweep
     # Run the wandb agent with the extracted sweep ID
     #wandb agent --entity neuro-galaxy --project allen_bo_calcium --sweep_id $sweep_id
 #done
-wandb agent neuro-galaxy/allen_bo_calcium/w6yahqq0
+wandb agent neuro-galaxy/allen_bo_calcium/w05wl2fp

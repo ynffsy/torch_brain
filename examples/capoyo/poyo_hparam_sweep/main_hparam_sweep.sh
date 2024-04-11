@@ -6,7 +6,8 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
-#SBATCH --mem=32G
+#SBATCH --mem=16G
+#SBATCH --time=72:00:00
 #SBATCH --partition=main
 
 dataset=allen_brain_observatory_calcium
@@ -37,4 +38,4 @@ tuning_sess_ids=(
 )
 cd /home/mila/x/xuejing.pan/POYO/project-kirby/examples/capoyo/poyo_hparam_sweep
 
-wandb agent neuro-galaxy/allen_bo_calcium/6cvv7zob
+wandb agent neuro-galaxy/allen_bo_calcium/m2ossjrh

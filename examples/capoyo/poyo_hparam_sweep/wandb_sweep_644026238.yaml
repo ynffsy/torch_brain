@@ -9,7 +9,7 @@ metric:
   name: val_loss
   goal: minimize
 
-method: bayes # grid, random, bayes
+method: random # grid, random, bayes
 parameters:
   base_lr:
     min: !!float 1.5625e-6
@@ -34,6 +34,7 @@ command:
 - ${program} # first line
 - --config-name=train_allen_bo.yaml 
 - ++dataset.0.selection.0.sortset="644026238" # defining the sort set / session id
+- epochs=300
 - +sweep=True # to make the training script "sweep-aware"
 - eval_epochs=1 # quick val_loss feedback
 - ${args_no_hyphens} # HP tuning overrides

@@ -5,8 +5,9 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=2
 #SBATCH --cpus-per-task=2
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 #SBATCH --mem=24GB
+#SBATCH --time=32:00:00
 #SBATCH --partition=main
 
 export WANDB_PROJECT=allen_bo_calcium
@@ -24,8 +25,8 @@ set +a
 
 cd /home/mila/x/xuejing.pan/POYO/project-kirby/
 # Uncompress the data to SLURM_TMPDIR
-snakemake --rerun-triggers=mtime --config tmp_dir=$SLURM_TMPDIR -c4 allen_brain_observatory_calcium_unfreeze
-
+#snakemake --rerun-triggers=mtime --config tmp_dir=$SLURM_TMPDIR -c4 allen_brain_observatory_calcium_unfreeze
+snakemake --rerun-triggers=mtime -c1 allen_brain_observatory_calcium_unfreeze
 # Important info for parallel GPU processing
 #export NCCL_DEBUG=INFO
 #export PYTHONFAULTHANDLER=1
@@ -48,6 +49,7 @@ cd /home/mila/x/xuejing.pan/POYO/project-kirby/examples/capoyo/poyo_hparam_sweep
 #       --config-name train_allen_bo.yaml data_root=$SLURM_TMPDIR/uncompressed gpus=2 epochs=1000
 
 #for sweeps
-wandb agent neuro-galaxy/allen_bo_calcium/hcrbvrqe
+wandb agent neuro-galaxy/allen_bo_calcium/d63jo2y5
+
 #CUDA_VISIBLE_DEVICES=0 wandb agent neuro-galaxy/allen_bo_calcium/hcrbvrqe 
 #CUDA_VISIBLE_DEVICES=1 wandb agent neuro-galaxy/allen_bo_calcium/hcrbvrqe

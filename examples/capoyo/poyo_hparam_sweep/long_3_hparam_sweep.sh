@@ -6,8 +6,8 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
-#SBATCH --mem=32G
-#SBATCH --time=120:00:00
+#SBATCH --mem=16G
+#SBATCH --time=32:00:00
 #SBATCH --partition=long
 
 dataset=allen_brain_observatory_calcium
@@ -52,4 +52,4 @@ cd /home/mila/x/xuejing.pan/POYO/project-kirby/examples/capoyo/poyo_hparam_sweep
     # Run the wandb agent with the extracted sweep ID
     #wandb agent --entity neuro-galaxy --project allen_bo_calcium --sweep_id $sweep_id
 #done
-wandb agent neuro-galaxy/allen_bo_calcium/yl2pcwyh
+wandb agent neuro-galaxy/allen_bo_calcium/lgjm295t

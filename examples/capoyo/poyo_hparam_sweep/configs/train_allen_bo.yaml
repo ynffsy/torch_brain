@@ -32,6 +32,7 @@ name: allen_brain_observatory_calcium_all
 precision: 32
 nodes: 1
 gpus: 1
+wandb_log_model: False
 # Where to resume/finetune from. Could be null (yaml for None, meaning train from
 # scratch) or a fully qualified path to the .ckpt file.
 ckpt_path: null

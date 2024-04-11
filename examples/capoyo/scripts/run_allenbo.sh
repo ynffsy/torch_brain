@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
-#SBATCH --partition=unkillable
+#SBATCH --partition=main
 #
 #set -e
 dataset=allen_brain_observatory_calcium
@@ -93,7 +93,7 @@ do
 #                
         echo $sess_id
         srun --export=ALL,WANDB_PROJECT=allen_bo_calcium python /home/mila/x/xuejing.pan/POYO/project-kirby/examples/capoyo/train.py \
-        --config-name train_allen_bo.yaml name=$sortset ++dataset.0.selection.0.sortset=$sortset base_lr=0.0000029172163646162837 model.dim=256 weight_decay=0.0009909077427285205 model.patch_size=10 model.num_latents=64 train_transforms.0.mode_units=60
+        --config-name train_allen_bo.yaml name=$sortset ++dataset.0.selection.0.sortset=$sortset log_dir=/home/mila/x/xuejing.pan/scratch/poyo_logs
 done
 #done
 #data_root=$SLURM_TMPDIR/uncompressed

@@ -191,15 +191,17 @@ def run_training(cfg: DictConfig):
     wandb = lightning.pytorch.loggers.WandbLogger(
         name=cfg.name,
         project=wandb_project,
-        log_model=True,
-        dir=os.path.join(cfg.log_dir, "wandb"),
+        # log_model=True,
+        log_model=cfg.get("wandb_log_model", False),
+        save_dir=os.path.join(cfg.log_dir, "wandb"),
     )
     print(f"Wandb ID: {wandb.version}")
 
     callbacks = [
         ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
         ModelCheckpoint(
-            dirpath=f"logs/lightning_logs/{wandb.version}",
+            # dirpath=f"logs/lightning_logs/{wandb.version}",
+            dirpath=os.path.join(cfg.log_dir, f"lightning_logs/{wandb.version}"),
             save_last=True,
             save_on_train_epoch_end=True,
             every_n_epochs=cfg.eval_epochs,
