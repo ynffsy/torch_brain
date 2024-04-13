@@ -1,5 +1,6 @@
 import os
 import logging
+import copy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -35,6 +36,8 @@ class Dataset(torch.utils.data.Dataset):
     Within this framework, it is the job of the sampler to provide the
     DatasetIndex indices to slice the dataset into samples (see `kirby.data.sampler`).
 
+    Files will be opened, and only closed when the Dataset object is deleted.
+
     Args:
         root: The root directory of the dataset.
         split: The split of the dataset. This is used to determine the sampling intervals
@@ -45,10 +48,6 @@ class Dataset(torch.utils.data.Dataset):
             - selection: A dictionary specifying the selection criteria for the dataset.
         transform: A transform to apply to the data. This transform should be a callable
             that takes a Data object and returns a Data object.
-        keep_files_open: If True, the files are kept open and the data is loaded into
-            memory. This is useful for efficiency. If False, the files are opened and
-            closed every time a piece of data is requested. This is useful for memory
-            efficiency.
     """
 
     _check_for_data_leakage_flag: bool = True
@@ -61,7 +60,6 @@ class Dataset(torch.utils.data.Dataset):
         split: str,
         include: List[Dict[str, Any]],
         transform=None,
-        keep_files_open: bool = True,
     ):
         super().__init__()
         self.root = root
@@ -75,16 +73,15 @@ class Dataset(torch.utils.data.Dataset):
 
         self.session_info_dict, self.session_ids, self.unit_ids = self._look_for_files()
 
-        if keep_files_open:
-            self._open_files = {
-                session_id: h5py.File(session_info["filename"], "r")
-                for session_id, session_info in self.session_info_dict.items()
-            }
+        self._open_files = {
+            session_id: h5py.File(session_info["filename"], "r")
+            for session_id, session_info in self.session_info_dict.items()
+        }
 
-            self._data_objects = {
-                session_id: Data.from_hdf5(f)
-                for session_id, f in self._open_files.items()
-            }
+        self._data_objects = {
+            session_id: Data.from_hdf5(f, lazy=True)
+            for session_id, f in self._open_files.items()
+        }
 
     def _close_open_files(self):
         """Closes the open files and deletes open data objects.
@@ -95,7 +92,7 @@ class Dataset(torch.utils.data.Dataset):
                 f.close()
             self._open_files = None
 
-        self._data_objects = None  # initialized Data objects should be gc'd
+        self._data_objects = None
 
     def __del__(self):
         self._close_open_files()
@@ -323,14 +320,11 @@ class Dataset(torch.utils.data.Dataset):
             start: The start time of the slice.
             end: The end time of the slice.
         """
+        data = copy.copy(self._data_objects[session_id])
+        # TODO: add more tests to make sure that slice does not modify the original data object
+        # note there should be no issues as long as the self._data_objects stay lazy
+        sample = data.slice(start, end)
         session_info = self.session_info_dict[session_id]
-        if self._data_objects is None:
-            with h5py.File(session_info["filename"], "r") as f:
-                data = Data.from_hdf5(f)
-                sample = data.slice(start, end)
-        else:
-            data = self._data_objects[session_id]
-            sample = data.slice(start, end)
 
         if self._check_for_data_leakage_flag:
             sample._check_for_data_leakage(self.split)
