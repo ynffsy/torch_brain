@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import datetime
+import copy
 
 import msgpack
 import h5py
@@ -340,15 +341,44 @@ class Dataset(torch.utils.data.Dataset):
 
         Note that these intervals will change depending on the split.
         """
-        intervals = {}
+        interval_dict = {}
         for session_id, session_info in self.session_info_dict.items():
-            intervals[session_id] = list(
-                zip(
-                    session_info["sampling_intervals"].start,
-                    session_info["sampling_intervals"].end,
-                )
+            sampling_intervals_modifier_code = session_info["config"].get(
+                "sampling_intervals_modifier", None
             )
-        return intervals
+            if sampling_intervals_modifier_code is None:
+                interval_dict[session_id] = list(
+                    zip(
+                        session_info["sampling_intervals"].start,
+                        session_info["sampling_intervals"].end,
+                    )
+                )
+            else:
+                local_vars = {
+                    "data": copy.deepcopy(self._data_objects[session_id]),
+                    "sampling_intervals": session_info["sampling_intervals"],
+                    "split": self.split,
+                }
+                try:
+                    exec(sampling_intervals_modifier_code, {}, local_vars)
+                except NameError as e:
+                    error_message = (
+                        f"{e}. Variables that are passed to the sampling_intervals_modifier "
+                        f"are: {list(local_vars.keys())}"
+                    )
+                    raise NameError(error_message) from e
+                except Exception as e:
+                    error_message = (
+                        f"Error while executing sampling_intervals_modifier defined in "
+                        f"the config file for session {session_id}: {e}"
+                    )
+                    raise type(e)(error_message) from e
+
+                sampling_intervals = local_vars.get("sampling_intervals")
+                interval_dict[session_id] = list(
+                    zip(sampling_intervals.start, sampling_intervals.end)
+                )
+        return interval_dict
 
     def disable_data_leakage_check(self):
         r"""Disables the data leakage check.
