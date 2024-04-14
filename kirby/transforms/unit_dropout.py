@@ -121,9 +121,10 @@ class UnitDropout:
         *args, **kwargs: Arguments to pass to the :class:`TriangleDistribution` constructor.
     """
 
-    def __init__(self, field: str = "spikes", *args, **kwargs):
+    def __init__(self, field: str = "spikes", reset_index=True, *args, **kwargs):
         # TODO allow multiple fields (example: spikes + LFP)
         self.field = field
+        self.reset_index = reset_index
         # TODO this currently assumes the type of distribution we use, in the future,
         # the distribution might be passed as an argument.
         self.distribution = TriangleDistribution(*args, **kwargs)
@@ -141,8 +142,8 @@ class UnitDropout:
 
         unit_mask = np.zeros_like(unit_ids, dtype=bool)
         unit_mask[keep_indices] = True
-
-        data.units = data.units.select_by_mask(unit_mask)
+        if self.reset_index:
+            data.units = data.units.select_by_mask(unit_mask)
 
         nested_attr = self.field.split(".")
         target_obj = getattr(data, nested_attr[0])
@@ -154,11 +155,12 @@ class UnitDropout:
             # and units.
             setattr(data, self.field, target_obj.select_by_mask(spike_mask))
 
-            relabel_map = np.zeros(num_units, dtype=int)
-            relabel_map[unit_mask] = np.arange(unit_mask.sum())
+            if self.reset_index:
+                relabel_map = np.zeros(num_units, dtype=int)
+                relabel_map[unit_mask] = np.arange(unit_mask.sum())
 
-            target_obj = getattr(data, self.field)
-            target_obj.unit_index = relabel_map[target_obj.unit_index]
+                target_obj = getattr(data, self.field)
+                target_obj.unit_index = relabel_map[target_obj.unit_index]
         elif isinstance(target_obj, RegularTimeSeries):
             assert len(nested_attr) == 2
             setattr(
