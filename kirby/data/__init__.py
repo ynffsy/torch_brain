@@ -1,4 +1,6 @@
 from .data import ArrayDict, Data, Interval, IrregularTimeSeries, RegularTimeSeries
+from .concat import concat
+
 from .dataset import Dataset
 
 from . import dandi_utils
