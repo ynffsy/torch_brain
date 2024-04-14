@@ -96,22 +96,19 @@ class POYOPlus(nn.Module):
     def freeze_middle(self) -> List[nn.Module]:
         # Freeze everything except the readout, unit embedding, and session embedding
         # layers.
-        middle_modules = []
+        frozen_modules = []
         banned_modules = [
-            self.readout,
             self.unit_emb,
             self.session_emb,
-            self.enc_atn,
-            self.enc_ffn,
         ]
         for module in self.children():
             if module in banned_modules:
                 continue
             for param in module.parameters():
                 param.requires_grad = False
-            middle_modules.append(module)
+            frozen_modules.append(module)
 
-        return middle_modules
+        return frozen_modules
 
     def unfreeze_middle(self) -> None:
         for module in self.children():

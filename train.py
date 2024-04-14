@@ -89,9 +89,37 @@ def run_training(cfg: DictConfig):
         transform=val_tokenizer,
     )
 
-    # register units and sessions
-    model.unit_emb.initialize_vocab(train_dataset.unit_ids)
-    model.session_emb.initialize_vocab(train_dataset.session_ids)
+    if not cfg.finetune:
+        # Register units and sessions
+        model.unit_emb.initialize_vocab(train_dataset.unit_ids)
+        model.session_emb.initialize_vocab(train_dataset.session_ids)
+    else:
+        assert (
+            cfg.ckpt_path is not None
+        ), "Missing `ckpt_path`. Checkpoint is required finetuning."
+        ckpt = torch.load(cfg.ckpt_path, map_location="cpu")
+        state_dict = ckpt["state_dict"]
+
+        # Remove 'model.' prefix at the front of the state dict keys
+        new_state_dict = {}
+        for key, value in state_dict.items():
+            new_key = key.removeprefix("model.")
+            new_state_dict[new_key] = state_dict[key]
+
+        model.load_state_dict(new_state_dict)
+        log.info(f"Loaded model state dict from {cfg.ckpt_path}")
+
+        # Optionally freeze parameters for Unit Identification
+        if cfg.freeze_perceiver_until_epoch != 0:
+            model.freeze_middle()
+            log.info(f"Froze perceiver")
+
+        # Register new units and sessions, and delete old ones
+        model.unit_emb.extend_vocab(train_dataset.unit_ids, exist_ok=False)
+        model.unit_emb.subset_vocab(train_dataset.unit_ids)
+
+        model.session_emb.extend_vocab(train_dataset.session_ids, exist_ok=False)
+        model.session_emb.subset_vocab(train_dataset.session_ids)
 
     # sampler and dataloader
     train_sampler = RandomFixedWindowSampler(
@@ -143,17 +171,7 @@ def run_training(cfg: DictConfig):
     else:
         raise ValueError("Must specify either epochs or steps")
 
-    print(f"Epochs: {epochs}")
-
-    if cfg.finetune:
-        model.load_from_ckpt(
-            path=cfg.ckpt_path,
-            strict_vocab=False,  # finetuning, generally, is over a new vocabulary
-        )
-
-        # Optionally freeze parameters for Unit Identification
-        if cfg.freeze_perceiver_until_epoch != 0:
-            model.freeze_perceiver()
+    log.info(f"Epochs: {epochs}")
 
     optimizer = Lamb(
         model.parameters(),  # filter(lambda p: p.requires_grad, model.parameters()),
