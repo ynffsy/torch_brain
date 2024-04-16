@@ -6,7 +6,7 @@ import torch.nn as nn
 from torchtyping import TensorType
 from einops import rearrange, repeat
 
-from kirby.taxonomy import DecoderSpec, Decoder
+from kirby.taxonomy import DecoderSpec, Decoder, Cre_line
 from kirby.nn import (
     Embedding,
     InfiniteVocabEmbedding,
@@ -39,6 +39,7 @@ class CaPOYO(nn.Module):
         lin_dropout=0.4,
         atn_dropout=0.0,
         emb_init_scale=0.02,
+        use_cre_line_embedding=False,
         backend_config="gpu_fp32",
         decoder_specs: Dict[str, DecoderSpec],
     ):
@@ -52,6 +53,11 @@ class CaPOYO(nn.Module):
         self.token_type_emb = Embedding(4, dim, init_scale=emb_init_scale)
         self.value_embedding_layer = nn.Linear(patch_size, dim, bias=False)
         self.unit_feat_embedding_layer = nn.Linear(3, dim, bias=True)
+        self.use_cre_line_embedding = use_cre_line_embedding
+        if self.use_cre_line_embedding:
+            self.cre_line_embedding_layer = Embedding(
+                Cre_line.max_value() + 1, dim, init_scale=emb_init_scale
+            )
 
         # latent embs
         self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
@@ -71,9 +77,11 @@ class CaPOYO(nn.Module):
 
         self.batch_type = BACKEND_CONFIGS[backend_config][0]
 
+        context_dim = 4 * dim if not self.use_cre_line_embedding else 5 * dim
+
         self.perceiver_io = PerceiverRotary(
             dim=dim,
-            context_dim=4 * dim,
+            context_dim=context_dim,
             dim_head=dim_head,
             depth=depth,
             cross_heads=cross_heads,
@@ -128,6 +136,7 @@ class CaPOYO(nn.Module):
         token_type,  # (B, N_in)
         unit_feats,  # (B, N_in, N_feats)
         unit_spatial_emb,  # (B, N_in, dim)
+        unit_cre_line=None,  # (B, N_in)
         input_mask=None,  # (B, N_in)
         input_seqlen=None,
         # latent sequence
@@ -148,13 +157,16 @@ class CaPOYO(nn.Module):
         Dict[str, torch.Tensor],
     ]:
         # input
+        input_feats = [
+            self.unit_emb(unit_index) + self.token_type_emb(token_type),
+            self.value_embedding_layer(patches),
+            self.unit_feat_embedding_layer(unit_feats),
+            unit_spatial_emb,
+        ]
+        if self.use_cre_line_embedding:
+            input_feats.append(self.cre_line_embedding_layer(unit_cre_line))
         inputs = torch.cat(
-            [
-                self.unit_emb(unit_index) + self.token_type_emb(token_type),
-                self.value_embedding_layer(patches),
-                self.unit_feat_embedding_layer(unit_feats),
-                unit_spatial_emb,
-            ],
+            input_feats,
             dim=-1,
         )
 
@@ -218,6 +230,7 @@ class CaPOYOTokenizer:
         patch_size,
         batch_type,
         eval=False,
+        use_cre_line_embedding=False,
     ):
         self.unit_tokenizer = unit_tokenizer
         self.session_tokenizer = session_tokenizer
@@ -231,6 +244,8 @@ class CaPOYOTokenizer:
 
         self.batch_type = batch_type
         self.eval = eval
+
+        self.use_cre_line_embedding = use_cre_line_embedding
 
     def __call__(self, data):
         # context window
@@ -344,6 +359,11 @@ class CaPOYOTokenizer:
             self.decoder_registry,
         )
 
+        if self.use_cre_line_embedding:
+            subject_cre_line = data.subject.cre_line
+            subject_cre_line_index = Cre_line.from_string(subject_cre_line).value
+            unit_cre_line = np.full_like(unit_index, subject_cre_line_index)
+
         batch = {}
         if self.batch_type[0] == "stacked":
             batch = {
@@ -360,6 +380,8 @@ class CaPOYOTokenizer:
                 "latent_index": latent_index,
                 "latent_timestamps": latent_timestamps,
             }
+            if self.use_cre_line_embedding:
+                batch["unit_cre_line"] = pad(unit_cre_line)
         else:
             batch = {
                 **batch,
@@ -376,6 +398,8 @@ class CaPOYOTokenizer:
                 "latent_timestamps": chain(latent_timestamps),
                 "latent_seqlen": len(latent_index),
             }
+            if self.use_cre_line_embedding:
+                batch["unit_cre_line"] = chain(unit_cre_line)
         if self.batch_type[1] == "chained":
             batch["latent_seqlen"] = len(latent_index)
 

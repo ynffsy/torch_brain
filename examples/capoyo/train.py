@@ -73,6 +73,7 @@ def run_training(cfg: DictConfig):
         latent_step=1 / 8,
         num_latents_per_step=cfg.model.num_latents,
         batch_type=model.batch_type,
+        use_cre_line_embedding=model.use_cre_line_embedding,
     )
 
     transform = Compose([*transforms, tokenizer])
