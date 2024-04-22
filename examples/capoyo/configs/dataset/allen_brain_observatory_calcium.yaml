@@ -2,9 +2,14 @@
     - dandiset: "allen_brain_observatory_calcium"
       #sortset: "653123929"
       #sortset: "644026238"
-      sortset: "565216523"
+      sortsets: 
+        - "565216523"
+        - "644026238"
+        - "653123929"
 
   config:
+    sampling_intervals_modifier: |
+      sampling_intervals = sampling_intervals & data.drifting_gratings
     multitask_readout:
       - decoder_id: DRIFTING_GRATINGS
         metrics:

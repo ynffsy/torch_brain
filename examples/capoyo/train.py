@@ -259,7 +259,7 @@ def run_training(cfg: DictConfig):
 # This loads the config file using Hydra, similar to Flags, but composable.
 @hydra.main(
     version_base="1.3",
-    config_path="/home/mila/x/xuejing.pan/POYO/project-kirby/examples/capoyo/configs",
+    config_path="./configs",
     config_name="train_openscope_calcium.yaml",
 )
 def main(cfg: DictConfig):

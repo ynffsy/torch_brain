@@ -1,0 +1,10 @@
+- selection:
+    - dandiset: "allen_brain_observatory_calcium"
+
+  config:
+    sampling_intervals_modifier: |
+      sampling_intervals = sampling_intervals & data.natural_movie_one
+    multitask_readout:
+      - decoder_id: NATURAL_MOVIE_FRAME
+        metrics:
+          - metric: r2
