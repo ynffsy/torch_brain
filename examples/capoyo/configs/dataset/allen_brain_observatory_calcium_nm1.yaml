@@ -3,7 +3,7 @@
 
   config:
     sampling_intervals_modifier: |
-      sampling_intervals = sampling_intervals & data.natural_movie_one
+      sampling_intervals = sampling_intervals & data.natural_movie_one_epochs
     multitask_readout:
       - decoder_id: NATURAL_MOVIE_FRAME
         metrics:
