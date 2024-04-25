@@ -93,7 +93,7 @@ WANDB_API_KEY=<secret-key>
 Get the API key from the wandb website.
 
 ## mila cluster $SLURM_TMPDIR issue
-(added by Krystal Pan)
+(updated 04/25/2024 - Krystal)
 
 When running an interactive session on the mila cluster (e.g. `mila_code` in VScode or `salloc` jobs), it is possible that $SLURM_TMPDIR is not expanded and cause a Snakemake error:
 ```
@@ -102,9 +102,7 @@ When running an interactive session on the mila cluster (e.g. `mila_code` in VSc
 
 Appending the following code to the `~/.bashrc` file to specify the temporary folder can solve this issue.
 ```
-if [ -z "$SLURM_TMPDIR" ]; then
-    export SLURM_TMPDIR="/Tmp/slurm.$SLURM_JOB_ID.0"
-fi
+export SLURM_TMPDIR="/tmp"
 ```
 
 After modifying, you only need to run it once:
