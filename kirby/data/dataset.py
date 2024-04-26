@@ -334,6 +334,32 @@ class Dataset(torch.utils.data.Dataset):
         sample.config = session_info["config"]
         return sample
 
+    def get_session_data(self, session_id: str):
+        r"""Returns the data object corresponding to the session :obj:`session_id`.
+        If the split is not "full", the data object is sliced to the allowed sampling
+        intervals for the split, to avoid any data leakage. :obj:`RegularTimeSeries`
+        objects are converted to :obj:`IrregularTimeSeries` objects, since they are
+        most likely no longer contiguous.
+
+        .. warning::
+            This method might load the full data object in memory, avoid multiple calls
+            to this method if possible.
+        """
+        data = copy.copy(self._data_objects[session_id])
+
+        # get allowed sampling intervals
+        if self.split != "full":
+            # TODO(mehdi): in the future each object should hold its own sampling
+            # intervals in the hdf5 file.
+            sampling_intervals = self.get_sampling_intervals()[session_id]
+            sampling_intervals = Interval.from_list(sampling_intervals)
+            data = data.select_by_interval(sampling_intervals)
+            if self._check_for_data_leakage_flag:
+                data._check_for_data_leakage(self.split)
+        else:
+            data = copy.deepcopy(data)
+        return data
+
     def get_sampling_intervals(self):
         r"""Returns a dictionary of interval-list for each session.
         Each interval-list is a list of tuples (start, end) for each interval. This
