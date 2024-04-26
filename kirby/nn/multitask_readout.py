@@ -164,6 +164,22 @@ def prepare_for_multitask_readout(
         decoder_index.append(Decoder.from_string(key).value)
         values[key] = data.get_nested_attribute(decoder["value_key"])
 
+        # z-scale the values if mean/std are specified in the config file
+        if "normalize_mean" in decoder:
+            # if mean is a list, its a per-channel mean (usually for x,y coordinates)
+            if isinstance(decoder["normalize_mean"], list):
+                mean = np.array(decoder["normalize_mean"])
+            else:
+                mean = decoder["normalize_mean"]
+            values[key] = values[key] - mean
+        if "normalize_std" in decoder:
+            # if std is a list, its a per-channel std (usually for x,y coordinates)
+            if isinstance(decoder["normalize_std"], list):
+                std = np.array(decoder["normalize_std"])
+            else:
+                std = decoder["normalize_std"]
+            values[key] = values[key] / std
+
         timestamps.append(data.get_nested_attribute(decoder["timestamp_key"]))
 
         # here we assume that we won't be running a model at float64 precision
