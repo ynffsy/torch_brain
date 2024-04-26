@@ -202,6 +202,7 @@ def run_training(cfg: DictConfig):
     )
 
     wandb = lightning.pytorch.loggers.WandbLogger(
+        save_dir=cfg.log_dir,
         entity=cfg.get("wandb_entity", None),
         name=cfg.name,
         project=cfg.get("wandb_project", "poyo"),

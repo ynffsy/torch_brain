@@ -25,4 +25,54 @@ After that, you can pip install the module via regular means, i.e. `pip install 
 
 [Conda pack](https://conda.github.io/conda-pack/) is an interesting alternative that could be used, eventually, to build an environment on the mila cluster and ship it to Narval. We have not confirmed that it works, however.
 
-## Working around multi-node training
+## Using offline wandb
+
+If you're seeing this network error: `Network error (ConnectionError), entering retry loop`, 
+this might mean that your network is slow or blocking the connection to the wandb servers.
+
+You can run the training in offline mode by setting the `WANDB_mode` environment variable to `offline`:
+```bash
+WANDB_mode=offline CUDA_VISIBLE_DEVICES=0 python train.py --config-name train_mc_maze_small log_dir=./logs
+```
+
+Be sure to specify the `log_dir` argument to save the wandb logs where you can access them 
+later (i.e. in a directory that is not deleted after the training is done, or a node
+is terminated).
+
+In CC, this directory is: [TODO: specify the path].
+
+The following can be run from the login node or any node that has access to the logs 
+directory and to a stable internet connection:
+
+In stdout, you can identify the wandb run ID, which you will use to sync the run. If you
+have a log file you can do the following:
+```bash
+grep "Wandb ID: " log_file.log
+```
+which should output something like:
+```bash
+Wandb ID: 2tfkbhxk
+```
+
+You can then use this to find the run folder in the logs directory (replace `./logs/` with the path to the logs directory):
+```bash
+ls ./logs/wandb/ | grep "2tfkbhxk" 
+```
+which should output something like:
+```bash
+offline-run-20240426_135211-2tfkbhxk
+```
+
+Note that if you didn't get the wandb ID, you can use the timestamp to find the run folder.
+
+If your run is done, you can sync the run with the following command:
+```bash
+wandb sync ./logs/wandb/offline-run-20240426_135211-2tfkbhxk
+```
+
+But you probably want to track your training, which you can do by scheduling a sync every 5 minutes:
+```bash
+watch -n 300 wandb sync ./logs/wandb/offline-run-20240426_135211-2tfkbhxk
+```
+
+The run should now be visible in the wandb dashboard `https://wandb.ai/neuro-galaxy/poyo/runs/2tfkbhxk`
