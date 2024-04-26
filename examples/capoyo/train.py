@@ -135,7 +135,7 @@ def run_training(cfg: DictConfig):
         val_dataset,
         sampler=val_sampler,
         collate_fn=collate,
-        batch_size=cfg.batch_size * 10,
+        batch_size=cfg.batch_size,
         num_workers=2,
     )
 
