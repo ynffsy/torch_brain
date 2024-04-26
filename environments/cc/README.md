@@ -39,7 +39,7 @@ Be sure to specify the `log_dir` argument to save the wandb logs where you can a
 later (i.e. in a directory that is not deleted after the training is done, or a node
 is terminated).
 
-In CC, this directory is: [TODO: specify the path].
+In CC, this directory is scratch.
 
 The following can be run from the login node or any node that has access to the logs 
 directory and to a stable internet connection:
