@@ -35,6 +35,14 @@ def compute_loss_or_metric(
         elif loss_or_metric == "r2":
             r2score = R2Score(num_outputs=target.shape[1])
             return r2score(output, target)
+        elif loss_or_metric == "frame_diff_acc":
+            normalized_window = 30 / 450
+            differences = torch.abs(output - target)
+            correct_predictions = differences <= normalized_window
+            accuracy = (
+                correct_predictions.float().mean()
+            )  # Convert boolean tensor to float and calculate mean
+            return accuracy
         else:
             raise NotImplementedError(
                 f"Loss/Metric {loss_or_metric} not implemented for continuous output"
