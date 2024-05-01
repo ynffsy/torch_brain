@@ -6,7 +6,8 @@ import torch.nn as nn
 from torchtyping import TensorType
 from einops import rearrange, repeat
 
-from kirby.taxonomy import DecoderSpec, Decoder, Cre_line
+from kirby.taxonomy import DecoderSpec, Decoder
+from kirby.taxonomy.mice import Cre_line, Depth_classes
 from kirby.nn import (
     Embedding,
     InfiniteVocabEmbedding,
@@ -40,6 +41,7 @@ class CaPOYO(nn.Module):
         atn_dropout=0.0,
         emb_init_scale=0.02,
         use_cre_line_embedding=False,
+        use_depth_class_embedding=False,
         backend_config="gpu_fp32",
         decoder_specs: Dict[str, DecoderSpec],
     ):
@@ -54,9 +56,14 @@ class CaPOYO(nn.Module):
         self.value_embedding_layer = nn.Linear(patch_size, dim, bias=False)
         self.unit_feat_embedding_layer = nn.Linear(3, dim, bias=True)
         self.use_cre_line_embedding = use_cre_line_embedding
+        self.use_depth_class_embedding = use_depth_class_embedding
         if self.use_cre_line_embedding:
             self.cre_line_embedding_layer = Embedding(
                 Cre_line.max_value() + 1, dim, init_scale=emb_init_scale
+            )
+        if self.use_depth_class_embedding:
+            self.depth_class_embedding_layer = Embedding(
+                Depth_classes.max_value() + 1, dim, init_scale=emb_init_scale
             )
 
         # latent embs
@@ -77,7 +84,14 @@ class CaPOYO(nn.Module):
 
         self.batch_type = BACKEND_CONFIGS[backend_config][0]
 
-        context_dim = 4 * dim if not self.use_cre_line_embedding else 5 * dim
+        if not self.use_cre_line_embedding and not self.use_depth_class_embedding:
+            context_dim = 4 * dim
+        elif not self.use_cre_line_embedding or not self.use_depth_class_embedding:
+            context_dim = 5 * dim
+        else:
+            context_dim = 6 * dim
+
+        # context_dim = 4 * dim if not self.use_cre_line_embedding else 5 * dim
 
         self.perceiver_io = PerceiverRotary(
             dim=dim,
@@ -137,6 +151,7 @@ class CaPOYO(nn.Module):
         unit_feats,  # (B, N_in, N_feats)
         unit_spatial_emb,  # (B, N_in, dim)
         unit_cre_line=None,  # (B, N_in)
+        unit_depth_class=None,  # (B, N_in)
         input_mask=None,  # (B, N_in)
         input_seqlen=None,
         # latent sequence
@@ -165,6 +180,10 @@ class CaPOYO(nn.Module):
         ]
         if self.use_cre_line_embedding:
             input_feats.append(self.cre_line_embedding_layer(unit_cre_line))
+
+        if self.use_depth_class_embedding:
+            input_feats.append(self.depth_class_embedding_layer(unit_depth_class))
+
         inputs = torch.cat(
             input_feats,
             dim=-1,
@@ -231,6 +250,7 @@ class CaPOYOTokenizer:
         batch_type,
         eval=False,
         use_cre_line_embedding=False,
+        use_depth_class_embedding=False,
     ):
         self.unit_tokenizer = unit_tokenizer
         self.session_tokenizer = session_tokenizer
@@ -246,6 +266,7 @@ class CaPOYOTokenizer:
         self.eval = eval
 
         self.use_cre_line_embedding = use_cre_line_embedding
+        self.use_depth_class_embedding = use_depth_class_embedding
 
     def __call__(self, data):
         # context window
@@ -364,6 +385,13 @@ class CaPOYOTokenizer:
             subject_cre_line_index = Cre_line.from_string(subject_cre_line).value
             unit_cre_line = np.full_like(unit_index, subject_cre_line_index)
 
+        if self.use_depth_class_embedding:
+            subject_depth_class = data.subject.depth_class
+            subject_depth_class_index = Depth_classes.from_string(
+                subject_depth_class
+            ).value
+            unit_depth_class = np.full_like(unit_index, subject_depth_class_index)
+
         batch = {}
         if self.batch_type[0] == "stacked":
             batch = {
@@ -382,6 +410,8 @@ class CaPOYOTokenizer:
             }
             if self.use_cre_line_embedding:
                 batch["unit_cre_line"] = pad(unit_cre_line)
+            if self.use_depth_class_embedding:
+                batch["unit_depth_class"] = pad(unit_depth_class)
         else:
             batch = {
                 **batch,
@@ -400,6 +430,8 @@ class CaPOYOTokenizer:
             }
             if self.use_cre_line_embedding:
                 batch["unit_cre_line"] = chain(unit_cre_line)
+            if self.use_depth_class_embedding:
+                batch["unit_depth_class"] = chain(unit_depth_class)
         if self.batch_type[1] == "chained":
             batch["latent_seqlen"] = len(latent_index)
 
