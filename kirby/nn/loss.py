@@ -62,6 +62,11 @@ def compute_loss_or_metric(
         elif loss_or_metric == "accuracy":
             pred_class = torch.argmax(output, dim=1)
             return (pred_class == target.squeeze()).sum() / len(target)
+        elif loss_or_metric == "frame_diff_acc":
+            pred_class = torch.argmax(output, dim=1)
+            difference = torch.abs(pred_class - target.squeeze())
+            correct_predictions = difference <= 30
+            return correct_predictions.float().mean()
         else:
             raise NotImplementedError(
                 f"Loss/Metric {loss_or_metric} not implemented for binary/multilabel "
