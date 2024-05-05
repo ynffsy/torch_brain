@@ -23,7 +23,6 @@ from lightning.pytorch.callbacks import (
 # Flags are absorbed by Hydra.
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
-from torch_optimizer import Lamb
 
 from kirby.data import Dataset, collate
 from kirby.data.sampler import RandomFixedWindowSampler, SequentialFixedWindowSampler
@@ -31,6 +30,7 @@ from kirby.taxonomy import decoder_registry
 from kirby.transforms import Compose
 from kirby.utils import seed_everything, train_wrapper
 from kirby.models.capoyo import CaPOYOTokenizer
+from kirby.optim import SparseLamb
 
 import os
 
@@ -162,10 +162,11 @@ def run_training(cfg: DictConfig):
         if cfg.freeze_perceiver_until_epoch != 0:
             model.freeze_perceiver()
 
-    optimizer = Lamb(
+    optimizer = SparseLamb(
         model.parameters(),  # filter(lambda p: p.requires_grad, model.parameters()),
         lr=max_lr,
         weight_decay=cfg.weight_decay,
+        sparse=True,
     )
 
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
