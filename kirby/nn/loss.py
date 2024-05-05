@@ -35,6 +35,22 @@ def compute_loss_or_metric(
         elif loss_or_metric == "r2":
             r2score = R2Score(num_outputs=target.shape[1])
             return r2score(output, target)
+        elif loss_or_metric == "mallows_distance":
+            num_classes = output.size(-1)
+            output = torch.softmax(output, dim=-1).view(-1, num_classes)
+            target = target.view(-1)
+            weights = weights.view(-1)
+            # Mallow distance
+            target = torch.zeros_like(output).scatter_(1, target, 1.0)
+            # we compute the mallow distance as the sum of the squared differences
+            loss = torch.mean(
+                torch.square(
+                    torch.cumsum(target, dim=-1) - torch.cumsum(output, dim=-1)
+                ),
+                dim=-1,
+            )
+            loss = (weights * loss).sum() / weights.sum()
+            return loss
         elif loss_or_metric == "frame_diff_acc":
             normalized_window = 30 / 450
             differences = torch.abs(output - target)
