@@ -2,6 +2,7 @@
  usual, stitches it back together."""
 
 import torch
+import numpy as np
 from collections import defaultdict
 from tqdm import tqdm
 import pandas as pd
@@ -11,6 +12,7 @@ import wandb
 from lightning.pytorch.callbacks import Callback
 import logging
 
+from kirby.data.sampler import DistributedSamplerWrapper
 from kirby.nn import compute_loss_or_metric
 from kirby.taxonomy import Decoder, OutputType, Task
 from rich import print as rprint
@@ -27,20 +29,31 @@ def move_to_gpu(d, pl_module):
 class CustomValidator(Callback):
     def __init__(
         self,
-        validation_loader,
+        loader,
+        on_test=False,  # True if we are testing, False if we are validating
+        prefix=None,  # Prefix text for the metrics
     ):
         super().__init__()
-        self.loader = validation_loader
+        self.loader = loader
 
-    def on_validation_epoch_start(self, trainer, pl_module):
+        self.on_test = on_test
+        if prefix is None:
+            self.prefix = "test" if on_test else "val"
+        else:
+            self.prefix = prefix
+
+    def run(self, trainer, pl_module):
         session_timestamp = {}
         session_subtask_index = {}
         session_gt_output = {}
         session_pred_output = {}
 
+        if isinstance(self.loader.sampler, DistributedSamplerWrapper):
+            self.loader.sampler.set_params(trainer.world_size, trainer.local_rank)
+
         for batch in tqdm(
             self.loader,
-            desc=f"Val @ Epoch {trainer.current_epoch}",
+            desc=f"{self.prefix} @ Epoch {trainer.current_epoch}",
             disable=(trainer.local_rank != 0),
         ):
             absolute_starts = batch.pop("absolute_start")  # (B,)
@@ -77,7 +90,7 @@ class CustomValidator(Callback):
                     pred_output, loss, losses_taskwise = pl_module.model(**batch)
 
             # log the val_loss
-            pl_module.log_dict({"val_loss": loss})
+            pl_module.log_dict({f"{self.prefix}_loss": loss})
 
             # we need to get the timestamps, the ground truth values, the task ids as well
             # as the subtask ids. since the batch is padded and chained, this is a bit tricky
@@ -170,30 +183,21 @@ class CustomValidator(Callback):
                         )
 
         def gather_concat_dict(obj):
-            """Gather and concatenate dictionary-of-dictionary-of-tensors objects onto
-            the rank=0 process
-            """
-            gathered_objlist = None
-            if trainer.local_rank == 0:
-                gathered_objlist = [None] * trainer.world_size
-
-            dist.gather_object(obj, gathered_objlist, 0)
+            """All-gather and concatenate dictionary-of-dictionary-of-tensors objects"""
+            gathered_objlist = [None] * trainer.world_size
+            dist.all_gather_object(gathered_objlist, obj)
 
             # Concatenate all tensors in the dictionaries
-            gathered_obj = None
-            if trainer.local_rank == 0:
-                gathered_obj = defaultdict(lambda: defaultdict(list))
-                for objlist in gathered_objlist:
-                    for outer_key, inner_dict in objlist.items():
-                        for inner_key, tensor in inner_dict.items():
-                            gathered_obj[outer_key][inner_key].append(tensor)
+            gathered_obj = defaultdict(lambda: defaultdict(list))
+            for objlist in gathered_objlist:
+                for outer_key, inner_dict in objlist.items():
+                    for inner_key, tensor in inner_dict.items():
+                        gathered_obj[outer_key][inner_key].append(tensor)
 
-                # now actually concatenate the tensors in the innermost lists
-                for outer_key, inner_dict in gathered_obj.items():
-                    for inner_key, tensor_list in inner_dict.items():
-                        gathered_obj[outer_key][inner_key] = torch.cat(
-                            tensor_list, dim=0
-                        )
+            # now actually concatenate the tensors in the innermost lists
+            for outer_key, inner_dict in gathered_obj.items():
+                for inner_key, tensor_list in inner_dict.items():
+                    gathered_obj[outer_key][inner_key] = torch.cat(tensor_list, dim=0)
 
             dist.barrier()
             return gathered_obj
@@ -204,9 +208,6 @@ class CustomValidator(Callback):
             session_gt_output = gather_concat_dict(session_gt_output)
             session_pred_output = gather_concat_dict(session_pred_output)
             session_subtask_index = gather_concat_dict(session_subtask_index)
-
-        if trainer.local_rank != 0:
-            return
 
         metrics = dict()
         for session_id in tqdm(
@@ -255,27 +256,46 @@ class CustomValidator(Callback):
 
                     # Resolve the appropriate loss function.
                     metrics[
-                        f"val_{session_id}_{str(taskname.lower())}_{metric['metric']}"
+                        f"{self.prefix}_{session_id}_{str(taskname.lower())}_{metric['metric']}"
                     ] = compute_loss_or_metric(
                         metric["metric"], output_type, pred, gt, 1.0
                     ).item()
 
+        # Add average of all metrics
+        # TODO: Clean this up so we get average-metric per task-type
+        metrics[f"average_{self.prefix}_metric"] = np.array(
+            list(metrics.values())
+        ).mean()
+
         pl_module.log_dict(metrics)
-        logging.info(f"Logged {len(metrics)} validation metrics.")
+        logging.info(f"Logged {len(metrics)} {self.prefix} metrics.")
 
         metrics_data = []
         for metric_name, metric_value in metrics.items():
             metrics_data.append({"metric": metric_name, "value": metric_value})
 
         metrics_df = pd.DataFrame(metrics_data)
-        if pl_module.tb is not None:
-            pl_module.tb.add_text("val_metrics", metrics_df.to_markdown())
-        if pl_module.wandb is not None:
-            pl_module.wandb.log({"val_metrics": wandb.Table(dataframe=metrics_df)})
+        if trainer.local_rank == 0:
+            if pl_module.tb is not None:
+                pl_module.tb.add_text(
+                    f"{self.prefix}_metrics", metrics_df.to_markdown()
+                )
+            if pl_module.wandb is not None:
+                pl_module.wandb.log(
+                    {f"{self.prefix}_metrics": wandb.Table(dataframe=metrics_df)}
+                )
 
         rprint(metrics_df)
 
         return metrics_df
+
+    def on_validation_epoch_start(self, trainer, pl_module):
+        if not self.on_test:
+            return self.run(trainer, pl_module)
+
+    def on_test_epoch_start(self, trainer, pl_module):
+        if self.on_test:
+            return self.run(trainer, pl_module)
 
 
 def avg_pool(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:

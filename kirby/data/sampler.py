@@ -266,3 +266,63 @@ class TrialSampler(torch.utils.data.Sampler):
                 yield indices[idx]
         else:
             yield from indices
+
+
+class DistributedSamplerWrapper(torch.utils.data.Sampler):
+    r"""Wraps a sampler to be used in a distributed setting. This sampler will
+    only return indices that are assigned to the current process based on the
+    rank and num_replicas.
+    Args:
+        sampler (torch.utils.data.Sampler): The original sampler to wrap.
+        num_replicas (int): Number of processes participating in the distributed
+            training.
+        rank (int): Rank of the current process.
+    Example:
+        >>> sampler = SequentialFixedWindowSampler(interval_dict, window_length=10)
+        >>> dist_sampler = DistributedSamplerWrapper(sampler)
+        >>> loader = torch.utils.data.DataLoader(dataset, sampler=dist_sampler)
+        # Before starting the training loop, set the rank and num_replicas attributes:
+        >>> dist_sampler.set_params(trainer.world_size, trainer.global_rank)
+        # Now use it
+    """
+
+    def __init__(self, sampler, num_replicas=None, rank=None):
+        self.sampler = sampler
+        self.num_replicas = num_replicas
+        self.rank = rank
+
+    def set_params(self, num_replicas, rank):
+        logging.info(
+            f"Setting distributed sampler params: "
+            f"num_replicas={num_replicas}, rank={rank}"
+        )
+        self.num_replicas = num_replicas
+        self.rank = rank
+
+    def _check_params(self):
+        return (self.num_replicas is not None) and (self.rank is not None)
+
+    def rank_len(self):
+        r"""Returns the number of samples assigned to the current process."""
+        total_len = len(self.sampler)
+        evenly_split = total_len // self.num_replicas
+        extra = int((total_len % self.num_replicas) < self.rank)
+        return evenly_split + extra
+
+    def __len__(self):
+        r"""Returns the number of samples assigned to the current process if
+        the rank and num_replicas are set. Otherwise, returns the total number
+        of samples in the original sampler.
+        """
+        if not self._check_params():
+            return len(self.sampler)
+        else:
+            return self.rank_len()
+
+    def __iter__(self):
+        assert (
+            self._check_params()
+        ), "Rank and num_replicas must be set before using the distributed sampler."
+        indices = list(self.sampler)
+        indices = indices[self.rank : len(indices) : self.num_replicas]
+        return iter(indices)

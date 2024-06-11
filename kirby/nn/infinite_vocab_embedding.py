@@ -94,14 +94,12 @@ class InfiniteVocabEmbedding(nn.Module):
         ), f"Vocabulary already initialized, and has {len(self.vocab)} words. "
         "If you want to add new words to the vocabulary, use extend_vocab() instead."
 
-        vocab_sorted = sorted(vocab)  # sort the vocab to ensure consistent order
-
         # Create a mapping from words to indices
-        if isinstance(vocab_sorted, str):
+        if isinstance(vocab, str):
             raise ValueError("vocab cannot be a single string")
-        elif isinstance(vocab_sorted, Iterable):
+        elif isinstance(vocab, Iterable):
             # OmegaConf wraps the list in omageconf.listconfig.ListConfig
-            self.vocab = OrderedDict(zip(vocab_sorted, range(1, len(vocab_sorted) + 1)))
+            self.vocab = OrderedDict(zip(vocab, range(1, len(vocab) + 1)))
             assert "NA" not in self.vocab, "NA is a reserved word"
             self.vocab["NA"] = 0
             self.vocab.move_to_end("NA", last=False)

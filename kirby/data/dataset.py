@@ -307,7 +307,8 @@ class Dataset(torch.utils.data.Dataset):
                         config=config,
                     )
 
-        unit_ids = list(set(unit_ids))
+        unit_ids = sorted(list(set(unit_ids)))
+        session_ids = sorted(session_ids)
         return session_info_dict, session_ids, unit_ids
 
     def get(self, session_id: str, start: float, end: float):

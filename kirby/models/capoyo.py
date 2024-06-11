@@ -30,6 +30,7 @@ class CaPOYO(nn.Module):
         self,
         *,
         dim=512,
+        dim_input=None,
         dim_head=64,
         num_latents=64,
         patch_size=1,
@@ -40,8 +41,12 @@ class CaPOYO(nn.Module):
         lin_dropout=0.4,
         atn_dropout=0.0,
         emb_init_scale=0.02,
-        use_cre_line_embedding=False,
-        use_depth_class_embedding=False,
+        use_cre_line_embedding=True,
+        use_depth_embedding=False,
+        use_spatial_embedding=True,
+        use_roi_feat_embedding=True,
+        use_session_embedding=True,
+        use_unit_embedding=True,
         backend_config="gpu_fp32",
         decoder_specs: Dict[str, DecoderSpec],
     ):
@@ -50,16 +55,33 @@ class CaPOYO(nn.Module):
         self.dim = dim
         self.patch_size = patch_size
 
+        self.use_session_embedding = use_session_embedding
+        self.use_unit_embedding = use_unit_embedding
+
+        dim_input = dim_input or dim
+        self.dim_input = dim_input
+
         # input embs
-        self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
-        self.token_type_emb = Embedding(4, dim, init_scale=emb_init_scale)
-        self.value_embedding_layer = nn.Linear(patch_size, dim, bias=False)
-        self.unit_feat_embedding_layer = nn.Linear(3, dim, bias=True)
+        self.unit_emb = InfiniteVocabEmbedding(dim_input, init_scale=emb_init_scale)
+        self.token_type_emb = Embedding(4, dim_input, init_scale=emb_init_scale)
+        self.value_embedding_layer = nn.Linear(patch_size, dim_input, bias=False)
+
+        self.use_roi_feat_embedding = use_roi_feat_embedding
         self.use_cre_line_embedding = use_cre_line_embedding
-        self.use_depth_class_embedding = use_depth_class_embedding
+        self.use_depth_embedding = use_depth_embedding
+        self.use_spatial_embedding = use_spatial_embedding
+
         if self.use_cre_line_embedding:
             self.cre_line_embedding_layer = Embedding(
-                Cre_line.max_value() + 1, dim, init_scale=emb_init_scale
+                Cre_line.max_value() + 1, dim_input, init_scale=emb_init_scale
+            )
+
+        if self.use_roi_feat_embedding:
+            self.unit_feat_embedding_layer = nn.Linear(3, dim_input, bias=True)
+
+        if self.use_depth_embedding:
+            self.depth_embedding_layer = Embedding(
+                Depth_classes.max_value() + 1, dim_input, init_scale=emb_init_scale
             )
         if self.use_depth_class_embedding:
             self.depth_class_embedding_layer = Embedding(
@@ -84,14 +106,17 @@ class CaPOYO(nn.Module):
 
         self.batch_type = BACKEND_CONFIGS[backend_config][0]
 
-        if not self.use_cre_line_embedding and not self.use_depth_class_embedding:
-            context_dim = 4 * dim
-        elif not self.use_cre_line_embedding or not self.use_depth_class_embedding:
-            context_dim = 5 * dim
-        else:
-            context_dim = 6 * dim
-
-        # context_dim = 4 * dim if not self.use_cre_line_embedding else 5 * dim
+        # the input will be a concatenation of the unit embedding, the value embedding,
+        # and any additional embeddings
+        context_dim_factor = 2 + sum(
+            [
+                self.use_cre_line_embedding,
+                self.use_depth_embedding,
+                self.use_roi_feat_embedding,
+                self.use_spatial_embedding,
+            ]
+        )
+        context_dim = context_dim_factor * dim_input
 
         self.perceiver_io = PerceiverRotary(
             dim=dim,
@@ -148,10 +173,10 @@ class CaPOYO(nn.Module):
         timestamps,  # (B, N_in)
         patches,  # (B, N_in, N_feats)
         token_type,  # (B, N_in)
-        unit_feats,  # (B, N_in, N_feats)
-        unit_spatial_emb,  # (B, N_in, dim)
+        unit_feats=None,  # (B, N_in, N_feats)
+        unit_spatial_emb=None,  # (B, N_in, dim)
         unit_cre_line=None,  # (B, N_in)
-        unit_depth_class=None,  # (B, N_in)
+        unit_depth=None,  # (B, N_in)
         input_mask=None,  # (B, N_in)
         input_seqlen=None,
         # latent sequence
@@ -171,18 +196,28 @@ class CaPOYO(nn.Module):
         torch.Tensor,
         Dict[str, torch.Tensor],
     ]:
-        # input
-        input_feats = [
-            self.unit_emb(unit_index) + self.token_type_emb(token_type),
-            self.value_embedding_layer(patches),
-            self.unit_feat_embedding_layer(unit_feats),
-            unit_spatial_emb,
-        ]
+
+        input_feats = []
+        if self.use_unit_embedding:
+            input_feats.append(
+                self.unit_emb(unit_index) + self.token_type_emb(token_type)
+            )
+        else:
+            input_feats.append(self.token_type_emb(token_type))
+
+        input_feats.append(self.value_embedding_layer(patches))
+
+        if self.use_roi_feat_embedding:
+            input_feats.append(self.unit_feat_embedding_layer(unit_feats))
+
+        if self.use_spatial_embedding:
+            input_feats.append(unit_spatial_emb)
+
         if self.use_cre_line_embedding:
             input_feats.append(self.cre_line_embedding_layer(unit_cre_line))
 
-        if self.use_depth_class_embedding:
-            input_feats.append(self.depth_class_embedding_layer(unit_depth_class))
+        if self.use_depth_embedding:
+            input_feats.append(self.depth_embedding_layer(unit_depth))
 
         inputs = torch.cat(
             input_feats,
@@ -193,9 +228,10 @@ class CaPOYO(nn.Module):
         latents = self.latent_emb(latent_index)
 
         # outputs
-        output_queries = self.task_emb(output_decoder_index) + self.session_emb(
-            session_index
-        )
+        output_queries = self.task_emb(output_decoder_index)
+
+        if self.use_session_embedding:
+            output_queries = output_queries + self.session_emb(session_index)
 
         # feed into perceiver
         output_latents = self.perceiver_io(
@@ -250,7 +286,9 @@ class CaPOYOTokenizer:
         batch_type,
         eval=False,
         use_cre_line_embedding=False,
-        use_depth_class_embedding=False,
+        use_depth_embedding=False,
+        use_spatial_embedding=False,
+        use_roi_feat_embedding=False,
     ):
         self.unit_tokenizer = unit_tokenizer
         self.session_tokenizer = session_tokenizer
@@ -266,7 +304,9 @@ class CaPOYOTokenizer:
         self.eval = eval
 
         self.use_cre_line_embedding = use_cre_line_embedding
-        self.use_depth_class_embedding = use_depth_class_embedding
+        self.use_depth_embedding = use_depth_embedding
+        self.use_spatial_embedding = use_spatial_embedding
+        self.use_roi_feat_embedding = use_roi_feat_embedding
 
     def __call__(self, data):
         # context window
@@ -274,19 +314,6 @@ class CaPOYOTokenizer:
 
         ### prepare input
         unit_ids = data.units.id
-        unit_lvl_spatial_emb = get_sinusoidal_encoding(
-            data.units.imaging_plane_xy[:, 0],
-            data.units.imaging_plane_xy[:, 1],
-            self.dim // 2,
-        ).astype(np.float32)
-        unit_lvl_feats = np.stack(
-            [
-                data.units.imaging_plane_area,
-                data.units.imaging_plane_width,
-                data.units.imaging_plane_height,
-            ],
-            axis=1,
-        ).astype(np.float32)
 
         calcium_traces = data.calcium_traces.df_over_f.astype(
             np.float32
@@ -315,10 +342,46 @@ class CaPOYOTokenizer:
         # now flatten
         patches = rearrange(calcium_traces, "t d c -> (t c) d")
         unit_index = repeat(np.arange(num_rois), "c -> (t c)", t=timestamps.shape[0])
-        unit_feats = repeat(unit_lvl_feats, "c f -> (t c) f", t=timestamps.shape[0])
-        unit_spatial_emb = repeat(
-            unit_lvl_spatial_emb, "c d -> (t c) d", t=timestamps.shape[0]
-        )
+
+        if self.use_spatial_embedding:
+            if not "imaging_plane_xy" in data.units.keys:
+                raise ValueError(
+                    "ROI coordinates in the imaging plane are required for ROI spatial embeddings."
+                )
+            unit_lvl_spatial_emb = get_sinusoidal_encoding(
+                data.units.imaging_plane_xy[:, 0],
+                data.units.imaging_plane_xy[:, 1],
+                self.dim // 2,
+            ).astype(np.float32)
+            unit_spatial_emb = repeat(
+                unit_lvl_spatial_emb, "c d -> (t c) d", t=timestamps.shape[0]
+            )
+        else:
+            unit_spatial_emb = None
+
+        if self.use_roi_feat_embedding:
+            if not all(
+                [
+                    "imaging_plane_area" in data.units.keys,
+                    "imaging_plane_width" in data.units.keys,
+                    "imaging_plane_height" in data.units.keys,
+                ]
+            ):
+                raise ValueError(
+                    "ROI area, width, and height are required for ROI feature embeddings."
+                )
+            unit_lvl_feats = np.stack(
+                [
+                    data.units.imaging_plane_area,
+                    data.units.imaging_plane_width,
+                    data.units.imaging_plane_height,
+                ],
+                axis=1,
+            ).astype(np.float32)
+            unit_feats = repeat(unit_lvl_feats, "c f -> (t c) f", t=timestamps.shape[0])
+        else:
+            unit_feats = None
+
         timestamps = repeat(timestamps, "t -> (t c)", c=num_rois)
 
         # create start and end tokens for each unit
@@ -340,18 +403,20 @@ class CaPOYOTokenizer:
                 patches,
             ]
         )
-        unit_feats = np.concatenate(
-            [
-                unit_lvl_feats[se_unit_index],
-                unit_feats,
-            ]
-        )
-        unit_spatial_emb = np.concatenate(
-            [
-                unit_lvl_spatial_emb[se_unit_index],
-                unit_spatial_emb,
-            ]
-        )
+        if unit_feats is not None:
+            unit_feats = np.concatenate(
+                [
+                    unit_lvl_feats[se_unit_index],
+                    unit_feats,
+                ]
+            )
+        if unit_spatial_emb is not None:
+            unit_spatial_emb = np.concatenate(
+                [
+                    unit_lvl_spatial_emb[se_unit_index],
+                    unit_spatial_emb,
+                ]
+            )
 
         # unit_index is relative to the recording, so we want it to map it to
         # the global unit index
@@ -385,12 +450,10 @@ class CaPOYOTokenizer:
             subject_cre_line_index = Cre_line.from_string(subject_cre_line).value
             unit_cre_line = np.full_like(unit_index, subject_cre_line_index)
 
-        if self.use_depth_class_embedding:
-            subject_depth_class = data.subject.depth_class
-            subject_depth_class_index = Depth_classes.from_string(
-                subject_depth_class
-            ).value
-            unit_depth_class = np.full_like(unit_index, subject_depth_class_index)
+        if self.use_depth_embedding:
+            subject_depth = data.subject.depth_class
+            subject_depth_index = Depth_classes.from_string(subject_depth).value
+            unit_depth = np.full_like(unit_index, subject_depth_index)
 
         batch = {}
         if self.batch_type[0] == "stacked":
@@ -400,18 +463,20 @@ class CaPOYOTokenizer:
                 "unit_index": pad(unit_index),
                 "timestamps": pad(timestamps),
                 "patches": pad(patches),
-                "unit_feats": pad(unit_feats),
                 "token_type": pad(token_type_index),
-                "unit_spatial_emb": pad(unit_spatial_emb),
                 "input_mask": track_mask(unit_index),
                 # latent sequence
                 "latent_index": latent_index,
                 "latent_timestamps": latent_timestamps,
             }
+            if self.use_spatial_embedding:
+                batch["unit_spatial_emb"] = pad(unit_spatial_emb)
+            if self.use_roi_feat_embedding:
+                batch["unit_feats"] = pad(unit_feats)
             if self.use_cre_line_embedding:
                 batch["unit_cre_line"] = pad(unit_cre_line)
-            if self.use_depth_class_embedding:
-                batch["unit_depth_class"] = pad(unit_depth_class)
+            if self.use_depth_embedding:
+                batch["unit_depth"] = pad(unit_depth)
         else:
             batch = {
                 **batch,
@@ -419,19 +484,21 @@ class CaPOYOTokenizer:
                 "unit_index": chain(unit_index),
                 "timestamps": chain(timestamps),
                 "patches": chain(patches),
-                "unit_feats": chain(unit_feats),
                 "token_type": chain(token_type_index),
-                "unit_spatial_emb": chain(unit_spatial_emb),
                 "input_seqlen": len(unit_index),
                 # latent sequence
                 "latent_index": chain(latent_index),
                 "latent_timestamps": chain(latent_timestamps),
                 "latent_seqlen": len(latent_index),
             }
+            if self.use_spatial_embedding:
+                batch["unit_spatial_emb"] = chain(unit_spatial_emb)
+            if self.use_roi_feat_embedding:
+                batch["unit_roi_feats"] = chain(unit_feats)
             if self.use_cre_line_embedding:
                 batch["unit_cre_line"] = chain(unit_cre_line)
-            if self.use_depth_class_embedding:
-                batch["unit_depth_class"] = chain(unit_depth_class)
+            if self.use_depth_embedding:
+                batch["unit_depth"] = chain(unit_depth)
         if self.batch_type[1] == "chained":
             batch["latent_seqlen"] = len(latent_index)
 

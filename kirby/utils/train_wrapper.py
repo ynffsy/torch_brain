@@ -115,6 +115,10 @@ class TrainWrapper(LightningModule):
         # Necessary to trick PyTorch Lightning into running the custom validator.
         pass
 
+    def test_step(self, data, data_idx):
+        # Necessary to trick PyTorch Lightning into running the custom validator.
+        pass
+
 
 class UnfreezeAtEpoch(Callback):
     def __init__(self, unfreeze_at_epoch=10):
