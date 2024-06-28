@@ -1,7 +1,7 @@
 import numpy as np
 
-from kirby.data.data import Data, ArrayDict, IrregularTimeSeries
-from kirby.transforms.unit_dropout import TriangleDistribution, UnitDropout
+from temporaldata import Data, ArrayDict, IrregularTimeSeries
+from torch_brain.transforms.unit_dropout import TriangleDistribution, UnitDropout
 
 
 def test_distro():

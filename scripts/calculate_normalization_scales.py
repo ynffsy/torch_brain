@@ -13,10 +13,10 @@ from rich.table import Table
 from rich.console import Console
 from rich import print
 
-from kirby.data import Dataset
+from torch_brain.data import Dataset
 import numpy as np
 from omegaconf import OmegaConf
-from kirby.taxonomy.multitask_readout import OutputType, decoder_registry
+from brainsets_utils.taxonomy.multitask_readout import OutputType, decoder_registry
 from tqdm import tqdm
 
 
@@ -51,7 +51,7 @@ def calculate_zscales(dataset: Dataset) -> Dict[str, Tuple[float, float]]:
     chunk_metrics = {}
     print("[blue] calculating normalization scales")
     for session_id in tqdm(dataset.session_ids):
-        task_readouts = dataset.session_info_dict[session_id]["config"][
+        task_readouts = dataset.session_dict[session_id]["config"][
             "multitask_readout"
         ]
         # get a data object that is sliced according to the training sample intervals

@@ -2,8 +2,8 @@ import pytest
 
 import numpy as np
 
-from kirby.data import IrregularTimeSeries, Interval
-from kirby.utils.binning import bin_spikes
+from temporaldata import IrregularTimeSeries, Interval
+from torch_brain.utils.binning import bin_spikes
 
 
 def test_bin_data():

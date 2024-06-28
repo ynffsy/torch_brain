@@ -1,5 +1,0 @@
-tmp_dir: "/tmp"
-raw_dir: "/kirby"
-processed_dir: "/kirby"
-compressed_dir: "/dev/null"
-uncompressed_dir: "/dev/null"

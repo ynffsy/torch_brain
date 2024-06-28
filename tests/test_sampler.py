@@ -3,12 +3,12 @@ import pytest
 import numpy as np
 import torch
 
-from kirby.data.sampler import (
+from torch_brain.data.sampler import (
     SequentialFixedWindowSampler,
     RandomFixedWindowSampler,
     TrialSampler,
 )
-from kirby.data.dataset import DatasetIndex
+from torch_brain.data.dataset import DatasetIndex
 
 
 # helper

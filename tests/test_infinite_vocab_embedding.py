@@ -2,7 +2,7 @@ import copy
 
 import torch
 
-from kirby.nn import InfiniteVocabEmbedding
+from torch_brain.nn import InfiniteVocabEmbedding
 
 
 def test_embedding():

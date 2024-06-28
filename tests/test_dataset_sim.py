@@ -1,23 +1,20 @@
 from pathlib import Path
-
-import msgpack
+import os
 import pytest
-import util
 from dateutil import parser
 import numpy as np
 import h5py
 
-from kirby.data import Dataset, Data, IrregularTimeSeries, Interval, RegularTimeSeries
-from kirby.data.dataset_builder import encode_datetime
-from kirby.taxonomy import (
-    DandisetDescription,
+from temporaldata import Data, IrregularTimeSeries, Interval, RegularTimeSeries
+from torch_brain.data import Dataset
+from brainsets.taxonomy import (
+    BrainsetDescription,
+    SubjectDescription,
     SessionDescription,
-    SortsetDescription,
-    to_serializable,
+    DeviceDescription,
 )
-from kirby.taxonomy import Task
-
-DATA_ROOT = Path(util.get_data_paths()["uncompressed_dir"]) / "uncompressed"
+from brainsets.taxonomy import Task, Species, RecordingTech
+from brainsets import serialize_fn_map
 
 GABOR_POS_2D_MEAN = 10.0
 GABOR_POS_2D_STD = 1.0
@@ -26,300 +23,133 @@ RUNNING_SPEED_STD = 2.0
 
 
 @pytest.fixture
-def description_mpk_allen(tmp_path):
+def dummy_data(tmp_path):
 
-    id = "allen_neuropixels_mock"
-    (tmp_path / id).mkdir()
-    struct = DandisetDescription(
-        id=id,
-        origin_version="0.0.0",
-        derived_version="0.0.0",
-        metadata_version="0.0.0",
-        source="https://dandiarchive.org/#/dandiset/000005",
-        description="",
-        splits=["train", "val", "test"],
-        subjects=[],
-        sortsets=[
-            SortsetDescription(
-                id="20100101",
-                subject="alice",
-                areas=[],
-                recording_tech=[],
-                sessions=[
-                    SessionDescription(
-                        id="20100101_01",
-                        recording_date=parser.parse("2010-01-01T00:00:00"),
-                        task=Task.REACHING,
-                        splits={"train": [(0, 1), (1, 2)]},
-                        trials=[],
-                    )
-                ],
-                units=["a", "b", "c"],
-            ),
-            SortsetDescription(
-                id="20100102",
-                subject="bob",
-                areas=[],
-                recording_tech=[],
-                sessions=[
-                    SessionDescription(
-                        id="20100102_01",
-                        recording_date=parser.parse("2010-01-01T00:00:00"),
-                        task=Task.REACHING,
-                        splits={"train": [(0, 1), (1, 2), (2, 3)]},
-                        trials=[],
-                    )
-                ],
-                units=["e", "d"],
-            ),
-        ],
+    # create dummy session files
+    dummy_data = Data(
+        brainset=BrainsetDescription(
+            id="allen_neuropixels_mock",
+            origin_version="dandiset/000005/draft",
+            derived_version="1.0.0",
+            source="https://dandiarchive.org/#/dandiset/000005",
+            description="",
+        ),
+        subject=SubjectDescription(
+            id="alice",
+            species=Species.MACACA_MULATTA,
+        ),
+        session=SessionDescription(
+            id="20100102_1",
+            recording_date=parser.parse("2010-01-01T00:00:00"),
+            task=Task.REACHING,
+        ),
+        device=DeviceDescription(
+            id="20100102",
+            recording_tech=RecordingTech.UTAH_ARRAY_SPIKES,
+        ),
+        spikes=IrregularTimeSeries(
+            timestamps=np.arange(0, 1, 0.001),
+            domain="auto",
+        ),
+        domain=Interval(0, 1),
+        running_speed=IrregularTimeSeries(
+            timestamps=np.arange(0, 1, 0.001),
+            running_speed=np.random.normal(RUNNING_SPEED_MEAN, RUNNING_SPEED_STD, 1000),
+            domain="auto",
+        ),
+        gabors=IrregularTimeSeries(
+            timestamps=np.arange(0, 1, 0.001),
+            pos_2d=np.random.normal(GABOR_POS_2D_MEAN, GABOR_POS_2D_STD, (1000, 2)),
+            domain="auto",
+        ),
     )
 
-    with open(tmp_path / id / "description.mpk", "wb") as f:
-        msgpack.dump(
-            to_serializable(struct),
-            f,
-            default=encode_datetime,
-        )
+    filename = tmp_path / dummy_data.brainset.id / f"{dummy_data.session.id}.h5"
+    os.makedirs(filename.parent, exist_ok=True)
 
-    # Create dummy session files
-    for sortset in struct.sortsets:
-        for session in sortset.sessions:
-            filename = tmp_path / id / f"{session.id}.h5"
-            dummy_data = Data(
-                spikes=IrregularTimeSeries(
-                    timestamps=np.arange(0, 1, 0.001),
-                    domain="auto",
-                ),
-                domain=Interval(0, 1),
-                running_speed=IrregularTimeSeries(
-                    timestamps=np.arange(0, 1, 0.001),
-                    running_speed=np.random.normal(
-                        RUNNING_SPEED_MEAN, RUNNING_SPEED_STD, 1000
-                    ),
-                    domain="auto",
-                ),
-                gabors=IrregularTimeSeries(
-                    timestamps=np.arange(0, 1, 0.001),
-                    pos_2d=np.random.normal(
-                        GABOR_POS_2D_MEAN, GABOR_POS_2D_STD, (1000, 2)
-                    ),
-                    domain="auto",
-                ),
-            )
-            with h5py.File(filename, "w") as f:
-                dummy_data.to_hdf5(f)
+    with h5py.File(filename, "w") as f:
+        dummy_data.to_hdf5(f, serialize_fn_map=serialize_fn_map)
+
+    # create dummy session files
+    dummy_data = Data(
+        brainset=BrainsetDescription(
+            id="allen_neuropixels_mock",
+            origin_version="dandiset/000005/draft",
+            derived_version="1.0.0",
+            source="https://dandiarchive.org/#/dandiset/000005",
+            description="",
+        ),
+        subject=SubjectDescription(
+            id="bob",
+            species=Species.MACACA_MULATTA,
+        ),
+        session=SessionDescription(
+            id="20100130_1",
+            recording_date=parser.parse("2010-01-01T00:00:00"),
+            task=Task.REACHING,
+        ),
+        device=DeviceDescription(
+            id="20100130",
+            recording_tech=RecordingTech.UTAH_ARRAY_SPIKES,
+        ),
+        spikes=IrregularTimeSeries(
+            timestamps=np.arange(0, 1, 0.001),
+            domain="auto",
+        ),
+        domain=Interval(0, 1),
+        running_speed=IrregularTimeSeries(
+            timestamps=np.arange(0, 1, 0.001),
+            running_speed=np.random.normal(RUNNING_SPEED_MEAN, RUNNING_SPEED_STD, 1000),
+            domain="auto",
+        ),
+        gabors=IrregularTimeSeries(
+            timestamps=np.arange(0, 1, 0.001),
+            pos_2d=np.random.normal(GABOR_POS_2D_MEAN, GABOR_POS_2D_STD, (1000, 2)),
+            domain="auto",
+        ),
+    )
+
+    filename = tmp_path / dummy_data.brainset.id / f"{dummy_data.session.id}.h5"
+    with h5py.File(filename, "w") as f:
+        dummy_data.to_hdf5(f, serialize_fn_map=serialize_fn_map)
 
     return tmp_path
 
 
-@pytest.fixture
-def description_mpk_odoherty(tmp_path):
-    id = "odoherty_sabes"
-    (tmp_path / id).mkdir()
-    struct = DandisetDescription(
-        id=id,
-        origin_version="0.0.0",
-        derived_version="0.0.0",
-        metadata_version="0.0.0",
-        source="https://dandiarchive.org/#/dandiset/000005",
-        description="",
-        splits=["train", "val", "test"],
-        subjects=[],
-        sortsets=[
-            SortsetDescription(
-                id="20100101",
-                subject="alice",
-                areas=[],
-                recording_tech=[],
-                sessions=[
-                    SessionDescription(
-                        id="20100101_01",
-                        recording_date=parser.parse("2010-01-01T00:00:00"),
-                        task=Task.REACHING,
-                        splits={"train": [(0, 1), (2, 3)], "full": [(0, 5)]},
-                        trials=[],
-                    )
-                ],
-                units=["a", "b", "c"],
-            ),
-            SortsetDescription(
-                id="20100102",
-                subject="bob",
-                areas=[],
-                recording_tech=[],
-                sessions=[
-                    SessionDescription(
-                        id="20100102_01",
-                        recording_date=parser.parse("2010-01-01T00:00:00"),
-                        task=Task.REACHING,
-                        splits={"train": [(0, 1), (2, 3), (3, 4)], "full": [(0, 5)]},
-                        trials=[],
-                    )
-                ],
-                units=["e", "d"],
-            ),
-        ],
-    )
-
-    with open(tmp_path / id / "description.mpk", "wb") as f:
-        msgpack.dump(
-            to_serializable(struct),
-            f,
-            default=encode_datetime,
-        )
-
-    # Create dummy session files
-    for sortset in struct.sortsets:
-        for session in sortset.sessions:
-            filename = tmp_path / id / f"{session.id}.h5"
-            dummy_data = Data(
-                spikes=IrregularTimeSeries(
-                    timestamps=np.arange(0, 5, 0.1),
-                    domain="auto",
-                ),
-                trials=Interval(
-                    start=np.array([0.0, 1.0, 2.0, 3.0, 4.0]),
-                    end=np.array([0.5, 1.5, 2.5, 3.5, 4.5]),
-                    some_values=np.arange(5),
-                ),
-                traces=RegularTimeSeries(
-                    values=np.arange(100),
-                    sampling_rate=20,
-                    domain=Interval(0, 5.0),
-                ),
-                domain=Interval(0, 5.0),
-            )
-            dummy_data.add_split_mask("train", Interval.from_list([(0, 1), (2, 3)]))
-            with h5py.File(filename, "w") as f:
-                dummy_data.to_hdf5(f)
-
-    return tmp_path
-
-
-def test_dataset_selection(description_mpk_odoherty):
+def test_dataset_selection(dummy_data):
     ds = Dataset(
-        description_mpk_odoherty,
-        "train",
-        [{"selection": [{"dandiset": "odoherty_sabes"}]}],
+        dummy_data,
+        split=None,
+        include=[{"selection": [{"brainset": "allen_neuropixels_mock"}]}],
     )
-    assert len(ds.session_info_dict) == 2
-
-    assert ds.session_info_dict["odoherty_sabes/20100101_01"]["filename"] == (
-        description_mpk_odoherty / "odoherty_sabes" / "20100101_01.h5"
-    )
-    assert (
-        len(ds.session_info_dict["odoherty_sabes/20100101_01"]["sampling_intervals"])
-        == 2
-    )
-
-    assert ds.session_info_dict["odoherty_sabes/20100102_01"]["filename"] == (
-        description_mpk_odoherty / "odoherty_sabes" / "20100102_01.h5"
-    )
-    assert (
-        len(ds.session_info_dict["odoherty_sabes/20100102_01"]["sampling_intervals"])
-        == 3
+    assert len(ds.session_dict) == 2
+    assert ds.session_dict["allen_neuropixels_mock/20100102_1"]["filename"] == (
+        dummy_data / "allen_neuropixels_mock" / "20100102_1.h5"
     )
 
     ds = Dataset(
-        description_mpk_odoherty,
-        "train",
-        [{"selection": [{"dandiset": "odoherty_sabes", "subject": "alice"}]}],
+        dummy_data,
+        split=None,
+        include=[{"selection": [{"brainset": "allen_neuropixels_mock", "subject": "alice"}]}],
     )
-    assert len(ds.session_info_dict) == 1
-    assert ds.session_info_dict["odoherty_sabes/20100101_01"]["filename"] == (
-        description_mpk_odoherty / "odoherty_sabes" / "20100101_01.h5"
-    )
-    assert (
-        len(ds.session_info_dict["odoherty_sabes/20100101_01"]["sampling_intervals"])
-        == 2
-    )
+    assert len(ds.session_dict) == 1
 
     ds = Dataset(
-        description_mpk_odoherty,
-        "train",
-        [{"selection": [{"dandiset": "odoherty_sabes", "sortset": "20100101"}]}],
+        dummy_data,
+        split=None,
+        include=[{"selection": [{"brainset": "allen_neuropixels_mock", "session": "20100102_1"}]}],
     )
-    assert len(ds.session_info_dict) == 1
-    assert ds.session_info_dict["odoherty_sabes/20100101_01"]["filename"] == (
-        description_mpk_odoherty / "odoherty_sabes" / "20100101_01.h5"
-    )
-    assert (
-        len(ds.session_info_dict["odoherty_sabes/20100101_01"]["sampling_intervals"])
-        == 2
-    )
+    assert len(ds.session_dict) == 1
 
+
+def test_get_session_data(dummy_data):
     ds = Dataset(
-        description_mpk_odoherty,
-        "train",
-        [
-            {
-                "selection": [
-                    {
-                        "dandiset": "odoherty_sabes",
-                        "session": "20100102_01",
-                    }
-                ]
-            }
-        ],
+        dummy_data,
+        split=None,
+        include=[{"selection": [{"brainset": "allen_neuropixels_mock"}]}],
     )
 
-    assert ds.session_info_dict["odoherty_sabes/20100102_01"]["filename"] == (
-        description_mpk_odoherty / "odoherty_sabes" / "20100102_01.h5"
-    )
-    assert (
-        len(ds.session_info_dict["odoherty_sabes/20100102_01"]["sampling_intervals"])
-        == 3
-    )
+    data = ds.get_session_data("allen_neuropixels_mock/20100102_1")
 
-
-def test_get_session_data(description_mpk_odoherty):
-    ds = Dataset(
-        description_mpk_odoherty,
-        "train",
-        [{"selection": [{"dandiset": "odoherty_sabes"}]}],
-    )
-
-    data = ds.get_session_data("odoherty_sabes/20100101_01")
-
-    assert len(data.spikes) == 20
-    assert np.allclose(
-        data.spikes.timestamps,
-        np.concatenate([np.arange(0, 1, 0.1), np.arange(2, 3, 0.1)]),
-    )
-
-    assert len(data.trials) == 2
-    assert np.allclose(data.trials.start, [0.0, 2.0])
-    assert np.allclose(data.trials.end, [0.5, 2.5])
-    assert np.allclose(data.trials.some_values, [0, 2])
-
-    assert len(data.traces) == 40
-    assert isinstance(data.traces, IrregularTimeSeries)
-    assert np.allclose(
-        data.traces.timestamps,
-        np.concatenate([np.arange(0, 1, 0.05), np.arange(2, 3, 0.05)]),
-    )
-    assert np.allclose(
-        data.traces.values,
-        np.concatenate([np.arange(20), np.arange(40, 60)]),
-    )
-
-    ds = Dataset(
-        description_mpk_odoherty,
-        "full",
-        [{"selection": [{"dandiset": "odoherty_sabes"}]}],
-    )
-
-    data = ds.get_session_data("odoherty_sabes/20100101_01")
-
-    assert len(data.spikes) == 50
-    assert np.allclose(data.spikes.timestamps, np.arange(0, 5, 0.1))
-
-    assert len(data.trials) == 5
-    assert np.allclose(data.trials.start, np.array([0.0, 1.0, 2.0, 3.0, 4.0]))
-    assert np.allclose(data.trials.end, np.array([0.5, 1.5, 2.5, 3.5, 4.5]))
-    assert np.allclose(data.trials.some_values, np.arange(5))
-
-    assert isinstance(data.traces, RegularTimeSeries)
-    assert len(data.traces) == 100
-    assert np.allclose(data.traces.values, np.arange(100))
+    assert len(data.spikes) == 1000
+    assert len(data.gabors) == 1000

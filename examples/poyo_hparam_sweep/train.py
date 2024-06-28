@@ -11,7 +11,7 @@ import sys
 sys.path.insert(
     0, "../../"
 )  # so that we pick the `run_training` from the main `train.py` script
-from train import run_training
+from examples.poyo.train import run_training
 
 from utils import get_sweep_run_name
 

@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import torch
 
-from kirby.data import collate, pad, pad8, chain, track_mask, track_batch
+from torch_brain.data import collate, pad, pad8, chain, track_mask, track_batch
 
 
 def test_pad():

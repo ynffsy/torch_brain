@@ -1,14 +1,14 @@
 import numpy as np
 
-from kirby.data.data import (
+from temporaldata import (
     Data,
     ArrayDict,
     Interval,
     IrregularTimeSeries,
     RegularTimeSeries,
 )
-from kirby.transforms.random_time_scaling import RandomTimeScaling
-from kirby.transforms.unit_dropout import TriangleDistribution, UnitDropout
+from torch_brain.transforms.random_time_scaling import RandomTimeScaling
+from torch_brain.transforms.unit_dropout import TriangleDistribution, UnitDropout
 
 
 def test_irregular_scaling():
