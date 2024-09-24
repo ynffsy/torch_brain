@@ -12,7 +12,7 @@ setup(
     include_package_data=True,
     install_requires=[
         "temporaldata @ git+https://github.com/neuro-galaxy/temporaldata@main#egg=temporaldata",
-        "brainsets @ git+https://github.com/neuro-galaxy/brainsets@main#egg=brainsets",
+        "brainsets @ git+https://github.com/neuro-galaxy/brainsets@mehdi-capoyo#egg=brainsets",
         "torch==2.2.0",
         "einops~=0.6.0",
         # "setuptools~=60.2.0",
