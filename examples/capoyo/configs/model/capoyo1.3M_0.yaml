@@ -1,4 +1,4 @@
-_target_: kirby.models.CaPOYO
+_target_: torch_brain.models.CaPOYO
 dim: 64
 dim_head: 64
 patch_size: 1

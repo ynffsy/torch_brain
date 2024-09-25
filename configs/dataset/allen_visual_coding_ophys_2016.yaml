@@ -348,6 +348,8 @@
         metrics:
           - metric: frame_diff_acc
       - decoder_id: RUNNING_SPEED
+        normalize_mean: 1181.19374207
+        normalize_std: 754.84754474
         metrics:
           - metric: r2
       - decoder_id: LOCALLY_SPARSE_NOISE_FRAME
@@ -475,12 +477,20 @@
         metrics:
           - metric: frame_diff_acc
       - decoder_id: RUNNING_SPEED
+        normalize_mean: 1181.19374207
+        normalize_std: 754.84754474
         metrics:
           - metric: r2
       - decoder_id: LOCALLY_SPARSE_NOISE_FRAME
         metrics:
           - metric: accuracy
       - decoder_id: PUPIL_LOCATION
+        normalize_mean:
+          - 11.38974239
+          - 16.90243560
+        normalize_std:
+          - 15.98157281
+          - 6.62461675
         metrics:
           - metric: r2
 - selection:
@@ -606,9 +616,17 @@
         metrics:
           - metric: accuracy
       - decoder_id: RUNNING_SPEED
+        normalize_mean: 1181.19374207
+        normalize_std: 754.84754474
         metrics:
           - metric: r2
       - decoder_id: PUPIL_LOCATION
+        normalize_mean:
+          - 11.38974239
+          - 16.90243560
+        normalize_std:
+          - 15.98157281
+          - 6.62461675
         metrics:
           - metric: r2
 - selection:
@@ -980,6 +998,8 @@
         metrics:
           - metric: accuracy
       - decoder_id: RUNNING_SPEED
+        normalize_mean: 1181.19374207
+        normalize_std: 754.84754474
         metrics:
           - metric: r2
 - selection:
@@ -1344,6 +1364,8 @@
         metrics:
           - metric: accuracy
       - decoder_id: RUNNING_SPEED
+        normalize_mean: 1181.19374207
+        normalize_std: 754.84754474
         metrics:
           - metric: r2
 - selection:
@@ -1457,8 +1479,16 @@
         metrics:
           - metric: accuracy
       - decoder_id: RUNNING_SPEED
+        normalize_mean: 1181.19374207
+        normalize_std: 754.84754474
         metrics:
           - metric: r2
       - decoder_id: PUPIL_LOCATION
+        normalize_mean:
+          - 11.38974239
+          - 16.90243560
+        normalize_std:
+          - 15.98157281
+          - 6.62461675
         metrics:
           - metric: r2

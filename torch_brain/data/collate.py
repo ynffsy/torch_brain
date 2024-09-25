@@ -237,4 +237,21 @@ def collate(batch):
     Args:
         batch: a single batch to be collated
     """
+    # def find_keys(batch):
+    #     if not isinstance(batch[0], dict) and "output_values" not in batch[0]:
+    #         return None
+    #     keys = set()
+    #     for elem in batch:
+    #         keys.update(elem["output_values"].keys())
+    #     return keys
+
+    # keys = find_keys(batch)
+
+    # if keys is not None:
+    #     for elem in batch:
+    #         for key in keys:
+    #             if key not in elem["output_values"]:
+    #                 elem["output_values"][key] = torch.empty(0)
+    #                 elem["output_weights"][key] = torch.empty(0)
+
     return _collate(batch, collate_fn_map=collate_fn_map)

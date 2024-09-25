@@ -55,7 +55,7 @@ def compute_loss_or_metric(
     ]:
         if loss_or_metric == "bce":
             target = target.to(torch.long).squeeze()
-            # target = target.squeeze(dim=1)
+
             loss_noreduce = F.cross_entropy(output, target, reduction="none")
             if loss_noreduce.ndim > 1:
                 loss_noreduce = loss_noreduce.mean(dim=1)

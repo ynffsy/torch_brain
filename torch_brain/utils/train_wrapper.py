@@ -68,25 +68,28 @@ class TrainWrapper(LightningModule):
 
         # Compute the mean and std of the output.
         for name in data["output_values"].keys():
-            output_predictions = torch.cat(
-                [pred[name] for pred in output if name in pred], dim=0
-            )
-            self.log(
-                f"predictions/mean_{name}", output_predictions.mean(), prog_bar=False
-            )
-            self.log(
-                f"predictions/std_{name}", output_predictions.std(), prog_bar=False
-            )
-            self.log(
-                f"targets/mean_{name}",
-                data["output_values"][name].to(torch.float).mean(),
-                prog_bar=False,
-            )
-            self.log(
-                f"targets/std_{name}",
-                data["output_values"][name].to(torch.float).std(),
-                prog_bar=False,
-            )
+            try:
+                output_predictions = torch.cat(
+                    [pred[name] for pred in output if name in pred], dim=0
+                )
+                self.log(
+                    f"predictions/mean_{name}", output_predictions.mean(), prog_bar=False
+                )
+                self.log(
+                    f"predictions/std_{name}", output_predictions.std(), prog_bar=False
+                )
+                self.log(
+                    f"targets/mean_{name}",
+                    data["output_values"][name].to(torch.float).mean(),
+                    prog_bar=False,
+                )
+                self.log(
+                    f"targets/std_{name}",
+                    data["output_values"][name].to(torch.float).std(),
+                    prog_bar=False,
+                )
+            except Exception as e:
+                log.warning(f"Error computing mean/std for {name}: {e}")
 
         if "unit_index" in data:
             s = data["unit_index"].to(torch.float)

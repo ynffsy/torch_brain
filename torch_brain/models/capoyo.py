@@ -7,7 +7,7 @@ from torchtyping import TensorType
 from einops import rearrange, repeat
 
 from brainsets.taxonomy import DecoderSpec, Decoder
-from brainsets.taxonomy.mice import Cre_line, Depth_classes
+from brainsets.taxonomy.mice import Cre_line
 from torch_brain.nn import (
     Embedding,
     InfiniteVocabEmbedding,
@@ -82,10 +82,6 @@ class CaPOYO(nn.Module):
         if self.use_depth_embedding:
             self.depth_embedding_layer = Embedding(
                 Depth_classes.max_value() + 1, dim_input, init_scale=emb_init_scale
-            )
-        if self.use_depth_class_embedding:
-            self.depth_class_embedding_layer = Embedding(
-                Depth_classes.max_value() + 1, dim, init_scale=emb_init_scale
             )
 
         # latent embs
@@ -509,8 +505,8 @@ class CaPOYOTokenizer:
                 "session_index": pad(np.repeat(session_index, len(output_timestamps))),
                 "output_timestamps": pad(output_timestamps),
                 "output_decoder_index": pad(output_task_index),
-                "output_values": chain(output_values),
-                "output_weights": chain(output_weights),
+                "output_values": chain(output_values, allow_missing_keys=True),
+                "output_weights": chain(output_weights, allow_missing_keys=True),
             }
         else:
             batch = {
@@ -521,8 +517,8 @@ class CaPOYOTokenizer:
                 "output_decoder_index": chain(output_task_index),
                 "output_seqlen": len(output_timestamps),
                 "output_batch_index": track_batch(output_timestamps),
-                "output_values": chain(output_values),
-                "output_weights": chain(output_weights),
+                "output_values": chain(output_values, allow_missing_keys=True),
+                "output_weights": chain(output_weights, allow_missing_keys=True),
             }
 
         if self.eval:

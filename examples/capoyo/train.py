@@ -33,7 +33,7 @@ from torch_brain.data.sampler import (
     SequentialFixedWindowSampler,
     DistributedSamplerWrapper,
 )
-from torch_brain.taxonomy import decoder_registry
+from brainsets.taxonomy import decoder_registry
 from torch_brain.transforms import Compose
 from torch_brain.utils import seed_everything, train_wrapper
 from torch_brain.models.capoyo import CaPOYOTokenizer
@@ -121,8 +121,8 @@ def run_training(cfg: DictConfig):
     # register units and sessions
     if not cfg.finetune:
         # Register units and sessions
-        model.unit_emb.initialize_vocab(train_dataset.unit_ids)
-        model.session_emb.initialize_vocab(train_dataset.session_ids)
+        model.unit_emb.initialize_vocab(train_dataset.get_unit_ids())
+        model.session_emb.initialize_vocab(train_dataset.get_session_ids())
     else:
         assert (
             cfg.ckpt_path is not None
@@ -137,16 +137,16 @@ def run_training(cfg: DictConfig):
             log.info(f"Froze perceiver")
         # Register new units and sessions, and delete old ones
         try:
-            model.unit_emb.extend_vocab(train_dataset.unit_ids, exist_ok=False)
+            model.unit_emb.extend_vocab(train_dataset.get_unit_ids(), exist_ok=False)
         except ValueError as err:
             print(err)
-        model.unit_emb.subset_vocab(train_dataset.unit_ids)
+        model.unit_emb.subset_vocab(train_dataset.get_unit_ids())
 
         try:
-            model.session_emb.extend_vocab(train_dataset.session_ids, exist_ok=False)
+            model.session_emb.extend_vocab(train_dataset.get_session_ids(), exist_ok=False)
         except ValueError as err:
             print(err)
-        model.session_emb.subset_vocab(train_dataset.session_ids)
+        model.session_emb.subset_vocab(train_dataset.get_session_ids())
 
     # sampler and dataloader
     train_sampler = RandomFixedWindowSampler(
@@ -169,14 +169,15 @@ def run_training(cfg: DictConfig):
     )
 
     log.info(f"Training on {len(train_sampler)} samples")
-    log.info(f"Training on {len(train_dataset.unit_ids)} units")
-    log.info(f"Training on {len(train_dataset.session_ids)} sessions")
+    log.info(f"Training on {len(train_dataset.get_unit_ids())} units")
+    log.info(f"Training on {len(train_dataset.get_session_ids())} sessions")
 
     val_sampler = DistributedSamplerWrapper(
         SequentialFixedWindowSampler(
             interval_dict=val_dataset.get_sampling_intervals(),
             window_length=sequence_length,
             step=sequence_length / 2,
+            drop_short=True,
         )
     )
 
@@ -196,6 +197,7 @@ def run_training(cfg: DictConfig):
             interval_dict=test_dataset.get_sampling_intervals(),
             window_length=sequence_length,
             step=sequence_length / 2,
+            drop_short=True,
         )
     )
     test_loader = DataLoader(
@@ -351,7 +353,7 @@ def run_training(cfg: DictConfig):
             "ddp_find_unused_parameters_true" if torch.cuda.is_available() else "auto"
         ),
         callbacks=callbacks,
-        num_sanity_val_steps=0,
+        num_sanity_val_steps=10,
         precision=cfg.precision,
         reload_dataloaders_every_n_epochs=2000,
         accelerator="gpu",
