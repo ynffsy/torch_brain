@@ -98,7 +98,7 @@ class CustomValidator(Callback):
             batch_size = len(pred_output)
             # get gt_output and timestamps to be in the same format as pred_output
             timestamps = [{} for _ in range(batch_size)]
-            subtask_index = [{} for _ in range(batch_size)]
+            # subtask_index = [{} for _ in range(batch_size)]
             gt_output = [{} for _ in range(batch_size)]
 
             # collect ground truth
@@ -125,9 +125,9 @@ class CustomValidator(Callback):
                         batch["output_timestamps"][mask][token_batch == i]
                         + absolute_starts[batch_i[i]]
                     )
-                    subtask_index[batch_i[i]][taskname] = output_subtask_index[
-                        taskname
-                    ][(token_batch == i).detach().cpu()]
+                    # subtask_index[batch_i[i]][taskname] = output_subtask_index[
+                    #     taskname
+                    # ][(token_batch == i).detach().cpu()]
                     gt_output[batch_i[i]][taskname] = batch["output_values"][taskname][
                         token_batch == i
                     ]
@@ -140,7 +140,7 @@ class CustomValidator(Callback):
                     session_pred_output[session_id] = {}
                     session_gt_output[session_id] = {}
                     session_timestamp[session_id] = {}
-                    session_subtask_index[session_id] = {}
+                    # session_subtask_index[session_id] = {}
 
                 for taskname, pred_values in pred_output[i].items():
                     if taskname not in session_pred_output[session_id]:
@@ -153,9 +153,9 @@ class CustomValidator(Callback):
                         session_timestamp[session_id][taskname] = (
                             timestamps[i][taskname].detach().cpu()
                         )
-                        session_subtask_index[session_id][taskname] = (
-                            subtask_index[i][taskname].detach().cpu()
-                        )
+                        # session_subtask_index[session_id][taskname] = (
+                        #     subtask_index[i][taskname].detach().cpu()
+                        # )
                     else:
                         session_pred_output[session_id][taskname] = torch.cat(
                             (
@@ -175,12 +175,12 @@ class CustomValidator(Callback):
                                 timestamps[i][taskname].detach().cpu(),
                             )
                         )
-                        session_subtask_index[session_id][taskname] = torch.cat(
-                            (
-                                session_subtask_index[session_id][taskname],
-                                subtask_index[i][taskname].detach().cpu(),
-                            )
-                        )
+                        # session_subtask_index[session_id][taskname] = torch.cat(
+                        #     (
+                        #         session_subtask_index[session_id][taskname],
+                        #         subtask_index[i][taskname].detach().cpu(),
+                        #     )
+                        # )
 
         def gather_concat_dict(obj):
             """All-gather and concatenate dictionary-of-dictionary-of-tensors objects"""
@@ -207,7 +207,7 @@ class CustomValidator(Callback):
             session_timestamp = gather_concat_dict(session_timestamp)
             session_gt_output = gather_concat_dict(session_gt_output)
             session_pred_output = gather_concat_dict(session_pred_output)
-            session_subtask_index = gather_concat_dict(session_subtask_index)
+            # session_subtask_index = gather_concat_dict(session_subtask_index)
 
         metrics = dict()
         for session_id in tqdm(
@@ -231,12 +231,12 @@ class CustomValidator(Callback):
                     gt = session_gt_output[session_id][taskname]
                     pred = session_pred_output[session_id][taskname]
                     timestamps = session_timestamp[session_id][taskname]
-                    subtask_index = session_subtask_index[session_id][taskname]
+                    # subtask_index = session_subtask_index[session_id][taskname]
 
                     metric_subtask = metric.get("subtask", None)
                     if metric_subtask is not None:
-                        select_subtask_index = Task.from_string(metric_subtask).value
-                        mask = subtask_index == select_subtask_index
+                        # select_subtask_index = Task.from_string(metric_subtask).value
+                        # mask = subtask_index == select_subtask_index
                         gt = gt[mask]
                         pred = pred[mask]
                         timestamps = timestamps[mask]
