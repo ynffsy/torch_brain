@@ -318,10 +318,8 @@ def run_training(cfg: DictConfig):
         dirpath=os.path.join(cfg.log_dir, f"lightning_logs/{wandb.version}"),
         save_last=True,
         verbose=True,
-        monitor="average_val_metric",
-        mode="max",
-        save_on_train_epoch_end=False,
-        every_n_epochs=cfg.eval_epochs,
+        save_on_train_epoch_end=True,
+        every_n_epochs=1,
     )
 
     callbacks = [
@@ -353,7 +351,7 @@ def run_training(cfg: DictConfig):
             "ddp_find_unused_parameters_true" if torch.cuda.is_available() else "auto"
         ),
         callbacks=callbacks,
-        num_sanity_val_steps=10,
+        num_sanity_val_steps=0,
         precision=cfg.precision,
         reload_dataloaders_every_n_epochs=2000,
         accelerator="gpu",

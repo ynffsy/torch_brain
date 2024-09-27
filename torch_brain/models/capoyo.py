@@ -525,6 +525,6 @@ class CaPOYOTokenizer:
             # we will add a few more fields needed for evaluation
             batch["session_id"] = data.session
             batch["absolute_start"] = data.absolute_start
-            batch["output_subtask_index"] = chain(output_subtask_index)
+            batch["output_subtask_index"] = chain(output_subtask_index, allow_missing_keys=True)
 
         return batch
