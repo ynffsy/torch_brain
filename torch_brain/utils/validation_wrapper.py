@@ -182,24 +182,38 @@ class CustomValidator(Callback):
                         #     )
                         # )
 
-        def gather_concat_dict(obj):
-            """All-gather and concatenate dictionary-of-dictionary-of-tensors objects"""
-            gathered_objlist = [None] * trainer.world_size
-            dist.all_gather_object(gathered_objlist, obj)
+        import os
 
-            # Concatenate all tensors in the dictionaries
+        def gather_concat_dict(obj, tmp_dir="/tmp/gather_data"):
+            """Gather and concatenate dictionary-of-dictionary-of-tensors objects via file save/load"""
+            rank = dist.get_rank()
+            world_size = dist.get_world_size()
+
+            # Ensure the temp directory exists
+            if not os.path.exists(tmp_dir):
+                os.makedirs(tmp_dir)
+
+            # Each rank saves its object to a file
+            save_path = os.path.join(tmp_dir, f"rank_{rank}_data.pth")
+            torch.save(obj, save_path)
+            dist.barrier()  # Ensure all ranks save before rank 0 starts loading
+
             gathered_obj = defaultdict(lambda: defaultdict(list))
-            for objlist in gathered_objlist:
-                for outer_key, inner_dict in objlist.items():
+
+            for r in range(world_size):
+                load_path = os.path.join(tmp_dir, f"rank_{r}_data.pth")
+                loaded_obj = torch.load(load_path)
+
+                # Append tensors from the loaded object
+                for outer_key, inner_dict in loaded_obj.items():
                     for inner_key, tensor in inner_dict.items():
                         gathered_obj[outer_key][inner_key].append(tensor)
 
-            # now actually concatenate the tensors in the innermost lists
+            # Concatenate tensors
             for outer_key, inner_dict in gathered_obj.items():
                 for inner_key, tensor_list in inner_dict.items():
                     gathered_obj[outer_key][inner_key] = torch.cat(tensor_list, dim=0)
 
-            dist.barrier()
             return gathered_obj
 
         # Gather
