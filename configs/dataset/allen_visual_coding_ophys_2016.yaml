@@ -611,7 +611,7 @@
         - "583149151"
   config:
     multitask_readout:
-    # movie 1, static gratings, running, pupil
+    # movie 1, static gratings, natural scenes, running, pupil
       - decoder_id: NATURAL_MOVIE_ONE_FRAME
         metrics:
           - metric: frame_diff_acc
@@ -625,6 +625,10 @@
       - decoder_id: STATIC_GRATINGS_PHASE
         metrics:
           - metric: accuracy
+      - decoder_id: NATURAL_SCENES
+        metrics:
+          - metric: accuracy
+        weight: 0.3
       - decoder_id: RUNNING_SPEED
         normalize_mean: 1181.19374207
         normalize_std: 754.84754474
@@ -996,7 +1000,7 @@
         - "717214654"
   config:
     multitask_readout:
-    # movie 1, static gratings, running
+    # movie 1, static gratings, natural scenes, running
       - decoder_id: NATURAL_MOVIE_ONE_FRAME
         metrics:
           - metric: frame_diff_acc
@@ -1010,6 +1014,10 @@
       - decoder_id: STATIC_GRATINGS_PHASE
         metrics:
           - metric: accuracy
+      - decoder_id: NATURAL_SCENES
+        metrics:
+          - metric: accuracy
+        weight: 0.3
       - decoder_id: RUNNING_SPEED
         normalize_mean: 1181.19374207
         normalize_std: 754.84754474
