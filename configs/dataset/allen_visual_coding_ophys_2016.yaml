@@ -344,17 +344,21 @@
       - decoder_id: NATURAL_MOVIE_ONE_FRAME
         metrics:
           - metric: frame_diff_acc
+        weight: 0.25
       - decoder_id: NATURAL_MOVIE_TWO_FRAME
         metrics:
           - metric: frame_diff_acc
+        weight: 0.2
       - decoder_id: RUNNING_SPEED
         normalize_mean: 1181.19374207
         normalize_std: 754.84754474
         metrics:
           - metric: r2
+        weight: 1.5
       - decoder_id: LOCALLY_SPARSE_NOISE_FRAME
         metrics:
           - metric: accuracy
+        weight: 0.12
 - selection:
     - brainset: "allen_visual_coding_ophys_2016"
       sessions:
@@ -473,17 +477,21 @@
       - decoder_id: NATURAL_MOVIE_ONE_FRAME
         metrics:
           - metric: frame_diff_acc
+        weight: 0.25
       - decoder_id: NATURAL_MOVIE_TWO_FRAME
         metrics:
           - metric: frame_diff_acc
+        weight: 0.2
       - decoder_id: RUNNING_SPEED
         normalize_mean: 1181.19374207
         normalize_std: 754.84754474
         metrics:
           - metric: r2
+        weight: 1.5
       - decoder_id: LOCALLY_SPARSE_NOISE_FRAME
         metrics:
           - metric: accuracy
+        weight: 0.12
       - decoder_id: PUPIL_LOCATION
         normalize_mean:
           - 11.38974239
@@ -493,6 +501,7 @@
           - 6.62461675
         metrics:
           - metric: r2
+        weight: 8.
 - selection:
     - brainset: "allen_visual_coding_ophys_2016"
       sessions:
@@ -606,6 +615,7 @@
       - decoder_id: NATURAL_MOVIE_ONE_FRAME
         metrics:
           - metric: frame_diff_acc
+        weight: 0.25
       - decoder_id: STATIC_GRATINGS_ORIENTATION
         metrics:
           - metric: accuracy
@@ -620,6 +630,7 @@
         normalize_std: 754.84754474
         metrics:
           - metric: r2
+        weight : 1.5
       - decoder_id: PUPIL_LOCATION
         normalize_mean:
           - 11.38974239
@@ -629,6 +640,7 @@
           - 6.62461675
         metrics:
           - metric: r2
+        weight: 8.
 - selection:
     - brainset: "allen_visual_coding_ophys_2016"
       sessions:
@@ -988,6 +1000,7 @@
       - decoder_id: NATURAL_MOVIE_ONE_FRAME
         metrics:
           - metric: frame_diff_acc
+        weight: 0.25
       - decoder_id: STATIC_GRATINGS_ORIENTATION
         metrics:
           - metric: accuracy
@@ -1002,6 +1015,7 @@
         normalize_std: 754.84754474
         metrics:
           - metric: r2
+        weight: 1.5
 - selection:
     - brainset: "allen_visual_coding_ophys_2016"
       sessions:
@@ -1354,9 +1368,11 @@
       - decoder_id: NATURAL_MOVIE_ONE_FRAME
         metrics:
           - metric: frame_diff_acc
+        weight: 0.25
       - decoder_id: NATURAL_MOVIE_THREE_FRAME
         metrics:
           - metric: frame_diff_acc
+        weight: 0.2
       - decoder_id: DRIFTING_GRATINGS_ORIENTATION
         metrics:
           - metric: accuracy
@@ -1368,6 +1384,7 @@
         normalize_std: 754.84754474
         metrics:
           - metric: r2
+        weight: 1.5
 - selection:
     - brainset: "allen_visual_coding_ophys_2016"
       sessions:
@@ -1469,9 +1486,11 @@
       - decoder_id: NATURAL_MOVIE_ONE_FRAME
         metrics:
           - metric: frame_diff_acc
+        weight: 0.25
       - decoder_id: NATURAL_MOVIE_THREE_FRAME
         metrics:
           - metric: frame_diff_acc
+        weight: 0.2
       - decoder_id: DRIFTING_GRATINGS_ORIENTATION
         metrics:
           - metric: accuracy
@@ -1483,6 +1502,7 @@
         normalize_std: 754.84754474
         metrics:
           - metric: r2
+        weight: 1.5
       - decoder_id: PUPIL_LOCATION
         normalize_mean:
           - 11.38974239
@@ -1492,3 +1512,4 @@
           - 6.62461675
         metrics:
           - metric: r2
+        weight: 8.
