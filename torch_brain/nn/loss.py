@@ -25,6 +25,11 @@ def compute_loss_or_metric(
         target: The target tensor.
         weights: The sample-wise weights for the loss computation.
     """
+    target = target.to(output.device)
+
+    if weights is not None:
+        weights = weights.to(output.device)
+        
     if output_type == OutputType.CONTINUOUS:
         if loss_or_metric == "mse":
             # TODO mse could be used as a loss or as a metric. Currently it fails when

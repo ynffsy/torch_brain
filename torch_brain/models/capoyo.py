@@ -7,7 +7,7 @@ from torchtyping import TensorType
 from einops import rearrange, repeat
 
 from brainsets.taxonomy import DecoderSpec, Decoder
-from brainsets.taxonomy.mice import Cre_line
+from brainsets.taxonomy.mice import Cre_line, BrainRegion
 from torch_brain.nn import (
     Embedding,
     InfiniteVocabEmbedding,
@@ -187,6 +187,7 @@ class CaPOYO(nn.Module):
         output_batch_index=None,
         output_values: Optional[Dict[str, torch.Tensor]] = None,
         output_weights: Optional[Dict[str, torch.Tensor]] = None,
+        target_area=None,
     ) -> Tuple[
         Dict[str, TensorType["batch", "*nqueries", "*nchannelsout"]],
         torch.Tensor,
@@ -252,7 +253,7 @@ class CaPOYO(nn.Module):
             output_weights=output_weights,
         )
 
-        return output, loss, losses_taskwise
+        return output, loss, losses_taskwise, latents
 
 
 class CaPOYOTokenizer:
@@ -441,17 +442,27 @@ class CaPOYOTokenizer:
             self.decoder_registry,
         )
 
-        if self.use_cre_line_embedding:
-            subject_cre_line = data.subject.cre_line
-            subject_cre_line_index = Cre_line.from_string(subject_cre_line).value
-            unit_cre_line = np.full_like(unit_index, subject_cre_line_index)
+        #if self.use_cre_line_embedding:
+        subject_cre_line = data.subject.cre_line
+        subject_cre_line_index = Cre_line.from_string(subject_cre_line).value
+        unit_cre_line = np.full_like(unit_index, subject_cre_line_index)
 
-        if self.use_depth_embedding:
-            subject_depth = data.subject.depth_class
-            subject_depth_index = Depth_classes.from_string(subject_depth).value
-            unit_depth = np.full_like(unit_index, subject_depth_index)
+        #if self.use_depth_embedding:
+            #subject_depth = data.subject.depth_class
+            #subject_depth_index = Depth_classes.from_string(subject_depth).value
+            #unit_depth = np.full_like(unit_index, subject_depth_index)
 
+        subject_area = data.device.target_area
+        subject_area_index = BrainRegion.from_string(subject_area).value
+        unit_targeted_area = np.full_like(unit_index, subject_area_index)
+
+        recording_depth = data.device.imaging_depth
+        unit_depth = np.full_like(unit_index, recording_depth)
+        
         batch = {}
+
+
+        
         if self.batch_type[0] == "stacked":
             batch = {
                 **batch,
@@ -469,10 +480,14 @@ class CaPOYOTokenizer:
                 batch["unit_spatial_emb"] = pad(unit_spatial_emb)
             if self.use_roi_feat_embedding:
                 batch["unit_feats"] = pad(unit_feats)
-            if self.use_cre_line_embedding:
-                batch["unit_cre_line"] = pad(unit_cre_line)
-            if self.use_depth_embedding:
-                batch["unit_depth"] = pad(unit_depth)
+            #if self.use_cre_line_embedding:
+            #    batch["unit_cre_line"] = pad(unit_cre_line)
+            #if self.use_depth_embedding:
+            #    batch["unit_depth"] = pad(unit_depth)
+            batch["unit_cre_line"] = pad(unit_cre_line)
+            #if self.use_depth_embedding:
+            batch["unit_depth"] = pad(unit_depth)
+            batch["target_area"] = pad(unit_targeted_area)
         else:
             batch = {
                 **batch,
@@ -491,10 +506,12 @@ class CaPOYOTokenizer:
                 batch["unit_spatial_emb"] = chain(unit_spatial_emb)
             if self.use_roi_feat_embedding:
                 batch["unit_roi_feats"] = chain(unit_feats)
-            if self.use_cre_line_embedding:
-                batch["unit_cre_line"] = chain(unit_cre_line)
-            if self.use_depth_embedding:
-                batch["unit_depth"] = chain(unit_depth)
+            #if self.use_cre_line_embedding:
+            #batch["unit_cre_line"] = chain(unit_cre_line)
+            #if self.use_depth_embedding:
+            #batch["unit_depth"] = chain(unit_depth)
+            #batch["target_area"] = pad(unit_targeted_area)
+
         if self.batch_type[1] == "chained":
             batch["latent_seqlen"] = len(latent_index)
 
