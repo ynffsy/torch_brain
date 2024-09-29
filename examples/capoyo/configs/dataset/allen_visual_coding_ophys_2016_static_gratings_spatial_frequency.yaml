@@ -456,6 +456,8 @@
         - "716646781"
         - "717214654"
   config:
+    sampling_intervals_modifier: |
+      sampling_intervals = sampling_intervals & data.static_gratings_domain
     multitask_readout:
       - decoder_id: STATIC_GRATINGS_SPATIAL_FREQUENCY
         metrics:
