@@ -187,6 +187,7 @@ class CaPOYO(nn.Module):
         output_batch_index=None,
         output_values: Optional[Dict[str, torch.Tensor]] = None,
         output_weights: Optional[Dict[str, torch.Tensor]] = None,
+        stop_at_latents=False,
     ) -> Tuple[
         Dict[str, TensorType["batch", "*nqueries", "*nchannelsout"]],
         torch.Tensor,
@@ -241,7 +242,11 @@ class CaPOYO(nn.Module):
             input_seqlen=input_seqlen,
             latent_seqlen=latent_seqlen,
             output_query_seqlen=output_seqlen,
+            stop_at_latents=stop_at_latents,
         )
+
+        if stop_at_latents:
+            return output_latents
 
         # Readout layer
         output, loss, losses_taskwise = self.readout(
