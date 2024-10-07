@@ -4,8 +4,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchtyping import TensorType
+import logging
 
 from torch_brain.nn import RotaryEmbedding, RotaryCrossAttention, RotarySelfAttention
+
+log = logging.getLogger(__name__)
 
 
 class GEGLU(nn.Module):
@@ -246,3 +249,19 @@ class PerceiverRotary(nn.Module):
         output_queries = output_queries + self.dec_ffn(output_queries)
 
         return output_queries
+    
+    def freeze(self):
+        self.original_freeze_state = {}
+        for n, p in self.named_parameters():
+            self.original_freeze_state[n] = p.requires_grad
+            p.requires_grad = False
+        log.info("PerceiverIO frozen")
+    
+    def unfreeze(self):
+        assert hasattr(self, "original_freeze_state"), (
+            "Missing `original_freeze_state`. "
+            "Probably you forgot to call `freeze` before `unfreeze`."
+        )
+        for n, p in self.named_parameters():
+            p.requires_grad = self.original_freeze_state[n]
+        log.info("PerceiverIO unfrozen")

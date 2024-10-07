@@ -133,7 +133,7 @@ def run_training(cfg: DictConfig):
 
         # Optionally freeze parameters for Unit Identification
         if cfg.freeze_perceiver_until_epoch != 0:
-            model.freeze_middle()
+            model.perceiver_io.freeze()
             log.info(f"Froze perceiver")
         # Register new units and sessions, and delete old ones
         try:
@@ -223,15 +223,15 @@ def run_training(cfg: DictConfig):
 
     print(f"Epochs: {epochs}")
 
-    if cfg.finetune:
-        model.load_from_ckpt(
-            path=cfg.ckpt_path,
-            strict_vocab=False,  # finetuning, generally, is over a new vocabulary
-        )
+    #if cfg.finetune:
+    #    model.load_from_ckpt(
+    #        path=cfg.ckpt_path,
+    #        strict_vocab=False,  # finetuning, generally, is over a new vocabulary
+    #    )
 
-        # Optionally freeze parameters for Unit Identification
-        if cfg.freeze_perceiver_until_epoch != 0:
-            model.freeze_perceiver()
+    #    # Optionally freeze parameters for Unit Identification
+    #    if cfg.freeze_perceiver_until_epoch != 0:
+    #        model.freeze_perceiver()
 
     unit_emb_lr_factor = cfg.get("unit_emb_lr_factor", 1.0)
     unit_emb_params = model.unit_emb.parameters()
@@ -315,11 +315,14 @@ def run_training(cfg: DictConfig):
 
     model_ckpt_callback = ModelCheckpoint(
         # dirpath=f"logs/lightning_logs/{wandb.version}",
-        dirpath=os.path.join(cfg.log_dir, f"lightning_logs/{wandb.version}"),
+        #dirpath=os.path.join(cfg.log_dir, f"lightning_logs/{wandb.version}"),
+        #dirpath=cfg.log_dir,
         save_last=True,
         verbose=True,
         save_on_train_epoch_end=True,
         every_n_epochs=1,
+        monitor="average_val_metric",
+        mode="max",
     )
 
     callbacks = [
@@ -342,7 +345,7 @@ def run_training(cfg: DictConfig):
         callbacks.append(UnitEmbeddingGradientRescaling(train_dataset))
 
     trainer = lightning.Trainer(
-        logger=[tb, wandb],
+        logger=wandb,
         default_root_dir=cfg.log_dir,
         check_val_every_n_epoch=cfg.eval_epochs,
         max_epochs=epochs,
@@ -357,6 +360,7 @@ def run_training(cfg: DictConfig):
         accelerator="gpu",
         devices=cfg.gpus,
         num_nodes=cfg.nodes,
+        fast_dev_run=cfg.get("fast_dev_run", False),
     )
 
     log.info(
@@ -366,7 +370,7 @@ def run_training(cfg: DictConfig):
     for logger in trainer.loggers:
         # OmegaConf.to_container converts the config object to a dictionary.
         logger.log_hyperparams(OmegaConf.to_container(cfg))
-
+    
     test_ckpt = cfg.get("test_ckpt", None)
     test_only = test_ckpt is not None
     if not test_only:

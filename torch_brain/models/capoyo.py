@@ -144,8 +144,8 @@ class CaPOYO(nn.Module):
             self.readout,
             self.unit_emb,
             self.session_emb,
-            self.enc_atn,
-            self.enc_ffn,
+            self.perceiver_io.enc_atn,
+            self.perceiver_io.enc_ffn,
         ]
         for module in self.children():
             if module in banned_modules:

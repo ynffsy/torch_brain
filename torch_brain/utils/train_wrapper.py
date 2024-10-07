@@ -131,7 +131,8 @@ class UnfreezeAtEpoch(Callback):
 
     def on_train_epoch_start(self, trainer, pl_module):
         if trainer.current_epoch == self._unfreeze_at_epoch:
-            log.info(f"Reached epoch {trainer.current_epoch}, unfreezing entire model")
-            for module in pl_module.model.children():
-                for param in module.parameters():
-                    param.requires_grad = True
+            log.info(f"Reached epoch {trainer.current_epoch}, unfreezing perceiver")
+            pl_module.model.perceiver_io.unfreeze()
+            #for module in pl_module.model.children():
+            #    for param in module.parameters():
+            #        param.requires_grad = True
