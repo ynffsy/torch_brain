@@ -2,37 +2,37 @@
 defaults:
   - _self_
   - model: poyo_single_session.yaml
-  - train_datasets: perich_single_session.yaml
-  - val_datasets: perich_single_session.yaml
+  - dataset: perich_single_session_mrt.yaml
 
 train_transforms:
-  - _target_: kirby.transforms.UnitDropout
+  - _target_: torch_brain.transforms.UnitDropout
     max_units: 1000
     min_units: 60
     mode_units: 300
     peak: 4
-  - _target_: kirby.transforms.RandomCrop
+  - _target_: torch_brain.transforms.RandomCrop
     crop_len: 1.0
 
 data_root: './venv/src/brainsets/data/processed/'
 seed: 42
-batch_size: 128
-eval_epochs: 5
+batch_size: 8
+eval_epochs: 1
 epochs: 100
 steps: 0  # Note we either specify epochs or steps, not both.
 base_lr: 7.8125e-7
 weight_decay: 0.0001
 # Fraction of epochs to warmup for.
 pct_start: 0.5
-num_workers: 4
+num_workers: 1
 log_dir: ./logs
 name: perich_finetune
+backend_config: gpu_fp32
 precision: 32
 nodes: 1
-gpus: [4, 5]
+gpus: 2
 # Where to resume/finetune from. Could be null (yaml for None, meaning train from
 # scratch) or a fully qualified path to the .ckpt file.
-ckpt_path: logs/lightning_logs/f9sj5g0b/last.ckpt
+ckpt_path: logs/lightning_logs/None/epoch=454-step=74165.ckpt
 
 # Finetuning configuration:
 finetune: true

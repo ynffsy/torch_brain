@@ -123,8 +123,8 @@ def run_training(cfg: DictConfig):
         model.unit_emb.extend_vocab(train_dataset.get_unit_ids(), exist_ok=False)
         model.unit_emb.subset_vocab(train_dataset.get_unit_ids())
 
-        model.session_emb.extend_vocab(train_dataset.session_ids, exist_ok=False)
-        model.session_emb.subset_vocab(train_dataset.session_ids)
+        model.session_emb.extend_vocab(train_dataset.get_session_ids(), exist_ok=False)
+        model.session_emb.subset_vocab(train_dataset.get_session_ids())
 
     # sampler and dataloader
     train_sampler = RandomFixedWindowSampler(
@@ -246,9 +246,7 @@ def run_training(cfg: DictConfig):
 
 
 # This loads the config file using Hydra, similar to Flags, but composable.
-@hydra.main(
-    version_base="1.3", config_path="./configs", config_name="train_poyo_mp.yaml"
-)
+@hydra.main(version_base="1.3", config_path="./configs", config_name="finetune.yaml")
 def main(cfg: DictConfig):
     # Train the whole thing.
     # This inner function is unnecessary, but I keep it here to maintain
