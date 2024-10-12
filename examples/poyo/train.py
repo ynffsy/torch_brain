@@ -85,10 +85,13 @@ def run_training(cfg: DictConfig):
     val_tokenizer.eval = True
     val_dataset = Dataset(
         cfg.data_root,
-        "test",
+        "valid",
         include=OmegaConf.to_container(cfg.dataset),  # converts to native list[dicts]
         transform=val_tokenizer,
     )
+    val_dataset.disable_data_leakage_check()
+
+    train_dataset.disable_data_leakage_check()
     val_dataset.disable_data_leakage_check()
 
     if not cfg.finetune:
@@ -243,7 +246,9 @@ def run_training(cfg: DictConfig):
 
 
 # This loads the config file using Hydra, similar to Flags, but composable.
-@hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
+@hydra.main(
+    version_base="1.3", config_path="./configs", config_name="train_poyo_mp.yaml"
+)
 def main(cfg: DictConfig):
     # Train the whole thing.
     # This inner function is unnecessary, but I keep it here to maintain

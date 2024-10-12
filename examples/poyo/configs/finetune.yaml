@@ -14,7 +14,7 @@ train_transforms:
   - _target_: kirby.transforms.RandomCrop
     crop_len: 1.0
 
-data_root: ./data/processed/
+data_root: './venv/src/brainsets/data/processed/'
 seed: 42
 batch_size: 128
 eval_epochs: 5
@@ -29,7 +29,7 @@ log_dir: ./logs
 name: perich_finetune
 precision: 32
 nodes: 1
-gpus: 1
+gpus: [4, 5]
 # Where to resume/finetune from. Could be null (yaml for None, meaning train from
 # scratch) or a fully qualified path to the .ckpt file.
 ckpt_path: logs/lightning_logs/f9sj5g0b/last.ckpt
@@ -41,4 +41,6 @@ finetune: true
 #  0 => Train everything
 # >0 => Only train unit/session embeddings for first few epochs,
 #       and then train everything
-freeze_perceiver_until_epoch: 10
+freeze_perceiver_until_epoch: 0
+
+wandb_project: neuro-ft
