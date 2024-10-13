@@ -15,7 +15,7 @@ train_transforms:
 
 data_root: './venv/src/brainsets/data/processed/'
 seed: 42
-batch_size: 8
+batch_size: 128
 eval_epochs: 1
 epochs: 100
 steps: 0  # Note we either specify epochs or steps, not both.
@@ -32,10 +32,10 @@ nodes: 1
 gpus: 2
 # Where to resume/finetune from. Could be null (yaml for None, meaning train from
 # scratch) or a fully qualified path to the .ckpt file.
-ckpt_path: logs/lightning_logs/None/epoch=454-step=74165.ckpt
+ckpt_path: null # logs/lightning_logs/None/epoch=454-step=74165.ckpt
 
 # Finetuning configuration:
-finetune: true
+finetune: false # true
 # Num of epochs to freeze perceiver network while finetuning
 # -1 => Keep frozen, i.e. perform Unit-identification
 #  0 => Train everything
