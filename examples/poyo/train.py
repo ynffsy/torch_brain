@@ -246,7 +246,9 @@ def run_training(cfg: DictConfig):
 
 
 # This loads the config file using Hydra, similar to Flags, but composable.
-@hydra.main(version_base="1.3", config_path="./configs", config_name="finetune.yaml")
+@hydra.main(
+    version_base="1.3", config_path="./configs", config_name="train_falcon_m2.yaml"
+)
 def main(cfg: DictConfig):
     # Train the whole thing.
     # This inner function is unnecessary, but I keep it here to maintain
