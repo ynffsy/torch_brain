@@ -32,10 +32,10 @@ nodes: 1
 gpus: 2
 # Where to resume/finetune from. Could be null (yaml for None, meaning train from
 # scratch) or a fully qualified path to the .ckpt file.
-ckpt_path: null # logs/lightning_logs/None/epoch=454-step=74165.ckpt
+ckpt_path: logs/lightning_logs/None/epoch=464-step=75795.ckpt
 
 # Finetuning configuration:
-finetune: false # true
+finetune: true
 # Num of epochs to freeze perceiver network while finetuning
 # -1 => Keep frozen, i.e. perform Unit-identification
 #  0 => Train everything
