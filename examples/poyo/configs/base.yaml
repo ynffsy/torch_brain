@@ -33,6 +33,15 @@ gpus: 1
 # scratch) or a fully qualified path to the .ckpt file.
 ckpt_path: null
 
+# Configurations around maintaining and saving best checkpoint
+# If enabled, should specify metric and mode
+save_best_ckpt:
+  enable: true
+  metric: 'average_val_metric'
+  mode: 'max'
+
+do_testing: true
+
 # Finetuning configuration:
 finetune: false
 # Num of epochs to freeze perceiver network while finetuning

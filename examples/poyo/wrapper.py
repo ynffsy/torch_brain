@@ -106,7 +106,6 @@ class POYOTrainWrapper(L.LightningModule):
         }
 
     def validation_step(self, batch, batch_idx):
-
         absolute_starts = batch.pop("absolute_start")
         session_ids = batch.pop("session_id")
         output_subtask_index = batch.pop("output_subtask_index")
@@ -225,7 +224,7 @@ class POYOTrainWrapper(L.LightningModule):
         metrics[f"average_{prefix}_metric"] = np.array(list(metrics.values())).mean()
 
         # Logging
-        self.log_dict(metrics)
+        self.log_dict(metrics, sync_dist=True)
         logging.info(f"Logged {len(metrics)} {prefix} metrics.")
 
         metrics_data = []

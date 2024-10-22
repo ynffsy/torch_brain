@@ -91,8 +91,16 @@ def run_training(cfg: DictConfig):
     )
     val_dataset.disable_data_leakage_check()
 
-    train_dataset.disable_data_leakage_check()
-    val_dataset.disable_data_leakage_check()
+    # Evaluation on test split can happen after training is done
+    test_tokenizer = copy.copy(tokenizer)
+    test_tokenizer.eval = True
+    test_dataset = Dataset(
+        cfg.data_root,
+        "test",
+        include=OmegaConf.to_container(cfg.dataset),  # converts to native list[dicts]
+        transform=test_tokenizer,
+    )
+    test_dataset.disable_data_leakage_check()
 
     if not cfg.finetune:
         # Register units and sessions
@@ -164,6 +172,28 @@ def run_training(cfg: DictConfig):
         num_workers=2,
     )
 
+    log.info(f"Validating on {len(val_sampler)} samples")
+    log.info(f"Validating on {len(val_dataset.get_unit_ids())} units")
+    log.info(f"Validating on {len(val_dataset.get_session_ids())} sessions")
+
+    test_sampler = SequentialFixedWindowSampler(
+        interval_dict=test_dataset.get_sampling_intervals(),
+        window_length=sequence_length,
+        step=sequence_length / 2,
+    )
+
+    test_loader = DataLoader(
+        test_dataset,
+        sampler=test_sampler,
+        collate_fn=collate,
+        batch_size=cfg.eval_batch_size or cfg.batch_size,
+        num_workers=2,
+    )
+
+    log.info(f"Testing on {len(test_sampler)} samples")
+    log.info(f"Testing on {len(test_dataset.get_unit_ids())} units")
+    log.info(f"Testing on {len(test_dataset.get_session_ids())} sessions")
+
     # Update config with dynamic data
     with open_dict(cfg):
         cfg.steps_per_epoch = len(train_loader)
@@ -209,6 +239,16 @@ def run_training(cfg: DictConfig):
         tbrain_callbacks.ModelWeightStatsLogger(),
     ]
 
+    if cfg.save_best_ckpt.enable:
+        best_ckpt = ModelCheckpoint(
+            monitor=cfg.save_best_ckpt.metric,
+            filename="best-{epoch}",
+            save_top_k=1,
+            mode=cfg.save_best_ckpt.mode,
+            every_n_epochs=cfg.eval_epochs,
+        )
+        callbacks.append(best_ckpt)
+
     if cfg.finetune:
         if cfg.freeze_perceiver_until_epoch > 0:
             raise NotImplementedError("This functionality isn't properly implemented.")
@@ -243,6 +283,10 @@ def run_training(cfg: DictConfig):
         val_loader,
         ckpt_path=cfg.ckpt_path if not cfg.finetune else None,
     )
+
+    if cfg.do_testing:
+        trainer.test(wrapper, test_loader, ckpt_path=best_ckpt.best_model_path)
+        trainer.callback_metrics["best_model_path"] = best_ckpt.best_model_path
 
 
 # This loads the config file using Hydra, similar to Flags, but composable.
