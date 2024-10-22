@@ -286,6 +286,7 @@ class Dataset(torch.utils.data.Dataset):
         sample.units.id = np.core.defchararray.add(
             f"{sample.brainset}/{sample.session}/", sample.units.id.astype(str)
         )
+        sample.subject.id = f"{data.brainset.id}/{data.subject.id}"
 
         if self._check_for_data_leakage_flag and self.split is not None:
             sample._check_for_data_leakage(self.split)
