@@ -189,16 +189,21 @@ class StitchEvaluator(L.Callback):
             for task_name in self.metrics[recording_id].keys():
                 for metric_name in self.metrics[recording_id][task_name].keys():
                     metrics[f"{recording_id}/{task_name}/{metric_name}/{prefix}"] = (
-                        self.metrics[recording_id][task_name][metric_name].compute()
+                        self.metrics[recording_id][task_name][metric_name]
+                        .to(pl_module.device)
+                        .compute()
                     )
                     self.metrics[recording_id][task_name][metric_name].reset()
+                    self.metrics[recording_id][task_name][metric_name].to("cpu")
 
         # log the metrics
         self.log_dict(metrics)
         logging.info(f"Logged {len(metrics)} {prefix} metrics.")
 
         # compute the average metric
-        metrics[f"average_{prefix}_metric"] = np.array(list(metrics.values())).mean()
+        metrics[f"average_{prefix}_metric"] = torch.tensor(
+            list(metrics.values())
+        ).mean()
 
         metrics_data = []
         for metric_name, metric_value in metrics.items():
