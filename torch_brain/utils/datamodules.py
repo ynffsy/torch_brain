@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 
 from torch_brain.data import Dataset, collate
 from torch_brain.data.sampler import (
-    DistributedStitchingFixedWindowBatchSampler,
+    DistributedStitchingFixedWindowSampler,
     RandomFixedWindowSampler,
 )
 from torch_brain.models import POYOPlusTokenizer
@@ -132,7 +132,7 @@ class DataModule(lightning.LightningDataModule):
     def val_dataloader(self):
         batch_size = self.cfg.eval_batch_size or self.cfg.batch_size
 
-        val_sampler = DistributedStitchingFixedWindowBatchSampler(
+        val_sampler = DistributedStitchingFixedWindowSampler(
             interval_dict=self.val_dataset.get_sampling_intervals(),
             window_length=self.sequence_length,
             step=self.sequence_length / 2,
@@ -159,7 +159,7 @@ class DataModule(lightning.LightningDataModule):
     def test_dataloader(self):
         batch_size = self.cfg.eval_batch_size or self.cfg.batch_size
 
-        test_sampler = DistributedStitchingFixedWindowBatchSampler(
+        test_sampler = DistributedStitchingFixedWindowSampler(
             interval_dict=self.test_dataset.get_sampling_intervals(),
             window_length=self.sequence_length,
             step=self.sequence_length / 2,

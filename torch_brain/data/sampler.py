@@ -331,8 +331,8 @@ class DistributedSamplerWrapper(torch.utils.data.Sampler):
         return iter(indices)
 
 
-class DistributedStitchingFixedWindowBatchSampler(torch.utils.data.DistributedSampler):
-    r"""A batch sampler designed specifically for evaluation that enables sliding window
+class DistributedStitchingFixedWindowSampler(torch.utils.data.DistributedSampler):
+    r"""A sampler designed specifically for evaluation that enables sliding window
     inference with prediction stitching across distributed processes.
 
     This sampler divides sequences into overlapping windows and distributes them across

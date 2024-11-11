@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from temporaldata import Interval
 
-from torch_brain.data.sampler import DistributedStitchingFixedWindowBatchSampler
+from torch_brain.data.sampler import DistributedStitchingFixedWindowSampler
 
 
 def test_distributed_stitching_sampler():
@@ -18,7 +18,7 @@ def test_distributed_stitching_sampler():
     num_replicas = 2
 
     # Test rank 0
-    sampler0 = DistributedStitchingFixedWindowBatchSampler(
+    sampler0 = DistributedStitchingFixedWindowSampler(
         interval_dict=interval_dict,
         window_length=window_length,
         step=step,
@@ -28,7 +28,7 @@ def test_distributed_stitching_sampler():
     )
 
     # Test rank 1
-    sampler1 = DistributedStitchingFixedWindowBatchSampler(
+    sampler1 = DistributedStitchingFixedWindowSampler(
         interval_dict=interval_dict,
         window_length=window_length,
         step=step,
