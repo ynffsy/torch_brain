@@ -130,18 +130,22 @@ class DataModule(lightning.LightningDataModule):
         return train_loader
 
     def val_dataloader(self):
+        batch_size = self.cfg.eval_batch_size or self.cfg.batch_size
+
         val_sampler = DistributedStitchingFixedWindowBatchSampler(
             interval_dict=self.val_dataset.get_sampling_intervals(),
             window_length=self.sequence_length,
             step=self.sequence_length / 2,
-            batch_size=self.cfg.eval_batch_size or self.cfg.batch_size,
+            batch_size=batch_size,
             num_replicas=self.trainer.world_size,
             rank=self.trainer.global_rank,
         )
 
         val_loader = DataLoader(
             self.val_dataset,
-            batch_sampler=val_sampler,
+            sampler=val_sampler,
+            shuffle=False,
+            batch_size=batch_size,
             collate_fn=collate,
             num_workers=0,
             drop_last=False,
@@ -153,18 +157,22 @@ class DataModule(lightning.LightningDataModule):
         return val_loader
 
     def test_dataloader(self):
+        batch_size = self.cfg.eval_batch_size or self.cfg.batch_size
+
         test_sampler = DistributedStitchingFixedWindowBatchSampler(
             interval_dict=self.test_dataset.get_sampling_intervals(),
             window_length=self.sequence_length,
             step=self.sequence_length / 2,
-            batch_size=self.cfg.eval_batch_size or self.cfg.batch_size,
+            batch_size=batch_size,
             num_replicas=self.trainer.world_size,
             rank=self.trainer.global_rank,
         )
 
         test_loader = DataLoader(
             self.test_dataset,
-            batch_sampler=test_sampler,
+            sampler=test_sampler,
+            shuffle=False,
+            batch_size=batch_size,
             collate_fn=collate,
             num_workers=0,
         )
