@@ -91,7 +91,8 @@ class POYOTrainWrapper(L.LightningModule):
 
             # count the number of sequences in the batch that have the current task
             num_sequences_with_current_task = torch.any(
-                batch["output_decoder_index"] == MODALITIY_REGISTRY[readout_id], dim=1
+                batch["output_decoder_index"] == MODALITIY_REGISTRY[readout_id].id,
+                dim=1,
             ).sum()
             loss = loss + taskwise_loss[readout_id] * num_sequences_with_current_task
 
