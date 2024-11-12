@@ -186,6 +186,7 @@ def main(cfg: DictConfig):
     # Train
     trainer.fit(wrapper, data_module)
 
+    # Test
     trainer.test(wrapper, data_module, "best")
 
 
