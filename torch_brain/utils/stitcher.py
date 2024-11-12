@@ -223,8 +223,11 @@ class StitchEvaluator(L.Callback):
                         {f"{prefix}_metrics": wandb.Table(dataframe=metrics_df)}
                     )
 
-    def on_test_epoch_start(self, trainer, pl_module):
-        self.on_validation_epoch_start(trainer, pl_module)
+    def on_test_epoch_start(self, *args, **kwargs):
+        self.on_validation_epoch_start(*args, **kwargs)
 
-    def on_test_epoch_end(self, trainer, pl_module):
-        self.on_validation_epoch_end(trainer, pl_module, prefix="test")
+    def on_test_batch_end(self, *args, **kwargs):
+        self.on_validation_batch_end(*args, **kwargs)
+
+    def on_test_epoch_end(self, *args, **kwargs):
+        self.on_validation_epoch_end(*args, **kwargs, prefix="test")

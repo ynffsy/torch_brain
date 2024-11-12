@@ -132,14 +132,8 @@ class POYOTrainWrapper(L.LightningModule):
 
         return output_values
 
-    def on_test_epoch_start(self):
-        self.on_validation_epoch_start()
-
     def test_step(self, batch, batch_idx):
-        self.validation_step(batch, batch_idx)
-
-    def on_test_epoch_end(self):
-        self.on_validation_epoch_end(prefix="test")
+        return self.validation_step(batch, batch_idx)
 
 
 @hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
