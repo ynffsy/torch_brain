@@ -152,7 +152,7 @@ def main(cfg: DictConfig):
         ),  # Create a callback to log the learning rate.
         tbrain_callbacks.MemInfo(),
         tbrain_callbacks.EpochTimeLogger(),
-        # tbrain_callbacks.ModelWeightStatsLogger(),
+        tbrain_callbacks.ModelWeightStatsLogger(),
     ]
 
     if cfg.freeze_perceiver_until_epoch != 0:
