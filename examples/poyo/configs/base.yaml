@@ -29,6 +29,4 @@ precision: 32
 nodes: 1
 gpus: 1
 
-fast_dev_run: false
-
 ckpt_path: null  # for resuming training, or loading a model during finetuning
