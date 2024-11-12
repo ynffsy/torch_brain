@@ -34,6 +34,7 @@ class FreezeUnfreezePOYO(L.Callback):
 
     def __init__(self, unfreeze_at_epoch: int):
         self.unfreeze_at_epoch = unfreeze_at_epoch
+        self.cli_log = logging.getLogger(__name__)
 
     @classmethod
     def freeze(cls, model):
@@ -63,7 +64,7 @@ class FreezeUnfreezePOYO(L.Callback):
     def on_train_start(self, trainer, pl_module):
         model = pl_module.model
         self.frozen_params = self.freeze(model)
-        logging.info(f"POYO Perceiver frozen at epoch 0")
+        self.cli_log.info(f"POYO Perceiver frozen at epoch 0")
 
     def on_train_epoch_start(self, trainer, pl_module):
         if trainer.current_epoch == self.unfreeze_at_epoch:
@@ -76,7 +77,7 @@ class FreezeUnfreezePOYO(L.Callback):
                 param.requires_grad = True
 
             del self.frozen_params
-            logging.info(f"POYO unfrozen at epoch {trainer.current_epoch}")
+            self.cli_log.info(f"POYO unfrozen at epoch {trainer.current_epoch}")
 
 
 @hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
