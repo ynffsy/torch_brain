@@ -196,14 +196,14 @@ class StitchEvaluator(L.Callback):
                     self.metrics[recording_id][task_name][metric_name].reset()
                     self.metrics[recording_id][task_name][metric_name].to("cpu")
 
-        # log the metrics
-        self.log_dict(metrics)
-        logging.info(f"Logged {len(metrics)} {prefix} metrics.")
-
         # compute the average metric
         metrics[f"average_{prefix}_metric"] = torch.tensor(
             list(metrics.values())
         ).mean()
+
+        # log the metrics
+        self.log_dict(metrics)
+        logging.info(f"Logged {len(metrics)} {prefix} metrics.")
 
         metrics_data = []
         for metric_name, metric_value in metrics.items():
@@ -222,3 +222,9 @@ class StitchEvaluator(L.Callback):
                     logger.experiment.log(
                         {f"{prefix}_metrics": wandb.Table(dataframe=metrics_df)}
                     )
+
+    def on_test_epoch_start(self, trainer, pl_module):
+        self.on_validation_epoch_start(trainer, pl_module)
+
+    def on_test_epoch_end(self, trainer, pl_module):
+        self.on_validation_epoch_end(trainer, pl_module, prefix="test")

@@ -222,11 +222,7 @@ def main(cfg: DictConfig):
     )
 
     # Train
-    trainer.fit(
-        wrapper,
-        data_module,
-        ckpt_path=cfg.ckpt_path if not cfg.finetune else None,
-    )
+    trainer.fit(wrapper, data_module, ckpt_path=cfg.ckpt_path)
 
 
 if __name__ == "__main__":
