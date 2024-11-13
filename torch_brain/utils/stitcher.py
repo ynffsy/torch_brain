@@ -117,6 +117,10 @@ class StitchEvaluator(L.Callback):
 
         # update the cache with the predictions and targets
         for readout_index in torch.unique(batch["output_decoder_index"]):
+            if readout_index.item() == 0:
+                # skip the padding token
+                continue
+
             mask = batch["output_decoder_index"] == readout_index
             readout_id = torch_brain.get_modality_by_id(readout_index.item())
 
