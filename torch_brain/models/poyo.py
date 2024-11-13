@@ -213,6 +213,24 @@ class POYO(nn.Module):
         return output
 
 
+def poyo_mp(dim_out, ckpt_path=None):
+    if ckpt_path is not None:
+        raise NotImplementedError("Loading from checkpoint is not supported yet.")
+
+    return POYO(
+        dim=64,
+        dim_out=dim_out,
+        dim_head=64,
+        num_latents=16,
+        depth=6,
+        cross_heads=2,
+        self_heads=8,
+        ffn_dropout=0.2,
+        lin_dropout=0.4,
+        atn_dropout=0.2,
+    )
+
+
 class POYOTokenizer:
     r"""Tokenizer used to tokenize Data for the POYO model.
 
@@ -308,7 +326,7 @@ class POYOTokenizer:
             "output_session_index": pad8(session_index),
             "output_timestamps": pad8(output_timestamps),
             # ground truth targets
-            "target_values": chain(output_values, allow_missing_keys=True),
+            "target_values": chain(output_values),
             # "target_weights": chain(output_weights, allow_missing_keys=True),
         }
 
