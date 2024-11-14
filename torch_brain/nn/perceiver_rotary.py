@@ -139,7 +139,6 @@ class PerceiverRotary(nn.Module):
         # compute timestamp embeddings
         input_timestamp_emb = self.rotary_emb(input_timestamps)
         latent_timestamp_emb = self.rotary_emb(latent_timestamps)
-        output_timestamp_emb = self.rotary_emb(output_query_timestamps)
 
         # make sure arguments make sense
         if self.batch_type[0] == "stacked":
@@ -210,6 +209,8 @@ class PerceiverRotary(nn.Module):
 
         if output_queries is None:
             return latents
+
+        output_timestamp_emb = self.rotary_emb(output_query_timestamps)
 
         if self.batch_type[1] == "stacked" and self.batch_type[2] == "chained":
             # (b n d) -> ((b n) d)

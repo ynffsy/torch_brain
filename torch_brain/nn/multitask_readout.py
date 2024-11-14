@@ -59,6 +59,9 @@ class Decoder(StringIntEnum):
     SPEAKING_CONSONANT = 15
     SPEAKING_VOWEL = 16
 
+    # spatial navigation
+    SPATIAL_NAVIGATION = 29
+
 
 @dataclass
 class DecoderSpec:
@@ -199,6 +202,14 @@ decoder_registry = {
         timestamp_key="static_gratings.timestamps",
         value_key="static_gratings.phase_id",
         loss_fn="bce",
+    ),
+    str(Decoder.SPATIAL_NAVIGATION): DecoderSpec(
+        dim=5,
+        target_dim=1,
+        type=OutputType.CONTINUOUS,
+        timestamp_key="behavior.timestamps",
+        value_key="behavior.subject_loc_x",
+        loss_fn="mse",
     ),
     # str(Decoder.SPEAKING_CVSYLLABLE): DecoderSpec(
     #     dim=len(CVSyllable),  # empty label is included
