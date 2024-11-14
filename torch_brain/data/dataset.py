@@ -250,7 +250,8 @@ class Dataset(torch.utils.data.Dataset):
         sample = data.slice(start, end)
 
         sample.units.id = np.core.defchararray.add(
-            f"{sample.brainset}/{sample.session}/", sample.units.id.astype(str)
+            f"{sample.subject.id}/", sample.units.id.astype(str)
+            # f"{sample.brainset}/{sample.session}/", sample.units.id.astype(str)
         )
 
         if self._check_for_data_leakage_flag:
@@ -284,7 +285,8 @@ class Dataset(torch.utils.data.Dataset):
             data = copy.deepcopy(data)
 
         data.units.id = np.core.defchararray.add(
-            f"{data.brainset}/{data.session}/", data.units.id.astype(str)
+            # f"{data.brainset}/{data.session}/", data.units.id.astype(str)
+            f"{data.subject.id}/", data.units.id.astype(str)
         )
         return data
 
@@ -354,7 +356,8 @@ class Dataset(torch.utils.data.Dataset):
             if unit_ids_format == "brainset/session/unit":
                 unit_ids.extend(
                     [
-                        f"{data.brainset.id}/{data.session.id}/{unit_id}"
+                        f"{data.subject.id}/{unit_id}"
+                        # f"{data.brainset.id}/{data.session.id}/{unit_id}"
                         for unit_id in data.units.id
                     ]
                 )
@@ -380,7 +383,8 @@ class Dataset(torch.utils.data.Dataset):
             data = self._data_objects[session_id]
             unit_ids = data.units.id
             unit_ids = np.core.defchararray.add(
-                f"{data.brainset}/{data.session}/",
+                # f"{data.brainset}/{data.session}/",
+                f"{data.subject.id}/",
                 unit_ids.astype(str),
             )
             unit_ids_list.extend(unit_ids)
