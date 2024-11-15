@@ -215,6 +215,9 @@ def main(cfg: DictConfig):
     # Train
     trainer.fit(wrapper, data_module, ckpt_path=cfg.ckpt_path)
 
+    # Test
+    trainer.test(wrapper, data_module)
+
 
 if __name__ == "__main__":
     main()
