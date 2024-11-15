@@ -61,6 +61,7 @@ def main(cfg: DictConfig):
         num_latents_per_step=cfg.model.num_latents,
         modality_spec=modality_spec,
         sequence_length=cfg.sequence_length,
+        subtask_weights=cfg.subtask_weights,
     )
 
     # setup data module
@@ -112,7 +113,7 @@ def main(cfg: DictConfig):
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=cfg.gpus,
         num_nodes=cfg.nodes,
-        num_sanity_val_steps=-1,  # Disable sanity validation
+        num_sanity_val_steps=0,  # Disable sanity validation
         limit_val_batches=None,  # Ensure no limit on validation batches
     )
 
