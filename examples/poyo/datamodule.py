@@ -3,7 +3,7 @@ import logging
 from typing import Callable, Dict
 
 import hydra
-import lightning
+import lightning as L
 import torch
 
 from omegaconf import DictConfig
@@ -15,11 +15,10 @@ from torch_brain.data.sampler import (
     DistributedStitchingFixedWindowSampler,
     RandomFixedWindowSampler,
 )
-from torch_brain.models import POYOTokenizer
 from torch_brain.transforms import Compose
 
 
-class DataModule(lightning.LightningDataModule):
+class DataModule(L.LightningDataModule):
     def __init__(self, cfg: DictConfig, tokenizer: Callable[[Data], Dict]):
         super().__init__()
         self.cfg = cfg
