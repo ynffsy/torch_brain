@@ -16,7 +16,7 @@ from torch_brain.registry import MODALITIY_REGISTRY, ModalitySpec
 from torch_brain.models.poyo import POYOTokenizer, poyo_mp
 from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
-from stitch_evaluator import StitchEvaluator
+from torch_brain.utils.stitcher import MultiSessionDecodingStitchEvaluator
 from datamodule import DataModule
 
 # higher speed on machines with tensor cores
@@ -174,9 +174,10 @@ def main(cfg: DictConfig):
         modality_spec=modality_spec,
     )
 
-    stitch_evaluator = StitchEvaluator(
+    metric_factor = lambda: hydra.utils.instantiate(cfg.metric)
+    stitch_evaluator = MultiSessionDecodingStitchEvaluator(
         session_ids=data_module.get_session_ids(),
-        modality_spec=modality_spec,
+        metric_factory=metric_factor,
     )
 
     callbacks = [
@@ -209,11 +210,6 @@ def main(cfg: DictConfig):
         num_nodes=cfg.nodes,
         num_sanity_val_steps=-1,  # Disable sanity validation
         limit_val_batches=None,  # Ensure no limit on validation batches
-    )
-
-    log.info(
-        f"Local rank/node rank/world size/num nodes: "
-        f"{trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/{trainer.num_nodes}"
     )
 
     # Train

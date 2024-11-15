@@ -2,19 +2,23 @@
 
 data_root: ./data/processed/
 log_dir: ./logs
-seed: 42
 
-modality_name: cursor_velocity_2d
 sequence_length: 1.0  # in seconds
 latent_step: 0.125  # in seconds
 
-batch_size: 128
-eval_batch_size: null  # if null, will use batch_size
-num_workers: 4
+modality_name: cursor_velocity_2d
+metric:
+  _target_: torchmetrics.R2Score
+  num_outputs: 2
 
 epochs: 1000  # if -1, will use steps
 steps: -1  # if -1, will use epochs. Epochs take precedence.
 eval_epochs: 1
+
+batch_size: 128
+eval_batch_size: null  # if null, will use batch_size
+num_workers: 4
+seed: 42
 
 optim:
   base_lr: 3.125e-5  # scaled linearly by batch size
