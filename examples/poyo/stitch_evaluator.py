@@ -11,8 +11,9 @@ from torch_brain.utils.stitcher import stitch
 
 
 class StitchEvaluator(L.Callback):
-    def __init__(self, metric_fn):
+    def __init__(self, metric_fn, quiet=False):
         self.metric_fn = metric_fn
+        self.quiet = quiet
 
     def on_validation_epoch_start(self, trainer, pl_module):
         self.cache = defaultdict(
@@ -60,14 +61,16 @@ class StitchEvaluator(L.Callback):
 
         # log the metrics
         self.log_dict(metrics)
-        logging.info(f"Logged {len(metrics)} {prefix} metrics.")
+        if not self.quiet:
+            logging.info(f"Logged {len(metrics)} {prefix} metrics.")
 
         metrics_data = []
         for metric_name, metric_value in metrics.items():
             metrics_data.append({"metric": metric_name, "value": metric_value.item()})
 
         metrics_df = pd.DataFrame(metrics_data)
-        rprint(metrics_df)
+        if not self.quiet:
+            rprint(metrics_df)
 
         if trainer.is_global_zero:
             for logger in trainer.loggers:

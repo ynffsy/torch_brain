@@ -14,7 +14,7 @@ from omegaconf import DictConfig, OmegaConf
 import torchmetrics
 
 from torch_brain.nn import compute_loss_or_metric
-from torch_brain.registry import MODALITIY_REGISTRY
+from torch_brain.registry import MODALITIY_REGISTRY, ModalitySpec
 from torch_brain.models.poyo import POYOTokenizer, poyo_mp
 from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
@@ -30,13 +30,13 @@ class POYOTrainWrapper(L.LightningModule):
         self,
         cfg: DictConfig,
         model: nn.Module,
-        steps_per_epoch: int = None,
+        modality_spec: ModalitySpec,
     ):
         super().__init__()
 
         self.cfg = cfg
         self.model = model
-        self.steps_per_epoch = steps_per_epoch
+        self.modality_spec = modality_spec
         self.save_hyperparameters(OmegaConf.to_container(cfg))
 
     def configure_optimizers(self):
@@ -51,8 +51,7 @@ class POYOTrainWrapper(L.LightningModule):
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer,
             max_lr=max_lr,
-            epochs=self.cfg.epochs,
-            steps_per_epoch=self.steps_per_epoch,
+            total_steps=self.trainer.estimated_stepping_batches,
             pct_start=self.cfg.optim.lr_decay_start,
             anneal_strategy="cos",
             div_factor=1,
@@ -75,35 +74,20 @@ class POYOTrainWrapper(L.LightningModule):
         output_values = self.model(**batch)
 
         # compute loss
-        loss = torch.tensor(0, device=self.device, dtype=torch.float32)
-        taskwise_loss = {}
-        for readout_id in output_values.keys():
-            output = output_values[readout_id]
-            target = target_values[readout_id]
+        output_values = output_values[output_mask]
+        target_values = target_values[output_mask]
+        target_weights = target_weights[output_mask]
 
-            spec = self.model.readout.readout_specs[readout_id]
-
-            weights = 1.0
-            if readout_id in target_weights and target_weights[readout_id] is not None:
-                weights = target_weights[readout_id]
-
-            taskwise_loss[readout_id] = compute_loss_or_metric(
-                spec.loss_fn, spec.type, output, target, weights
+        if self.modality_spec.loss_fn == "mse":
+            loss = torch.nn.functional.mse_loss(
+                output_values, target_values, reduction="none"
             )
-
-            # count the number of sequences in the batch that have the current task
-            num_sequences_with_current_task = torch.any(
-                batch["output_decoder_index"] == MODALITIY_REGISTRY[readout_id].id,
-                dim=1,
-            ).sum()
-            loss = loss + taskwise_loss[readout_id] * num_sequences_with_current_task
-
-        batch_size = batch["input_unit_index"].shape[0]
-        # TODO change batch_size when POYOPlusEfficient is used
-        loss = loss / batch_size
+            loss = loss * target_weights[:, None]
+            loss = loss.mean()
+        else:
+            raise NotImplementedError("Only MSE loss is supported for now.")
 
         self.log("train_loss", loss, prog_bar=True)
-        self.log_dict({f"losses/{k}": v for k, v in taskwise_loss.items()})
 
         # Log batch statistics
         # for name in target_values.keys():
@@ -164,8 +148,7 @@ def main(cfg: DictConfig):
 
     # get modality details
     modality_spec = MODALITIY_REGISTRY[cfg.modality_name]
-    if modality_spec.loss_fn != "mse":
-        raise NotImplementedError("Only MSE loss is supported for now.")
+    metric_fn = torchmetrics.R2Score(num_outputs=modality_spec.dim)
 
     # make model and tokenizer
     model = poyo_mp(dim_out=modality_spec.dim)
@@ -191,20 +174,18 @@ def main(cfg: DictConfig):
     wrapper = POYOTrainWrapper(
         cfg=cfg,
         model=model,
-        steps_per_epoch=len(data_module.train_dataloader()),
+        modality_spec=modality_spec,
     )
 
     callbacks = [
-        StitchEvaluator(metric_fn=torchmetrics.R2Score(num_outputs=2)),
+        StitchEvaluator(metric_fn=metric_fn, quiet=True),
         ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
         ModelCheckpoint(
             save_last=True,
             save_on_train_epoch_end=True,
             every_n_epochs=cfg.eval_epochs,
         ),
-        LearningRateMonitor(
-            logging_interval="step"
-        ),  # Create a callback to log the learning rate.
+        LearningRateMonitor(logging_interval="step"),
         tbrain_callbacks.MemInfo(),
         tbrain_callbacks.EpochTimeLogger(),
         tbrain_callbacks.ModelWeightStatsLogger(),

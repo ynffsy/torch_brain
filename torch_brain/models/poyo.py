@@ -302,12 +302,14 @@ class POYOTokenizer:
         ### prepare output queries and targets
         output_timestamps = data.get_nested_attribute(self.modality_spec.timestamp_key)
         output_values = data.get_nested_attribute(self.modality_spec.value_key)
+        if output_values.dtype == np.float64:
+            output_values = output_values.astype(np.float32)
 
         session_index = self.session_tokenizer(data.session)
         session_index = np.repeat(session_index, len(output_timestamps))
 
         # TODO: Implement weights
-        output_weights = np.ones(len(output_values))  # TODO: Implement weights
+        output_weights = np.ones(len(output_values), dtype=np.float32)
         output_subtask_index = np.zeros(len(output_values), dtype=int)
 
         batch = {
