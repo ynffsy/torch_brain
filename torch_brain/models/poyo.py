@@ -10,11 +10,9 @@ from torch_brain.nn import (
     Embedding,
     FeedForward,
     InfiniteVocabEmbedding,
-    MultitaskReadout,
     RotaryCrossAttention,
     RotarySelfAttention,
     RotaryEmbedding,
-    prepare_for_multitask_readout,
 )
 from torch_brain.registry import ModalitySpec
 
@@ -65,7 +63,6 @@ class POYO(nn.Module):
         emb_init_scale=0.02,
         t_min=1e-4,
         t_max=4.0,
-        readout_specs: Dict[str, ModalitySpec],
     ):
         super().__init__()
 
@@ -251,8 +248,8 @@ class POYOTokenizer:
         unit_tokenizer: Callable,
         session_tokenizer: Callable,
         latent_step: float,
-        modality_spec: ModalitySpec,
         num_latents_per_step: int,
+        modality_spec: ModalitySpec,
         sequence_length: float = 1.0,
         eval: bool = False,
     ):
@@ -264,10 +261,9 @@ class POYOTokenizer:
         self.latent_step = latent_step
         self.num_latents_per_step = num_latents_per_step
         self.sequence_length = sequence_length
-
         self.eval = eval
 
-    def __call__(self, data: Data):
+    def __call__(self, data: Data) -> Dict:
         # context window
         start, end = 0, self.sequence_length
 
@@ -307,11 +303,12 @@ class POYOTokenizer:
         output_timestamps = data.get_nested_attribute(self.modality_spec.timestamp_key)
         output_values = data.get_nested_attribute(self.modality_spec.value_key)
 
-        output_context = data.get_nested_attribute(self.modality_spec.context_key)
-        # TODO: Context weights
-
         session_index = self.session_tokenizer(data.session)
         session_index = np.repeat(session_index, len(output_timestamps))
+
+        # TODO: Implement weights
+        output_weights = np.ones(len(output_values))  # TODO: Implement weights
+        output_subtask_index = np.zeros(len(output_values), dtype=int)
 
         batch = {
             # input sequence
@@ -325,9 +322,15 @@ class POYOTokenizer:
             # output sequence
             "output_session_index": pad8(session_index),
             "output_timestamps": pad8(output_timestamps),
+            "output_mask": track_mask8(output_timestamps),
             # ground truth targets
-            "target_values": chain(output_values),
-            # "target_weights": chain(output_weights, allow_missing_keys=True),
+            "target_values": pad8(output_values),
+            "target_weights": pad8(output_weights),
         }
+
+        if self.eval:
+            batch["session_id"] = data.session
+            batch["absolute_start"] = data.absolute_start
+            batch["output_subtask_index"] = pad8(output_subtask_index)
 
         return batch

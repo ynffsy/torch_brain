@@ -11,13 +11,15 @@ from lightning.pytorch.callbacks import (
     ModelSummary,
 )
 from omegaconf import DictConfig, OmegaConf
+import torchmetrics
 
 from torch_brain.nn import compute_loss_or_metric
 from torch_brain.registry import MODALITIY_REGISTRY
-from torch_brain.models.poyo import poyo_mp
+from torch_brain.models.poyo import POYOTokenizer, poyo_mp
 from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
-from torch_brain.utils.stitcher import StitchEvaluator
+from stitch_evaluator import StitchEvaluator
+from datamodule import DataModule
 
 # higher speed on machines with tensor cores
 torch.set_float32_matmul_precision("medium")
@@ -28,14 +30,12 @@ class POYOTrainWrapper(L.LightningModule):
         self,
         cfg: DictConfig,
         model: nn.Module,
-        dataset_config_dict: dict = None,
         steps_per_epoch: int = None,
     ):
         super().__init__()
 
         self.cfg = cfg
         self.model = model
-        self.dataset_config_dict = dataset_config_dict
         self.steps_per_epoch = steps_per_epoch
         self.save_hyperparameters(OmegaConf.to_container(cfg))
 
@@ -69,9 +69,10 @@ class POYOTrainWrapper(L.LightningModule):
     def training_step(self, batch, batch_idx):
         target_values = batch.pop("target_values")
         target_weights = batch.pop("target_weights")
+        output_mask = batch.pop("output_mask")
 
         # forward pass
-        output_values = self.model(**batch, unpack_output=False)
+        output_values = self.model(**batch)
 
         # compute loss
         loss = torch.tensor(0, device=self.device, dtype=torch.float32)
@@ -126,15 +127,17 @@ class POYOTrainWrapper(L.LightningModule):
         absolute_starts = batch.pop("absolute_start")
         session_ids = batch.pop("session_id")
         output_subtask_index = batch.pop("output_subtask_index")
+        output_mask = batch.pop("output_mask")
 
         # forward pass
-        output_values = self.model(**batch, unpack_output=True)
+        output_values = self.model(**batch)
 
         # add removed elements back to batch
         batch["target_values"] = target_values
         batch["absolute_start"] = absolute_starts
         batch["session_id"] = session_ids
         batch["output_subtask_index"] = output_subtask_index
+        batch["output_mask"] = output_mask
 
         return output_values
 
@@ -164,14 +167,21 @@ def main(cfg: DictConfig):
     if modality_spec.loss_fn != "mse":
         raise NotImplementedError("Only MSE loss is supported for now.")
 
-    # make model
+    # make model and tokenizer
     model = poyo_mp(dim_out=modality_spec.dim)
 
-    # setup data module
-    # data_module =
-    # data_module.setup()
+    tokenizer = POYOTokenizer(
+        unit_tokenizer=model.unit_emb.tokenizer,
+        session_tokenizer=model.session_emb.tokenizer,
+        latent_step=cfg.latent_step,
+        num_latents_per_step=cfg.model.num_latents,
+        modality_spec=modality_spec,
+        sequence_length=cfg.sequence_length,
+    )
 
-    exit()
+    # setup data module
+    data_module = DataModule(cfg=cfg, tokenizer=tokenizer)
+    data_module.setup()
 
     # register units and sessions
     model.unit_emb.initialize_vocab(data_module.get_unit_ids())
@@ -181,16 +191,11 @@ def main(cfg: DictConfig):
     wrapper = POYOTrainWrapper(
         cfg=cfg,
         model=model,
-        dataset_config_dict=data_module.get_recording_config_dict(),
         steps_per_epoch=len(data_module.train_dataloader()),
     )
 
-    evaluator = StitchEvaluator(
-        dataset_config_dict=data_module.get_recording_config_dict()
-    )
-
     callbacks = [
-        evaluator,
+        StitchEvaluator(metric_fn=torchmetrics.R2Score(num_outputs=2)),
         ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
         ModelCheckpoint(
             save_last=True,
@@ -219,7 +224,7 @@ def main(cfg: DictConfig):
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=cfg.gpus,
         num_nodes=cfg.nodes,
-        num_sanity_val_steps=0,  # Disable sanity validation
+        num_sanity_val_steps=-1,  # Disable sanity validation
         limit_val_batches=None,  # Ensure no limit on validation batches
     )
 
