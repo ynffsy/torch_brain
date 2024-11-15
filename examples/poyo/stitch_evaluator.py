@@ -5,17 +5,23 @@ import pandas as pd
 from rich import print as rprint
 import torch
 import lightning as L
+import torchmetrics
 import wandb
 
+from torch_brain.registry import ModalitySpec
 from torch_brain.utils.stitcher import stitch
 
 
 class StitchEvaluator(L.Callback):
-    def __init__(self, metric_fn, quiet=False):
-        self.metric_fn = metric_fn
+    def __init__(self, session_ids: list, modality_spec: ModalitySpec, quiet=False):
         self.quiet = quiet
 
+        self.metrics = {k: torchmetrics.R2Score(modality_spec.dim) for k in session_ids}
+
     def on_validation_epoch_start(self, trainer, pl_module):
+        # Cache to store the predictions, targets, and timestamps for each
+        # validation step. This will be coalesced at the end of the validation,
+        # using the stitch function.
         self.cache = defaultdict(
             lambda: {
                 "pred": [],
@@ -37,14 +43,14 @@ class StitchEvaluator(L.Callback):
             target = batch["target_values"][i][mask]
             timestamps = batch["output_timestamps"][i][mask] + absolute_start
 
-            self.cache[session_id]["pred"].append(pred.detach().cpu())
-            self.cache[session_id]["target"].append(target.detach().cpu())
-            self.cache[session_id]["timestamps"].append(timestamps.detach().cpu())
+            self.cache[session_id]["pred"].append(pred.detach())
+            self.cache[session_id]["target"].append(target.detach())
+            self.cache[session_id]["timestamps"].append(timestamps.detach())
 
     def on_validation_epoch_end(self, trainer, pl_module, prefix="val"):
         # compute metric for each session
         metrics = {}
-        for session_id in self.cache.keys():
+        for session_id, metric_fn in self.metrics.items():
             cache = self.cache[session_id]
             pred = torch.cat(cache["pred"])
             target = torch.cat(cache["target"])
@@ -53,7 +59,9 @@ class StitchEvaluator(L.Callback):
             stitched_pred = stitch(timestamps, pred)
             stitched_target = stitch(timestamps, target)
 
-            metrics[session_id] = self.metric_fn(stitched_pred, stitched_target)
+            metric_fn.to(pl_module.device).update(stitched_pred, stitched_target)
+            metrics[session_id] = metric_fn.compute()
+            metric_fn.reset()
 
         # compute the average metric
         metrics[f"average_{prefix}_metric"] = torch.tensor(

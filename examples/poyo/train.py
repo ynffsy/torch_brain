@@ -11,9 +11,7 @@ from lightning.pytorch.callbacks import (
     ModelSummary,
 )
 from omegaconf import DictConfig, OmegaConf
-import torchmetrics
 
-from torch_brain.nn import compute_loss_or_metric
 from torch_brain.registry import MODALITIY_REGISTRY, ModalitySpec
 from torch_brain.models.poyo import POYOTokenizer, poyo_mp
 from torch_brain.utils import callbacks as tbrain_callbacks
@@ -148,7 +146,6 @@ def main(cfg: DictConfig):
 
     # get modality details
     modality_spec = MODALITIY_REGISTRY[cfg.modality_name]
-    metric_fn = torchmetrics.R2Score(num_outputs=modality_spec.dim)
 
     # make model and tokenizer
     model = poyo_mp(dim_out=modality_spec.dim)
@@ -177,8 +174,13 @@ def main(cfg: DictConfig):
         modality_spec=modality_spec,
     )
 
+    stitch_evaluator = StitchEvaluator(
+        session_ids=data_module.get_session_ids(),
+        modality_spec=modality_spec,
+    )
+
     callbacks = [
-        StitchEvaluator(metric_fn=metric_fn, quiet=True),
+        stitch_evaluator,
         ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
         ModelCheckpoint(
             save_last=True,
