@@ -42,6 +42,7 @@ class StitchEvaluator(L.Callback):
             self.cache[session_id]["timestamps"].append(timestamps.detach().cpu())
 
     def on_validation_epoch_end(self, trainer, pl_module, prefix="val"):
+        # compute metric for each session
         metrics = {}
         for session_id in self.cache.keys():
             cache = self.cache[session_id]
