@@ -43,7 +43,7 @@ def main(cfg: DictConfig):
 
     # setup loggers
     wandb_logger = None
-    if cfg.wandb.enable and not cfg.fast_dev_run:
+    if cfg.wandb.enable:
         wandb_logger = L.pytorch.loggers.WandbLogger(
             save_dir=cfg.log_dir,
             entity=cfg.wandb.entity,
@@ -117,7 +117,6 @@ def main(cfg: DictConfig):
         devices=cfg.gpus,
         num_nodes=cfg.nodes,
         limit_val_batches=None,  # Ensure no limit on validation batches
-        fast_dev_run=cfg.fast_dev_run,
         num_sanity_val_steps=cfg.num_sanity_val_steps,
     )
 
@@ -325,7 +324,7 @@ class DataModule(L.LightningDataModule):
             shuffle=False,
             batch_size=batch_size,
             collate_fn=collate,
-            num_workers=0,
+            num_workers=self.cfg.num_workers,
             drop_last=False,
         )
 
@@ -351,7 +350,7 @@ class DataModule(L.LightningDataModule):
             shuffle=False,
             batch_size=batch_size,
             collate_fn=collate,
-            num_workers=0,
+            num_workers=self.cfg.num_workers,
         )
 
         self.log.info(f"Testing on {len(test_sampler)} samples")
