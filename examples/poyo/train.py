@@ -329,7 +329,6 @@ class DataModule(L.LightningDataModule):
         )
 
         self.log.info(f"Expecting {len(val_sampler)} validation steps")
-        self.val_sequence_index = val_sampler.sequence_index
 
         return val_loader
 
@@ -355,7 +354,6 @@ class DataModule(L.LightningDataModule):
         )
 
         self.log.info(f"Testing on {len(test_sampler)} samples")
-        self.test_sequence_index = test_sampler.sequence_index
 
         return test_loader
 
