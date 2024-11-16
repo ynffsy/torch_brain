@@ -31,9 +31,13 @@ from torch_brain.transforms import Compose
 # higher speed on machines with tensor cores
 torch.set_float32_matmul_precision("medium")
 
+logger = logging.getLogger(__name__)
+
 
 @hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
 def main(cfg: DictConfig):
+    logger.info("POYO!")
+
     # fix random seed, skipped if cfg.seed is None
     seed_everything(cfg.seed)
 
@@ -79,10 +83,9 @@ def main(cfg: DictConfig):
         modality_spec=modality_spec,
     )
 
-    metric_factor = lambda: hydra.utils.instantiate(cfg.metric)
     stitch_evaluator = MultiSessionDecodingStitchEvaluator(
         session_ids=data_module.get_session_ids(),
-        metric_factory=metric_factor,
+        modality_spec=modality_spec,
     )
 
     callbacks = [

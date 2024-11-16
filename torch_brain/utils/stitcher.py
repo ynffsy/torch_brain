@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Optional
 
 import hydra
 import numpy as np
@@ -12,6 +12,7 @@ import torchmetrics
 import wandb
 
 import torch_brain
+from torch_brain.registry import ModalitySpec, DataType
 
 
 def stitch(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
@@ -108,30 +109,36 @@ class MultiSessionDecodingStitchEvaluator(L.Callback):
     timestamps for each session. This cache is updated at the end of each batch.
     Finally, at the end of the epoch, the cache is coalesced and the metric is
     computed for each session.
-
-    Note:
-        This callback is designed to work only with metric functions from
-         the `torchmetrics` library.
     """
 
     def __init__(
         self,
         session_ids: Iterable[str],
-        metric_factory: Callable[[], torchmetrics.Metric],
+        modality_spec: Optional[ModalitySpec] = None,
+        metric_factory: Optional[Callable[[int], ModalitySpec]] = None,
         quiet=False,
     ):
         r"""
         Args:
             session_ids: An iterable of session IDs for which the metrics are to be computed.
-            torchmetric_factory: A callable that returns an instance of a `torchmetrics.Metric`.
+            modality_spec: (Optional) The modality specification for the task. Either this
+                or metric_factory must be provided.
+            metric_factory: (Optional) A callable that returns an instance of the metric to be used.
+                If not provided, the metric is inferred based on the modality_spec.
             quiet: If True, disables the logging of the metrics to the console.
         """
         self.quiet = quiet
 
-        if not isinstance(metric_factory(), torchmetrics.Metric):
-            raise ValueError(
-                "`metric_factory()` must return an instance of torchmetrics.Metric."
+        if metric_factory is not None:
+            pass
+        elif modality_spec.type == DataType.CONTINUOUS:
+            metric_factory = lambda: torchmetrics.R2Score(num_outputs=modality_spec.dim)
+        elif modality_spec.type in [DataType.BINARY, DataType.MULTINOMIAL]:
+            metric_factory = lambda: torchmetrics.Accuracy(
+                task="multiclass", num_classes=modality_spec.dim
             )
+        else:
+            raise ValueError(f"Unsupported datatype: {modality_spec.type}")
 
         self.metrics = {k: metric_factory() for k in session_ids}
 
