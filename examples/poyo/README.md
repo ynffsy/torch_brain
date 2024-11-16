@@ -1,4 +1,4 @@
-# POYO
+# POYO 🧠
 Official codebase for POYO published at NeurIPS 2023
 [[project page]](https://poyo-brain.github.io/)
 [[arxiv]](https://arxiv.org/abs/2310.16046)
