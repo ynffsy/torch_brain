@@ -5,11 +5,7 @@ log_dir: ./logs
 
 sequence_length: 1.0  # in seconds
 latent_step: 0.125  # in seconds
-
 modality_name: cursor_velocity_2d
-metric:
-  _target_: torchmetrics.R2Score
-  num_outputs: 2
 
 epochs: 1000  # if -1, will use steps
 steps: -1  # if -1, will use epochs. Epochs take precedence.
