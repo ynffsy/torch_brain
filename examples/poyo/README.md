@@ -4,7 +4,7 @@ Official codebase for POYO published at NeurIPS 2023
 [[arxiv]](https://arxiv.org/abs/2310.16046)
 
 ### Training
-To train POYO you can run:
+To train POYO-MP you can run:
 ```bash
 python train.py --config-name train_poyo_mp.yaml
 ```
