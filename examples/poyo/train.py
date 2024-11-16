@@ -43,7 +43,7 @@ def main(cfg: DictConfig):
 
     # setup loggers
     wandb_logger = None
-    if cfg.wandb.enable:
+    if cfg.wandb.enable and not cfg.fast_dev_run:
         wandb_logger = L.pytorch.loggers.WandbLogger(
             save_dir=cfg.log_dir,
             entity=cfg.wandb.entity,
@@ -116,8 +116,9 @@ def main(cfg: DictConfig):
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=cfg.gpus,
         num_nodes=cfg.nodes,
-        num_sanity_val_steps=0,  # Disable sanity validation
         limit_val_batches=None,  # Ensure no limit on validation batches
+        fast_dev_run=cfg.fast_dev_run,
+        num_sanity_val_steps=cfg.num_sanity_val_steps,
     )
 
     # Train

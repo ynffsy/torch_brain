@@ -42,3 +42,6 @@ nodes: 1
 gpus: 1
 
 ckpt_path: null  # for resuming training, or loading a model during finetuning
+
+fast_dev_run: false
+num_sanity_val_steps: 0
