@@ -185,18 +185,18 @@ class MultiSessionDecodingStitchEvaluator(L.Callback):
 
         # log the metrics
         self.log_dict(metrics)
-        if not self.quiet:
-            logging.info(f"Logged {len(metrics)} {prefix} metrics.")
 
         metrics_data = []
         for metric_name, metric_value in metrics.items():
             metrics_data.append({"metric": metric_name, "value": metric_value.item()})
 
         metrics_df = pd.DataFrame(metrics_data)
-        if not self.quiet:
-            rprint(metrics_df)
 
         if trainer.is_global_zero:
+            if not self.quiet:
+                logging.info(f"Logged {len(metrics)} {prefix} metrics.")
+                rprint(metrics_df)
+
             for logger in trainer.loggers:
                 if isinstance(logger, L.pytorch.loggers.TensorBoardLogger):
                     logger.experiment.add_text(
