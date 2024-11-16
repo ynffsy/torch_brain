@@ -101,6 +101,8 @@ class MultiSessionDecodingStitchEvaluator(L.Callback):
         - "output_mask": :class:`~torch.Tensor` of shape (B, N) and dtype bool
         - "session_id": A list of session IDs for each sample in the batch
         - "absolute_start": :class:`~torch.Tensor` of shape (B) and dtype float
+    Please refer to the examples/poyo/train.py script for an example of how to write
+    a validation_step(...) function that outputs the required tensors.
 
     This callback operates by maintaining a cache of the predictions, targets, and
     timestamps for each session. This cache is updated at the end of each batch.
