@@ -7,9 +7,8 @@ sequence_length: 1.0  # in seconds
 latent_step: 0.125  # in seconds
 modality_name: cursor_velocity_2d
 
-epochs: 1000  # if -1, will use steps
-steps: -1  # if -1, will use epochs. Epochs take precedence.
-eval_epochs: 1
+epochs: 1000
+eval_epochs: 1  # frequency for doing validation 
 
 batch_size: 128
 eval_batch_size: null  # if null, will use batch_size
