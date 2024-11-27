@@ -74,7 +74,7 @@ def stitch(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
     return averages
 
 
-class MultiSessionDecodingStitchEvaluator(L.Callback):
+class DecodingStitchEvaluator(L.Callback):
     r"""A convenient stitching and evaluation framework to use when:
      1. Your model outputs have associated timestamps
      2. And your sampling strategy involves overlapping time windows, requiring
@@ -226,7 +226,7 @@ class MultiSessionDecodingStitchEvaluator(L.Callback):
         self.on_validation_epoch_end(*args, **kwargs, prefix="test")
 
 
-class MultiSessionMultiTaskStitchEvaluator(L.Callback):
+class MultiTaskDecodingStitchEvaluator(L.Callback):
     def __init__(self, dataset_config_dict: dict):
         metrics = defaultdict(lambda: defaultdict(dict))
         # setup the metrics

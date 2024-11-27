@@ -20,7 +20,7 @@ from torch_brain.registry import MODALITIY_REGISTRY, ModalitySpec
 from torch_brain.models.poyo import POYOTokenizer, poyo_mp
 from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
-from torch_brain.utils.stitcher import MultiSessionDecodingStitchEvaluator
+from torch_brain.utils.stitcher import DecodingStitchEvaluator
 from torch_brain.data import Dataset, collate
 from torch_brain.data.sampler import (
     DistributedStitchingFixedWindowSampler,
@@ -83,7 +83,7 @@ def main(cfg: DictConfig):
         modality_spec=modality_spec,
     )
 
-    stitch_evaluator = MultiSessionDecodingStitchEvaluator(
+    stitch_evaluator = DecodingStitchEvaluator(
         session_ids=data_module.get_session_ids(),
         modality_spec=modality_spec,
     )
