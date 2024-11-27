@@ -1,0 +1,27 @@
+# Witten-Benson Brain 2023 Dataset Configuration
+
+- selection:
+    brainset: witten_benson_brain_2023
+    sessions:
+      - c7bf2d49-4937-4597-b307-9f39cb1c7b16
+
+  config:
+    multitask_readout:
+      - readout_id: neural_activity
+        subtask_weights:
+          FREE_BEHAVIOR.WHEEL: 1.0
+          FREE_BEHAVIOR.WHISKER: 1.0
+          FREE_BEHAVIOR.CHOICE: 1.0
+          FREE_BEHAVIOR.BLOCK: 1.0
+          FREE_BEHAVIOR.REWARD: 1.0
+        metrics:
+          - metric:
+              _target_: torchmetrics.R2Score
+              num_outputs: 1
+            task: FREE_BEHAVIOR
+            subtask: FREE_BEHAVIOR.CHOICE
+          - metric:
+              _target_: torchmetrics.MeanSquaredError
+              num_outputs: 1
+            task: FREE_BEHAVIOR
+            subtask: FREE_BEHAVIOR.REWARD
