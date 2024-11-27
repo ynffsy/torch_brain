@@ -1,7 +1,7 @@
 defaults:
   - base.yaml
   - model: poyo_single_session.yaml
-  - dataset: perich_miller_population_2018.yaml
+  - dataset: witten_benson_brain_2023.yaml #perich_miller_population_2018.yaml
   - _self_
 
 train_transforms:
