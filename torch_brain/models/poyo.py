@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 import torch.nn as nn
@@ -137,7 +137,12 @@ class POYO(nn.Module):
         # output sequence
         output_session_index: TensorType["batch", "n_out", int],
         output_timestamps: TensorType["batch", "n_out", float],
-    ) -> TensorType["batch", "n_out", "dim_out", float]:
+        output_mask: Optional[TensorType["batch", "n_out", bool]] = None,
+        unpack_output: bool = False,
+    ) -> Union[
+        TensorType["batch", "n_out", "dim_out", float],
+        List[TensorType[..., "dim_out", float]],
+    ]:
         """Forward pass of the POYO model.
 
         The model processes input spike sequences through its encoder-processor-decoder
@@ -152,6 +157,15 @@ class POYO(nn.Module):
             latent_timestamps: Timestamps for latent tokens
             output_session_index: Index of the recording session
             output_timestamps: Timestamps for output predictions
+            output_mask: A mask of the same size as output_timestamps. True implies
+                that particular timestamp is a valid query for POYO. This is required
+                iff `unpack_output` is set to True.
+            unpack_output: If False, this function will return a padded tensor of
+                shape (batch size, num of max output queries in batch, `dim_out`).
+                In this case you have to use `output_mask` externally to only look
+                at valid outputs. If True, this will return a list of Tensors:
+                the length of the list is equal to batch size, the shape of
+                i^th Tensor is (num of valid output queries for i^th sample, `d_out`).
 
         Returns:
             A :class:`torch.Tensor` of shape `(batch, n_out, dim_out)`
@@ -206,6 +220,9 @@ class POYO(nn.Module):
         )
         output_latents = output_queries + self.dec_ffn(output_queries)
         output = self.readout(output_latents)
+
+        if unpack_output:
+            output = [output[b][output_mask[b]] for b in range(output.size(0))]
 
         return output
 
