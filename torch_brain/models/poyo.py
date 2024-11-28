@@ -33,7 +33,7 @@ class POYO(nn.Module):
 
     Args:
         dim: Hidden dimension of the model
-        dim_out: Dimension of the decoding targets
+        dim_out: Dimension of the output
         dim_head: Dimension of each attention head
         num_latents: Number of unique latent tokens (repeated at every latent step)
         depth: Number of processing layers (self-attentions in the latent space)
