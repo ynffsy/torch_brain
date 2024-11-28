@@ -22,6 +22,7 @@ from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
 from torch_brain.utils.stitcher import DecodingStitchEvaluator
 from torch_brain.data import Dataset, collate
+from torch_brain.nn import compute_loss_or_metric
 from torch_brain.data.sampler import (
     DistributedStitchingFixedWindowSampler,
     RandomFixedWindowSampler,
@@ -176,14 +177,13 @@ class POYOTrainWrapper(L.LightningModule):
         target_values = target_values[output_mask]
         target_weights = target_weights[output_mask]
 
-        if self.modality_spec.loss_fn == "mse":
-            loss = torch.nn.functional.mse_loss(
-                output_values, target_values, reduction="none"
-            )
-            loss = loss * target_weights[:, None]
-            loss = loss.mean()
-        else:
-            raise NotImplementedError("Only MSE loss is supported for now.")
+        loss = compute_loss_or_metric(
+            loss_or_metric=self.modality_spec.loss_fn,
+            output_type=self.modality_spec.type,
+            output=output_values,
+            target=target_values,
+            weights=target_weights,
+        )
 
         self.log("train_loss", loss, prog_bar=True)
 
