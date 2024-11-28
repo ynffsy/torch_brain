@@ -283,17 +283,17 @@ def main(cfg: DictConfig):
         )
 
     # get modality details
-    modality_spec = MODALITIY_REGISTRY[cfg.modality_name]
+    readout_spec = MODALITIY_REGISTRY[cfg.readout_modality_name]
 
     # make model and tokenizer
-    model = poyo_mp(dim_out=modality_spec.dim)
+    model = poyo_mp(dim_out=readout_spec.dim)
 
     tokenizer = POYOTokenizer(
         unit_tokenizer=model.unit_emb.tokenizer,
         session_tokenizer=model.session_emb.tokenizer,
         latent_step=cfg.latent_step,
         num_latents_per_step=cfg.model.num_latents,
-        modality_spec=modality_spec,
+        readout_spec=readout_spec,
         sequence_length=cfg.sequence_length,
         subtask_weights=cfg.subtask_weights,
     )
@@ -310,12 +310,12 @@ def main(cfg: DictConfig):
     wrapper = POYOTrainWrapper(
         cfg=cfg,
         model=model,
-        modality_spec=modality_spec,
+        modality_spec=readout_spec,
     )
 
     stitch_evaluator = DecodingStitchEvaluator(
         session_ids=data_module.get_session_ids(),
-        modality_spec=modality_spec,
+        modality_spec=readout_spec,
     )
 
     callbacks = [

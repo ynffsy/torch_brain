@@ -267,7 +267,7 @@ class POYOTokenizer:
         session_tokenizer: Callable,
         latent_step: float,
         num_latents_per_step: int,
-        modality_spec: ModalitySpec,
+        readout_spec: ModalitySpec,
         sequence_length: float = 1.0,
         eval: bool = False,
         subtask_weights: Optional[Iterable[float]] = None,
@@ -275,7 +275,7 @@ class POYOTokenizer:
         self.unit_tokenizer = unit_tokenizer
         self.session_tokenizer = session_tokenizer
 
-        self.modality_spec = modality_spec
+        self.readout_spec = readout_spec
 
         self.subtask_weights = subtask_weights
         if self.subtask_weights is not None:
@@ -323,8 +323,8 @@ class POYOTokenizer:
         )
 
         ### prepare output queries and targets
-        output_timestamps = data.get_nested_attribute(self.modality_spec.timestamp_key)
-        output_values = data.get_nested_attribute(self.modality_spec.value_key)
+        output_timestamps = data.get_nested_attribute(self.readout_spec.timestamp_key)
+        output_values = data.get_nested_attribute(self.readout_spec.value_key)
         if output_values.dtype == np.float64:
             output_values = output_values.astype(np.float32)
 
@@ -332,7 +332,7 @@ class POYOTokenizer:
         session_index = np.repeat(session_index, len(output_timestamps))
 
         # Weights for the output predictions (used in the loss function)
-        output_subtask_index = data.get_nested_attribute(self.modality_spec.context_key)
+        output_subtask_index = data.get_nested_attribute(self.readout_spec.context_key)
         if self.subtask_weights is None:
             output_weights = np.ones(len(output_values), dtype=np.float32)
         else:
