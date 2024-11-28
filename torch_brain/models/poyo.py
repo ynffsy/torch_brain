@@ -138,7 +138,7 @@ class POYO(nn.Module):
         output_session_index: TensorType["batch", "n_out", int],
         output_timestamps: TensorType["batch", "n_out", float],
     ) -> TensorType["batch", "n_out", "dim_out", float]:
-        """Forward pass of the POYO+ model.
+        """Forward pass of the POYO model.
 
         The model processes input spike sequences through its encoder-processor-decoder
         architecture to generate task-specific predictions.
