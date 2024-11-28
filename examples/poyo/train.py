@@ -32,97 +32,6 @@ from torch_brain.transforms import Compose
 # higher speed on machines with tensor cores
 torch.set_float32_matmul_precision("medium")
 
-logger = logging.getLogger(__name__)
-
-
-@hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
-def main(cfg: DictConfig):
-    logger.info("POYO!")
-
-    # fix random seed, skipped if cfg.seed is None
-    seed_everything(cfg.seed)
-
-    # setup loggers
-    wandb_logger = None
-    if cfg.wandb.enable:
-        wandb_logger = L.pytorch.loggers.WandbLogger(
-            save_dir=cfg.log_dir,
-            entity=cfg.wandb.entity,
-            name=cfg.wandb.run_name,
-            project=cfg.wandb.project,
-            log_model=cfg.wandb.log_model,
-        )
-
-    # get modality details
-    modality_spec = MODALITIY_REGISTRY[cfg.modality_name]
-
-    # make model and tokenizer
-    model = poyo_mp(dim_out=modality_spec.dim)
-
-    tokenizer = POYOTokenizer(
-        unit_tokenizer=model.unit_emb.tokenizer,
-        session_tokenizer=model.session_emb.tokenizer,
-        latent_step=cfg.latent_step,
-        num_latents_per_step=cfg.model.num_latents,
-        modality_spec=modality_spec,
-        sequence_length=cfg.sequence_length,
-        subtask_weights=cfg.subtask_weights,
-    )
-
-    # setup data module
-    data_module = DataModule(cfg=cfg, tokenizer=tokenizer)
-    data_module.setup()
-
-    # register units and sessions
-    model.unit_emb.initialize_vocab(data_module.get_unit_ids())
-    model.session_emb.initialize_vocab(data_module.get_session_ids())
-
-    # Lightning train wrapper
-    wrapper = POYOTrainWrapper(
-        cfg=cfg,
-        model=model,
-        modality_spec=modality_spec,
-    )
-
-    stitch_evaluator = DecodingStitchEvaluator(
-        session_ids=data_module.get_session_ids(),
-        modality_spec=modality_spec,
-    )
-
-    callbacks = [
-        stitch_evaluator,
-        ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
-        ModelCheckpoint(
-            save_last=True,
-            save_on_train_epoch_end=True,
-            every_n_epochs=cfg.eval_epochs,
-        ),
-        LearningRateMonitor(logging_interval="step"),
-        tbrain_callbacks.MemInfo(),
-        tbrain_callbacks.EpochTimeLogger(),
-        tbrain_callbacks.ModelWeightStatsLogger(),
-    ]
-
-    trainer = L.Trainer(
-        logger=wandb_logger,
-        default_root_dir=cfg.log_dir,
-        check_val_every_n_epoch=cfg.eval_epochs,
-        max_epochs=cfg.epochs,
-        log_every_n_steps=1,
-        callbacks=callbacks,
-        precision=cfg.precision,
-        devices=cfg.gpus,
-        num_nodes=cfg.nodes,
-        limit_val_batches=None,  # Ensure no limit on validation batches
-        num_sanity_val_steps=cfg.num_sanity_val_steps,
-    )
-
-    # Train
-    trainer.fit(wrapper, data_module, ckpt_path=cfg.ckpt_path)
-
-    # Test
-    trainer.test(wrapper, data_module)
-
 
 class POYOTrainWrapper(L.LightningModule):
     def __init__(
@@ -352,6 +261,96 @@ class DataModule(L.LightningDataModule):
         self.log.info(f"Testing on {len(test_sampler)} samples")
 
         return test_loader
+
+
+@hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
+def main(cfg: DictConfig):
+
+    # fix random seed, skipped if cfg.seed is None
+    seed_everything(cfg.seed)
+
+    # setup loggers
+    log = logging.getLogger(__name__)
+    log.info("POYO!")
+    wandb_logger = None
+    if cfg.wandb.enable:
+        wandb_logger = L.pytorch.loggers.WandbLogger(
+            save_dir=cfg.log_dir,
+            entity=cfg.wandb.entity,
+            name=cfg.wandb.run_name,
+            project=cfg.wandb.project,
+            log_model=cfg.wandb.log_model,
+        )
+
+    # get modality details
+    modality_spec = MODALITIY_REGISTRY[cfg.modality_name]
+
+    # make model and tokenizer
+    model = poyo_mp(dim_out=modality_spec.dim)
+
+    tokenizer = POYOTokenizer(
+        unit_tokenizer=model.unit_emb.tokenizer,
+        session_tokenizer=model.session_emb.tokenizer,
+        latent_step=cfg.latent_step,
+        num_latents_per_step=cfg.model.num_latents,
+        modality_spec=modality_spec,
+        sequence_length=cfg.sequence_length,
+        subtask_weights=cfg.subtask_weights,
+    )
+
+    # setup data module
+    data_module = DataModule(cfg=cfg, tokenizer=tokenizer)
+    data_module.setup()
+
+    # register units and sessions
+    model.unit_emb.initialize_vocab(data_module.get_unit_ids())
+    model.session_emb.initialize_vocab(data_module.get_session_ids())
+
+    # Lightning train wrapper
+    wrapper = POYOTrainWrapper(
+        cfg=cfg,
+        model=model,
+        modality_spec=modality_spec,
+    )
+
+    stitch_evaluator = DecodingStitchEvaluator(
+        session_ids=data_module.get_session_ids(),
+        modality_spec=modality_spec,
+    )
+
+    callbacks = [
+        stitch_evaluator,
+        ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
+        ModelCheckpoint(
+            save_last=True,
+            save_on_train_epoch_end=True,
+            every_n_epochs=cfg.eval_epochs,
+        ),
+        LearningRateMonitor(logging_interval="step"),
+        tbrain_callbacks.MemInfo(),
+        tbrain_callbacks.EpochTimeLogger(),
+        tbrain_callbacks.ModelWeightStatsLogger(),
+    ]
+
+    trainer = L.Trainer(
+        logger=wandb_logger,
+        default_root_dir=cfg.log_dir,
+        check_val_every_n_epoch=cfg.eval_epochs,
+        max_epochs=cfg.epochs,
+        log_every_n_steps=1,
+        callbacks=callbacks,
+        precision=cfg.precision,
+        devices=cfg.gpus,
+        num_nodes=cfg.nodes,
+        limit_val_batches=None,  # Ensure no limit on validation batches
+        num_sanity_val_steps=cfg.num_sanity_val_steps,
+    )
+
+    # Train
+    trainer.fit(wrapper, data_module, ckpt_path=cfg.ckpt_path)
+
+    # Test
+    trainer.test(wrapper, data_module)
 
 
 if __name__ == "__main__":
