@@ -115,7 +115,6 @@ class DecodingStitchEvaluator(L.Callback):
         self,
         session_ids: Iterable[str],
         modality_spec: Optional[ModalitySpec] = None,
-        metric_factory: Optional[Callable[[], torchmetrics.Metric]] = None,
         quiet=False,
     ):
         r"""
@@ -129,9 +128,7 @@ class DecodingStitchEvaluator(L.Callback):
         """
         self.quiet = quiet
 
-        if metric_factory is not None:
-            pass
-        elif modality_spec.type == DataType.CONTINUOUS:
+        if modality_spec.type == DataType.CONTINUOUS:
             metric_factory = lambda: torchmetrics.R2Score(num_outputs=modality_spec.dim)
         elif modality_spec.type in [DataType.BINARY, DataType.MULTINOMIAL]:
             metric_factory = lambda: torchmetrics.Accuracy(
