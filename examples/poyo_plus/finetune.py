@@ -24,7 +24,7 @@ from train import POYOTrainWrapper
 torch.set_float32_matmul_precision("medium")
 
 
-class FreezeUnfreezePOYO(L.Callback):
+class GradualUnfreezing(L.Callback):
     r"""A Lightning callback to handle freezing and unfreezing of the model for the
     purpose of finetuning the model to new sessions. If this callback is used,
     most of the model weights will be frozen initially.
@@ -157,7 +157,7 @@ def main(cfg: DictConfig):
 
     if cfg.freeze_perceiver_until_epoch != 0:
         log.info(f"Freezing model until epoch {cfg.freeze_perceiver_until_epoch}")
-        callbacks.append(FreezeUnfreezePOYO(cfg.freeze_perceiver_until_epoch))
+        callbacks.append(GradualUnfreezing(cfg.freeze_perceiver_until_epoch))
 
     trainer = L.Trainer(
         logger=wandb_logger,
