@@ -62,8 +62,7 @@ class GradualUnfreezing(L.Callback):
         return frozen_params
 
     def on_train_start(self, trainer, pl_module):
-        model = pl_module.model
-        self.frozen_params = self.freeze(model)
+        self.frozen_params = self.freeze(pl_module.model)
         self.cli_log.info(f"POYO Perceiver frozen at epoch 0")
 
     def on_train_epoch_start(self, trainer, pl_module):
