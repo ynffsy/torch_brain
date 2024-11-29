@@ -36,7 +36,7 @@ class GradualUnfreezing(L.Callback):
     frozen_params: Optional[List[nn.Parameter]] = None
 
     def __init__(self, unfreeze_at_epoch: int):
-        self.enabled = unfreeze_at_epoch > 0
+        self.enabled = unfreeze_at_epoch != 0
         self.unfreeze_at_epoch = unfreeze_at_epoch
         self.cli_log = logging.getLogger(__name__)
 
