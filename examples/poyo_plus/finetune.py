@@ -70,7 +70,7 @@ class GradualUnfreezing(L.Callback):
             self.frozen_params = self.freeze(pl_module.model)
             self._has_been_frozen = True
             self.cli_log.info(
-                f"POYO Perceiver frozen at epoch 0. "
+                f"POYO+ Perceiver frozen at epoch 0. "
                 f"Will stay frozen until epoch {self.unfreeze_at_epoch}."
             )
 
@@ -83,7 +83,9 @@ class GradualUnfreezing(L.Callback):
                 param.requires_grad = True
 
             self.frozen_params = None
-            self.cli_log.info(f"POYO unfrozen at epoch {trainer.current_epoch}")
+            self.cli_log.info(
+                f"POYO+ Perceiver unfrozen at epoch {trainer.current_epoch}"
+            )
 
 
 def load_model_from_ckpt(model: nn.Module, ckpt_path: str) -> None:
