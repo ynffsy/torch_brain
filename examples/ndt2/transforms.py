@@ -5,6 +5,7 @@ import scipy.signal as signal
 import torch
 import torch.nn.functional as F
 from einops import rearrange, repeat
+from model import ContextManager
 
 from temporaldata import ArrayDict, Data, IrregularTimeSeries, RegularTimeSeries
 from torch_brain.data import chain
@@ -74,15 +75,14 @@ def float_modulo_test(x, y, eps=1e-6):
     return np.abs(x - y * np.round(x / y)) < eps
 
 
-class NDT2Tokenizer:
+class Ndt2Tokenizer:
     def __init__(
         self,
         bin_time: float,
         ctx_time: float,
         patch_size: Tuple[int, int],
         pad_val: int,
-        session_tokenizer: InfiniteVocabEmbedding,
-        subject_tokenizer: InfiniteVocabEmbedding,
+        ctx_tokenizer: Dict[str, InfiniteVocabEmbedding],
         mask_ratio: float,
         decoder_registry=None,
         inc_behavior=False,
@@ -98,8 +98,7 @@ class NDT2Tokenizer:
         self.pad_val: int = pad_val
         self.mask_ratio: float = mask_ratio
 
-        self.session_tokenizer: InfiniteVocabEmbedding = session_tokenizer
-        self.subjet_tokenizer: InfiniteVocabEmbedding = subject_tokenizer
+        self.ctx_tokenizer = ctx_tokenizer
 
         self.unsorted = unsorted
         # legacy not used yet
@@ -128,27 +127,25 @@ class NDT2Tokenizer:
         # -- Patch neurons
         spikes, time_idx, space_idx = self.patchify(t_binned)
 
-        # -- Session tokens
-        session_idx = self.session_tokenizer(data.session)
-
-        # -- Subject tokens
-        subject_idx = self.subjet_tokenizer(data.subject.id)
         spike_data = {
             "spike_tokens": spikes,
             "time_idx": time_idx,
             "space_idx": space_idx,
-            "session_idx": session_idx,
-            "subject_idx": subject_idx,
             "token_length": token_length,
         }
-        # TODO add task
 
-        self.inc_behavior = True
+        # -- ctx tokens
+        for key, tokenizer in self.ctx_tokenizer.items():
+            # TODO fix this... sesion are not accessible with .id in contrast to seuject
+            if key == "session":
+                spike_data["session_idx"] = tokenizer(data.session)
+            else:
+                spike_data[key + "_idx"] = tokenizer(getattr(data, key).id)
+
         behavior_data = {}
         if self.inc_behavior:
             # -- Behavior
             behavior_data["bhvr_vel"] = data.finger.vel
-            # TODO check the lenght computation
             behavior_data["bhvr_length"] = data.finger.vel.shape[0]
 
         return spike_data | behavior_data

@@ -1,17 +1,19 @@
 import math
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import einsum, rearrange, repeat
 from torch import Tensor
+from torchmetrics import R2Score
 
 from torch_brain.nn import InfiniteVocabEmbedding
 
 
-class NDT2_MAE_MaskManager(nn.Module):
+class MaeMaskManager(nn.Module):
     def __init__(self, mask_ratio: float):
         super().__init__()
         self.mask_ratio = mask_ratio
@@ -44,7 +46,7 @@ class NDT2_MAE_MaskManager(nn.Module):
         return batch
 
 
-class NDT2_SpikesPatchifier(nn.Module):
+class SpikesPatchifier(nn.Module):
     # TODO transfer at the cfg file
     def __init__(self, dim, patch_size=(32, 1), max_neuron_count=21, pad=5):
         """
@@ -69,7 +71,7 @@ class NDT2_SpikesPatchifier(nn.Module):
         return x
 
 
-class NDT2_ContextManager(nn.Module):
+class ContextManager(nn.Module):
     def __init__(
         self,
         dim: int,
@@ -95,6 +97,9 @@ class NDT2_ContextManager(nn.Module):
         for k, ids in vocab.items():
             getattr(self, f"{k}_emb").extend_vocab(ids, exist_ok=True)
 
+    def get_ctx_tokenizer(self):
+        return {k: getattr(self, f"{k}_emb").tokenizer for k in self.keys}
+
     def forward(
         self, batch: Dict[str, torch.Tensor], type: torch.Tensor
     ) -> torch.Tensor:
@@ -105,7 +110,7 @@ class NDT2_ContextManager(nn.Module):
         return torch.stack(ctx_emb, dim=1)
 
 
-class NDT2_PositionalEncoding(nn.Module):
+class PositionalEncoding(nn.Module):
     def __init__(
         self,
         dim: int,
@@ -130,7 +135,7 @@ class NDT2_PositionalEncoding(nn.Module):
         return self.time_emb(times) + self.space_emb(spaces)
 
 
-class NDT2_Transformer(nn.Module):
+class Transformer(nn.Module):
     def __init__(
         self,
         dim,
@@ -139,7 +144,6 @@ class NDT2_Transformer(nn.Module):
         dropout,
         max_time_patches,
         max_space_patches,
-        in_encoder=True,
         ffn_mult=1,
         causal=True,
         activation="gelu",
@@ -168,8 +172,6 @@ class NDT2_Transformer(nn.Module):
         self.ffn_mult = ffn_mult
         self.causal = causal
 
-        self.in_encoder = in_encoder
-
         enc_layer = nn.TransformerEncoderLayer(
             dim,
             heads,
@@ -179,9 +181,9 @@ class NDT2_Transformer(nn.Module):
             activation=activation,
             norm_first=pre_norm,
         )
-        self.transformer_encoder = nn.TransformerEncoder(enc_layer, depth)
+        self.transformer = nn.TransformerEncoder(enc_layer, depth)
 
-        self.positional_encoding = NDT2_PositionalEncoding(
+        self.positional_encoding = PositionalEncoding(
             dim, max_time_patches, max_space_patches, allow_embed_padding
         )
 
@@ -200,7 +202,7 @@ class NDT2_Transformer(nn.Module):
         src = src + self.positional_encoding(times, spaces)
 
         try:
-            nb_ctx_token = ctx_emb[0].shape[1]
+            nb_ctx_token = ctx_emb[0].shape[0]
             src = torch.cat([src, ctx_emb], dim=1)
             pad_mask = F.pad(pad_mask, (0, nb_ctx_token), value=False)
         except:
@@ -208,8 +210,8 @@ class NDT2_Transformer(nn.Module):
 
         src_mask = self.make_src_mask(times, nb_ctx_token)
 
-        # encoder forward
-        out = self.transformer_encoder(src, src_mask, src_key_padding_mask=pad_mask)
+        # forward pass
+        out = self.transformer(src, src_mask, src_key_padding_mask=pad_mask)
 
         encoder_out = out[:, :-nb_ctx_token]
         return self.dropout_out(encoder_out)
@@ -231,17 +233,6 @@ class NDT2_Transformer(nn.Module):
             src_mask = repeat(src_mask, "b t1 t2 -> (b h) t1 t2", h=self.heads)
         return src_mask
 
-    def encode(
-        self,
-        encoder_input: torch.Tensor,
-        ctx_emb: torch.Tensor,
-        batch: Dict[str, torch.Tensor],
-    ) -> torch.Tensor:
-        time = batch["time_idx"]
-        space = batch["space_idx"]
-        pad_mask = self.get_temporal_padding_mask(encoder_input, batch)
-        return self(encoder_input, ctx_emb, time, space, pad_mask)
-
     def get_temporal_padding_mask(
         self, ref: torch.Tensor, batch: Dict[str, torch.Tensor]
     ) -> torch.Tensor:
@@ -254,7 +245,53 @@ class NDT2_Transformer(nn.Module):
         return token_position >= rearrange(batch["token_length"], "b -> b ()")
 
 
-class NDT2_Decoder(nn.Module):
+class Encoder(nn.Module):
+    def __init__(
+        self,
+        dim,
+        depth,
+        heads,
+        dropout,
+        max_time_patches,
+        max_space_patches,
+        ffn_mult,
+        causal=True,
+        activation="gelu",
+        pre_norm=False,
+    ):
+        super().__init__()
+
+        self.encoder = Transformer(
+            dim=dim,
+            depth=depth,
+            heads=heads,
+            dropout=dropout,
+            max_time_patches=max_time_patches,
+            max_space_patches=max_space_patches,
+            ffn_mult=ffn_mult,
+            causal=causal,
+            activation=activation,
+            pre_norm=pre_norm,
+        )
+
+    def forward(
+        self,
+        encoder_input: torch.Tensor,
+        ctx_emb: torch.Tensor,
+        batch: Dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        time = batch["time_idx"]
+        space = batch["space_idx"]
+        pad_mask = self.get_temporal_padding_mask(encoder_input, batch)
+        return self.encoder(encoder_input, ctx_emb, time, space, pad_mask)
+
+
+class Decoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+
+class SslDecoder(Decoder):
     def __init__(
         self,
         dim,
@@ -274,7 +311,7 @@ class NDT2_Decoder(nn.Module):
         self.dim = dim
         self.neurons_per_token = patch_size[0]
 
-        self.decoder = NDT2_Transformer(
+        self.decoder = Transformer(
             dim=dim,
             depth=depth,
             heads=heads,
@@ -285,7 +322,6 @@ class NDT2_Decoder(nn.Module):
             causal=causal,
             activation=activation,
             pre_norm=pre_norm,
-            in_encoder=False,
         )
 
         self.mask_token = nn.Parameter(torch.randn(dim))
@@ -321,7 +357,7 @@ class NDT2_Decoder(nn.Module):
         target = batch["spike_tokens_target"].squeeze(-1)
 
         # compute rates
-        reps = reps[:, -target.size(1) :]
+        decoder_out = decoder_out[:, -target.size(1) :]
         rates = self.out(decoder_out)
 
         # compute loss
@@ -339,13 +375,7 @@ class NDT2_Decoder(nn.Module):
         return loss_mask & length_mask.unsqueeze(-1)
 
 
-import numpy as np
-
-# from sklearn.metrics import r2_score
-from torchmetrics import R2Score
-
-
-class NDT2_bhvr_Decoder(nn.Module):
+class BhvrDecoder(Decoder):
     def __init__(
         self,
         dim,
@@ -375,7 +405,7 @@ class NDT2_bhvr_Decoder(nn.Module):
         self.behavior_lag_lookahead = behavior_lag_lookahead
 
         self.cls_token = nn.Parameter(torch.randn(dim))
-        self.decoder = NDT2_Transformer(
+        self.decoder = Transformer(
             dim=dim,
             depth=depth,
             heads=heads,
@@ -386,7 +416,6 @@ class NDT2_bhvr_Decoder(nn.Module):
             causal=causal,
             activation=activation,
             pre_norm=pre_norm,
-            in_encoder=False,
             allow_embed_padding=True,
         )
         self.out = nn.Linear(dim, self.behavior_dim)
@@ -413,7 +442,6 @@ class NDT2_bhvr_Decoder(nn.Module):
         # decoder forward
         decoder_out: torch.Tensor
         decoder_out = self.decoder(decoder_in, ctx_emb, time, space, pad_mask)
-
         # compute behavior
         nb_injected_tokens = bhvr_tgt.shape[1]
         decoder_out = decoder_out[:, -nb_injected_tokens:]
@@ -543,23 +571,3 @@ class NDT2_bhvr_Decoder(nn.Module):
         if r2.mean() < -10:
             r2 = np.zeros_like(r2)
         return r2
-
-
-# params = list(self.named_parameters())
-# # As of 2/24/23 all my parameters are named, this better stay the case
-# accel_flag = lambda name: name in self.novel_params or (
-#     "session_embed" in name
-#     or "subject_embed" in name
-#     or "task_embed" in name
-#     or "array_embed" in name
-# )
-# grouped_params = [
-#     {
-#         "params": [p for n, p in params if accel_flag(n)],
-#         "lr": self.cfg.lr_init * self.cfg.accelerate_new_params,
-#     },
-#     {
-#         "params": [p for n, p in params if not accel_flag(n)],
-#         "lr": self.cfg.lr_init,
-#     },
-# ]
