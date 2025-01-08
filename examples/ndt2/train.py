@@ -5,9 +5,11 @@ from typing import Dict, List, Optional, Tuple
 import hydra
 import lightning as L
 import numpy as np
+import pandas as pd
 import torch
 from lightning.pytorch.callbacks import (
     Callback,
+    EarlyStopping,
     LearningRateMonitor,
     ModelCheckpoint,
     ModelSummary,
@@ -16,9 +18,9 @@ from lightning.pytorch.loggers import WandbLogger
 from model import (
     BhvrDecoder,
     ContextManager,
-    Decoder,
     Encoder,
     MaeMaskManager,
+    NDT2Model,
     SpikesPatchifier,
     SslDecoder,
 )
@@ -27,7 +29,6 @@ from torch import optim
 from torch.utils.data import DataLoader
 from transforms import FilterUnit, Ndt2Tokenizer
 
-from brainsets.taxonomy import decoder_registry
 from temporaldata import Interval
 from torch_brain.data import Dataset, collate
 from torch_brain.data.sampler import (
@@ -38,78 +39,105 @@ from torch_brain.transforms import Compose
 
 log = logging.getLogger(__name__)
 
+import torch.nn as nn
+
 
 class TrainWrapper(L.LightningModule):
-    def __init__(
-        self,
-        cfg,
-        mae_mask_manager: Optional[MaeMaskManager],
-        ctx_manager: ContextManager,
-        spikes_patchifier: SpikesPatchifier,
-        encoder: Encoder,
-        decoder: Decoder,
-    ):
+    def __init__(self, cfg, model: nn.Module):
         super().__init__()
+        self.model = model
         self.cfg = cfg
-        self.mae_mask_manager = mae_mask_manager
-        self.ctx_manager = ctx_manager
-        self.spikes_patchifier = spikes_patchifier
-        self.encoder = encoder
-        self.decoder = decoder
-        self.save_hyperparameters(OmegaConf.to_container(cfg, resolve=True))
+        self.is_ssl = cfg.is_ssl
 
     def training_step(self, batch, batch_idx):
-        mae_loss = 0.0
-        if "ssl" in batch:
-            decoder_out = self._step(batch["ssl"], "ssl")
-            self.log("train_shuffle_infill_loss", decoder_out["ssl_loss"])
+        ssl_loss = 0.0
+        superv_loss = 0.0
 
-        bhv_loss = 0.0
-        if "superv" in batch:
-            decoder_out = self._step(batch["superv"], "bhv")
-            self.log("val_kinematic_decoding_loss", decoder_out["bhv_loss"])
-            self.log("val_kinematic_r2_x", decoder_out["r2"][0])
-            self.log("val_kinematic_r2_y", decoder_out["r2"][1])
-            self.log("val_kinematic_r2", decoder_out["r2"].mean())
+        if self.is_ssl:
+            decoder_out = self.model(batch, "ssl")
+            ssl_loss = decoder_out["loss"]
+            self.log("train_shuffle_infill_loss", decoder_out["loss"])
+        else:
+            decoder_out = self.model(batch, "bhv")
+            superv_loss = decoder_out["loss"]
+            self.log("train_kinematic_decoding_loss", decoder_out["loss"])
+            self.log("train_kinematic_r2", decoder_out["r2"].mean())
 
-        loss = bhv_loss + mae_loss
+        loss = ssl_loss + superv_loss
         self.log("train_loss", loss, prog_bar=True)
-
         return loss
 
     @torch.inference_mode()
-    def validation_step(self, batch, batch_idx):
-        mae_loss = 0.0
-        if "ssl" in batch:
-            decoder_out = self._step(batch["ssl"], "ssl")
-            self.log("val_shuffle_infill_loss", decoder_out["ssl_loss"])
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
+        ssl_loss = 0.0
+        superv_loss = 0.0
 
-        bhv_loss = 0.0
-        if "superv" in batch:
-            decoder_out = self._step(batch["superv"], "bhv")
-            self.log("val_kinematic_decoding_loss", decoder_out["bhv_loss"])
-            self.log("val_kinematic_r2_x", decoder_out["r2"][0])
-            self.log("val_kinematic_r2_y", decoder_out["r2"][1])
-            self.log("val_kinematic_r2", decoder_out["r2"].mean())
+        prefix = "val_"
+        if dataloader_idx == 1:
+            prefix = "eval_"
 
-        loss = mae_loss + bhv_loss
-        self.log("val_loss", loss, prog_bar=True, sync_dist=True)
+        if self.is_ssl:
+            decoder_out = self.model(batch, "ssl")
+            ssl_loss = decoder_out["loss"]
+            self.log(
+                f"{prefix}shuffle_infill_loss",
+                decoder_out["loss"],
+                add_dataloader_idx=False,
+            )
 
-    def _step(self, batch, method: str = "ssl"):
-        if method == "ssl":
-            batch = self.mae_mask_manager(batch)
-        encoder_input = self.spikes_patchifier(batch["spike_tokens"])
-        ctx_emb = self.ctx_manager(batch, encoder_input.dtype)
-        encoder_out = self.encoder(encoder_input, ctx_emb, batch)
-        return self.decoder(encoder_out, ctx_emb, batch)
+        else:
+            decoder_out = self.model(batch, "bhv")
+            superv_loss = decoder_out["loss"]
+            self.log(
+                f"{prefix}kinematic_decoding_loss",
+                decoder_out["loss"],
+                add_dataloader_idx=False,
+            )
+            self.log(
+                f"{prefix}kinematic_r2",
+                decoder_out["r2"].mean(),
+                add_dataloader_idx=False,
+            )
+
+        loss = ssl_loss + superv_loss
+        self.log(
+            f"{prefix}loss",
+            loss,
+            prog_bar=True,
+            sync_dist=True,
+            add_dataloader_idx=False,
+        )
+
+        return loss
+
+    def split_params(self, params):
+        cfg = self.cfg.optimizer
+        accel_flag = lambda n: "decoder" in n or "ctx_manager" in n and "_emb" in n
+
+        accelerate_params = [p for n, p in params if accel_flag(n)]
+        regular_params = [p for n, p in params if not accel_flag(n)]
+        return [
+            {
+                "params": accelerate_params,
+                "lr": cfg.lr * cfg.accelerate_factor,
+            },
+            {
+                "params": regular_params,
+                "lr": cfg.lr,
+            },
+        ]
 
     def configure_optimizers(self):
-        # TODO update to match the superv settings (*10 lr for decoder layer and no scheduler)
         cfg = self.cfg.optimizer
 
-        optimizer = torch.optim.AdamW(
-            self.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay
-        )
+        params = self.parameters()
+        if cfg.get("accelerate_factor", 1) > 1:
+            params = self.split_params(self.named_parameters())
+
+        optimizer = torch.optim.AdamW(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
+
+        if not cfg.scheduler:
+            return {"optimizer": optimizer}
 
         linearLR = optim.lr_scheduler.LinearLR(
             optimizer, start_factor=cfg.start_factor, total_iters=cfg.warmup_steps
@@ -124,26 +152,11 @@ class TrainWrapper(L.LightningModule):
             "lr_scheduler": {"scheduler": scheduler},
         }
 
-    # params = list(self.named_parameters())
-
-
-# # As of 2/24/23 all my parameters are named, this better stay the case
-# accel_flag = lambda name: name in self.novel_params or (
-#     "session_embed" in name
-#     or "subject_embed" in name
-#     or "task_embed" in name
-#     or "array_embed" in name
-# )
-# grouped_params = [
-#     {
-#         "params": [p for n, p in params if accel_flag(n)],
-#         "lr": self.cfg.lr_init * self.cfg.accelerate_new_params,
-#     },
-#     {
-#         "params": [p for n, p in params if not accel_flag(n)],
-#         "lr": self.cfg.lr_init,
-#     },
-# ]
+    def on_save_checkpoint(self, ckpt):
+        ckpt["context_manager_state_dict"] = self.model.ctx_manager.state_dict()
+        ckpt["spikes_patchifier_state_dict"] = self.model.spikes_patchifier.state_dict()
+        ckpt["encoder_state_dict"] = self.model.encoder.state_dict()
+        ckpt["decoder_state_dict"] = self.model.decoder.state_dict()
 
 
 class DataModule(L.LightningDataModule):
@@ -151,36 +164,64 @@ class DataModule(L.LightningDataModule):
         self, cfg, tokenizer: Ndt2Tokenizer, is_ssl: bool = True, unsorted: bool = True
     ):
         super().__init__()
+
         self.cfg = cfg
         self.is_ssl = is_ssl
-        if is_ssl:
-            self.dataset_cfg = cfg.data_ssl
+        self.dataset_cfg = cfg.dataset
+
+        if cfg.keep_M1_units:
+            keep_M1_unit = FilterUnit("/M1", keep=True)
+            self.transforms = Compose([keep_M1_unit, tokenizer])
         else:
-            self.dataset_cfg = cfg.data_superv
-
-        if not unsorted:
-            raise NotImplementedError("Only unsorted data is supported")
-
-        self.unsorted = unsorted
-        keep_M1_unit = FilterUnit("/M1", keep=True)
-        self.transforms = Compose([keep_M1_unit, tokenizer])
+            self.transforms = tokenizer
 
     def setup(self, stage=None):
         cfg = self.cfg
 
-        # do not use split for dataset because is handle at sampler level
+        #  Do not use split for dataset because is handle at sampler level
         self.dataset = Dataset(
             root=cfg.data_root,
             split=None,
             config=self.dataset_cfg,
             transform=self.transforms,
         )
-        self.dataset.disable_data_leakage_check()
 
+        if not cfg.get("custom_ndt2_data_spliter", True):
+
+            self.train_dataset = Dataset(
+                root=cfg.data_root,
+                config=cfg.dataset,
+                split="train",
+                transform=self.transforms,
+            )
+            self.train_intervals = self.train_dataset.get_sampling_intervals()
+            print(self.train_intervals)
+
+            self.val_dataset = Dataset(
+                root=cfg.data_root,
+                config=cfg.dataset,
+                split="valid",
+                transform=self.transforms,
+            )
+            self.val_intervals = self.val_dataset.get_sampling_intervals()
+            print(self.val_intervals)
+
+            self.test_dataset = Dataset(
+                root=cfg.data_root,
+                config=cfg.dataset,
+                split="test",
+                transform=self.transforms,
+            )
+
+            self.eval_intervals = self.test_dataset.get_sampling_intervals()
+
+        # else:
+        self.dataset.disable_data_leakage_check()
         self.train_intervals: Dict[str, List[Tuple[float, float]]]
-        self.eval_intervals: Dict[str, List[Tuple[float, float]]]
+        self.val_intervals: Dict[str, List[Tuple[float, float]]]
+        self.eval_intervals: Optional[Dict[str, List[Tuple[float, float]]]]
         intervals = self.ndt2_custom_sampling_intervals()
-        self.train_intervals, self.eval_intervals = intervals
+        self.train_intervals, self.val_intervals, self.eval_intervals = intervals
 
     def get_ctx_vocab(self, ctx_keys):
         return {k: getattr(self.dataset, f"get_{k}_ids")() for k in ctx_keys}
@@ -192,6 +233,7 @@ class DataModule(L.LightningDataModule):
             window_length=cfg.ctx_time,
             generator=torch.Generator(),
         )
+
         bs = cfg.batch_size_per_gpu if self.is_ssl else cfg.superv_batch_size_per_gpu
         train_loader = DataLoader(
             dataset=self.dataset,
@@ -201,13 +243,13 @@ class DataModule(L.LightningDataModule):
             num_workers=cfg.num_workers,
         )
 
-        self.log.info(f"Training on {len(train_sampler)} samples")
         return train_loader
 
     def val_dataloader(self):
         cfg = self.cfg
+
         val_sampler = SequentialFixedWindowSampler(
-            interval_dict=self.eval_intervals,
+            interval_dict=self.val_intervals,
             window_length=cfg.ctx_time,
             drop_short=True,
         )
@@ -220,16 +262,50 @@ class DataModule(L.LightningDataModule):
             collate_fn=collate,
             num_workers=cfg.num_workers,
         )
+        if self.eval_intervals is None:
+            return val_loader
 
-        self.log.info(f"Expecting {len(val_sampler)} validation steps")
-        return val_loader
+        eval_sampler = SequentialFixedWindowSampler(
+            interval_dict=self.eval_intervals,
+            window_length=cfg.ctx_time,
+            drop_short=True,
+        )
+        eval_loader = DataLoader(
+            dataset=self.dataset,
+            batch_size=bs,
+            sampler=eval_sampler,
+            collate_fn=collate,
+            num_workers=cfg.num_workers,
+        )
+
+        return [val_loader, eval_loader]
 
     def test_dataloader(self):
         return None
 
-    def ndt2_custom_sampling_intervals(
-        self,
-    ) -> Tuple[Dict, Dict]:
+    # The next function are utils for ndt2_custom_sampling_intervals
+    def sort_sessions(self, res):
+        ind = np.argsort([int(e.split("-")[1]) for e in res])
+        return [res[i] for i in ind]
+
+    def ndt2_eval_split(self, ses_keys):
+        cfg = self.cfg
+        nb_sessions = len(ses_keys)
+        df = pd.DataFrame([0] * nb_sessions)
+        eval_subset = df.sample(frac=cfg.eval_ratio, random_state=cfg.eval_seed)
+        eval_keys = [ses_keys[i] for i in eval_subset.index]
+        non_eval_keys = [ses_keys[i] for i in df.index.difference(eval_subset.index)]
+        return self.sort_sessions(eval_keys), self.sort_sessions(non_eval_keys)
+
+    def ndt2_limit_per_session(self, ses_keys):
+        cfg = self.cfg
+        nb_sessions = len(ses_keys)
+        df = pd.DataFrame([0] * nb_sessions)
+        subset = df.sample(cfg.limit_per_eval_session)
+        ses_keys = [ses_keys[i] for i in subset.index]
+        return self.sort_sessions(ses_keys)
+
+    def ndt2_custom_sampling_intervals(self) -> Tuple[Dict, Dict]:
         """
         Custom sampling intervals for NDT2.
         It splits the dataset into training and validation sets.
@@ -247,6 +323,11 @@ class DataModule(L.LightningDataModule):
             for i in range(nb_trials):
                 ses_keys.append(f"{ses_id}-{i}")
 
+        if self.cfg.get("is_eval", False):
+            ses_keys = self.sort_sessions(ses_keys)
+            eval_keys, ses_keys = self.ndt2_eval_split(ses_keys)
+            ses_keys = self.ndt2_limit_per_session(ses_keys)
+
         L.seed_everything(seed)
         np.random.shuffle(ses_keys)
         tv_cut = int(train_ratio * len(ses_keys))
@@ -255,7 +336,9 @@ class DataModule(L.LightningDataModule):
         def get_dict(keys):
             d = defaultdict(list)
             for k in keys:
-                ses_id, trial = k.split("-")
+                # ses_id, trial = k.split("-")
+                trial = k.split("-")[-1]
+                ses_id = "-".join(k.split("-")[:-1])
                 ses = dataset._data_objects[ses_id]
                 ses_start = ses.domain.start[0]
                 offset = ctx_time * int(trial)
@@ -284,7 +367,12 @@ class DataModule(L.LightningDataModule):
         train_sampling_intervals = to_inter(train_sampling_intervals)
         val_sampling_intervals = to_inter(val_sampling_intervals)
 
-        return train_sampling_intervals, val_sampling_intervals
+        eval_sampling_intervals = None
+        if self.cfg.get("is_eval", False):
+            eval_sampling_intervals = get_dict(eval_keys)
+            eval_sampling_intervals = to_inter(eval_sampling_intervals)
+
+        return train_sampling_intervals, val_sampling_intervals, eval_sampling_intervals
 
 
 def set_wandb(cfg, log) -> Optional[WandbLogger]:
@@ -303,18 +391,25 @@ def set_wandb(cfg, log) -> Optional[WandbLogger]:
 
 
 def set_callbacks(cfg) -> List[Callback]:
-    cfg = cfg.checkpoint
+    cfg = cfg.callbacks
     callbacks = [
         ModelSummary(max_depth=3),
         LearningRateMonitor(logging_interval="step"),
     ]
-    if cfg.enable:
+    if cfg.checkpoint:
         callbacks.append(
             ModelCheckpoint(
-                save_last=True,  # saves a checkpoint for the last epoch
-                every_n_train_steps=cfg.every_n_steps,
-                every_n_epochs=cfg.every_n_epochs,
-                save_top_k=-1 if cfg.save_all else 1,
+                monitor="val_loss", save_top_k=1, mode="min", every_n_epochs=1
+            )
+        )
+    if cfg.early_stop:
+        callbacks.append(
+            EarlyStopping(
+                monitor="val_loss",
+                mode="min",
+                strict=False,
+                check_finite=False,
+                patience=cfg.patience,
             )
         )
     return callbacks
@@ -345,13 +440,13 @@ def run_training(cfg):
     if cfg.is_ssl:
         mae_mask_manager = MaeMaskManager(cfg.mask_ratio)
 
-    # context manager
+    # Context manager
     ctx_manager = ContextManager(dim)
 
     # Spikes patchifier
     spikes_patchifier = SpikesPatchifier(dim, cfg.patch_size)
 
-    # Model = Encoder + Decoder
+    # Encoder
     encoder = Encoder(
         dim=dim,
         max_time_patches=cfg.model.max_time_patches,
@@ -359,6 +454,7 @@ def run_training(cfg):
         **cfg.model.encoder,
     )
 
+    # Decoder
     if cfg.is_ssl:
         decoder = SslDecoder(
             dim=dim,
@@ -376,10 +472,13 @@ def run_training(cfg):
             **cfg.model.bhv_decoder,
         )
 
-    # Train wrapper
-    train_wrapper = TrainWrapper(
-        cfg, mae_mask_manager, ctx_manager, spikes_patchifier, encoder, decoder
+    # Model wrap everithing
+    model = NDT2Model(
+        mae_mask_manager, ctx_manager, spikes_patchifier, encoder, decoder
     )
+
+    # Train wrapper
+    train_wrapper = TrainWrapper(cfg, model)
 
     # Tokenizer
     ctx_tokenizer = ctx_manager.get_ctx_tokenizer()
@@ -388,19 +487,30 @@ def run_training(cfg):
         bin_time=cfg.bin_time,
         patch_size=cfg.patch_size,
         pad_val=cfg.pad_val,
-        decoder_registry=decoder_registry,
-        mask_ratio=cfg.mask_ratio,
         ctx_tokenizer=ctx_tokenizer,
-        inc_behavior=not cfg.is_ssl,
-        inc_mask=cfg.is_ssl,
+        unsorted=cfg.unsorted,
+        is_ssl=cfg.is_ssl,
     )
 
-    # set up data module
+    # Set up data module
     data_module = DataModule(cfg, tokenizer, cfg.is_ssl)
     data_module.setup()
 
-    # register context
-    ctx_manager.init_vocab(data_module.get_ctx_vocab(ctx_manager.keys))
+    # Load from checkpoint
+    if cfg.get("load_from_checkpoint", False):
+        ckpt = torch.load(cfg.checkpoint_path)
+        model.ctx_manager.load_state_dict(ckpt["context_manager_state_dict"])
+        model.spikes_patchifier.load_state_dict(ckpt["spikes_patchifier_state_dict"])
+        model.encoder.load_state_dict(ckpt["encoder_state_dict"])
+        if not cfg.get("new_decoder", False):
+            model.decoder.load_state_dict(ckpt["decoder_state_dict"])
+
+        # Register new context
+        ctx_manager.extend_vocab(data_module.get_ctx_vocab(ctx_manager.keys))
+
+    else:
+        # Register context
+        ctx_manager.init_vocab(data_module.get_ctx_vocab(ctx_manager.keys))
 
     L.seed_everything(cfg.seed)
 
@@ -428,10 +538,22 @@ def run_training(cfg):
     # Train model
     trainer.fit(train_wrapper, data_module)
 
+    # finish wandb
+    if wandb_logger:
+        wandb_logger.finalize(status="success")
 
-@hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
+
+@hydra.main(version_base="1.3", config_path="./configs", config_name="train_ssl.yaml")
 def main(cfg):
-    run_training(cfg)
+    if cfg.get("fragment_dataset", False):
+        sessions = cfg.dataset[0].selection[0]["sessions"].copy()
+        for ses in sessions:
+            cfg.dataset[0].selection[0]["sessions"] = [ses]
+            run_training(cfg)
+            break
+
+    else:
+        run_training(cfg)
 
 
 if __name__ == "__main__":

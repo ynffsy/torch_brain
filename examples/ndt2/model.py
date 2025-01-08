@@ -3,11 +3,9 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import einsum, rearrange, repeat
-from torch import Tensor
+from einops import rearrange, repeat
 from torchmetrics import R2Score
 
 from torch_brain.nn import InfiniteVocabEmbedding
@@ -25,21 +23,22 @@ class MaeMaskManager(nn.Module):
         if self.mask_ratio is None:
             return batch
 
+        keys = ["spike_tokens", "time_idx", "space_idx", "channel_counts"]
         spikes = batch["spike_tokens"]
         if eval_mode:
             batch["shuffle"] = torch.arange(spikes.size(1), device=spikes.device)
             batch["encoder_frac"] = spikes.size(1)
-            for key in ["spike_tokens", "time_idx", "space_idx"]:
-                batch[f"{key}_target"] = batch[key]
+            for k in keys:
+                batch[f"{k}_target"] = batch[k]
             return batch
 
         shuffle = torch.randperm(spikes.size(1), device=spikes.device)
         encoder_frac = int((1 - self.mask_ratio) * spikes.size(1))
-        for key in ["spike_tokens", "time_idx", "space_idx"]:
-            t = batch[key].transpose(1, 0)[shuffle].transpose(1, 0)
+        for k in keys:
+            t = batch[k].transpose(1, 0)[shuffle].transpose(1, 0)
 
-            batch[key] = t[:, :encoder_frac]
-            batch[f"{key}_target"] = t[:, encoder_frac:]
+            batch[k] = t[:, :encoder_frac]
+            batch[f"{k}_target"] = t[:, encoder_frac:]
         batch["encoder_frac"] = encoder_frac
         batch["shuffle"] = shuffle
 
@@ -48,7 +47,7 @@ class MaeMaskManager(nn.Module):
 
 class SpikesPatchifier(nn.Module):
     # TODO transfer at the cfg file
-    def __init__(self, dim, patch_size=(32, 1), max_neuron_count=21, pad=5):
+    def __init__(self, dim, patch_size=(32, 1), max_neuron_count=100, pad=5):
         """
         Args:
             dim (Int): Dimension of the output patchified tensor
@@ -67,8 +66,7 @@ class SpikesPatchifier(nn.Module):
         Returns: (NxT, D)
         """
         x = rearrange(spikes, "bs T Pn Pt -> bs T (Pn Pt)")
-        x = self.readin(x).flatten(-2, -1)
-        return x
+        return self.readin(x).flatten(-2, -1)
 
 
 class ContextManager(nn.Module):
@@ -240,9 +238,11 @@ class Transformer(nn.Module):
             token_position = batch["shuffle"]
             token_position = token_position[: batch["encoder_frac"]]
         else:
+            # TODO spike_tokens_mask can be returned directly
             token_position = torch.arange(ref.shape[1], device=ref.device)
         token_position = rearrange(token_position, "t -> () t")
-        return token_position >= rearrange(batch["token_length"], "b -> b ()")
+        token_length = batch["spike_tokens_mask"].sum(1, keepdim=True)
+        return token_position >= token_length
 
 
 class Encoder(nn.Module):
@@ -282,7 +282,7 @@ class Encoder(nn.Module):
     ) -> torch.Tensor:
         time = batch["time_idx"]
         space = batch["space_idx"]
-        pad_mask = self.get_temporal_padding_mask(encoder_input, batch)
+        pad_mask = self.encoder.get_temporal_padding_mask(encoder_input, batch)
         return self.encoder(encoder_input, ctx_emb, time, space, pad_mask)
 
 
@@ -348,7 +348,8 @@ class SslDecoder(Decoder):
 
         # get temporal padding mask
         token_position = rearrange(batch["shuffle"], "t -> () t")
-        pad_mask = token_position >= rearrange(batch["token_length"], "b -> b ()")
+        token_length = batch["spike_tokens_mask"].sum(1, keepdim=True)
+        pad_mask = token_position >= token_length
 
         # decoder forward
         decoder_out: torch.Tensor
@@ -364,13 +365,20 @@ class SslDecoder(Decoder):
         loss: torch.Tensor = self.loss(rates, target)  # b t' c
         loss_mask = self.get_loss_mask(batch, loss)
         loss = loss[loss_mask]
-        return loss.mean()
+        return {"loss": loss.mean()}
 
     def get_loss_mask(self, batch: Dict[str, torch.Tensor], loss: torch.Tensor):
         loss_mask = torch.ones(loss.size(), device=loss.device, dtype=torch.bool)
+
+        tmp = torch.arange(loss.shape[-1], device=loss.device)
+        comparison = repeat(tmp, "c -> 1 t c", t=loss.shape[1])
+        channel_mask = comparison < batch["channel_counts_target"].unsqueeze(-1)
+        loss_mask = loss_mask & channel_mask
+
         token_position = batch["shuffle"][batch["encoder_frac"] :]
         token_position = rearrange(token_position, "t -> () t")
-        length_mask = token_position < rearrange(batch["token_length"], "b -> b ()")
+        token_length = batch["spike_tokens_mask"].sum(1, keepdim=True)
+        length_mask = token_position < token_length
 
         return loss_mask & length_mask.unsqueeze(-1)
 
@@ -404,7 +412,7 @@ class BhvrDecoder(Decoder):
         self.behavior_dim = behavior_dim
         self.behavior_lag_lookahead = behavior_lag_lookahead
 
-        self.cls_token = nn.Parameter(torch.randn(dim))
+        self.query_token = nn.Parameter(torch.randn(dim))
         self.decoder = Transformer(
             dim=dim,
             depth=depth,
@@ -429,8 +437,8 @@ class BhvrDecoder(Decoder):
         # prepare decoder input and temporal padding mask
         bhvr_tgt = batch["bhvr_vel"]
         time = batch["time_idx"]
-
-        pad_mask = self.temporal_pad_mask(encoder_out, batch["token_length"])
+        token_length = batch["spike_tokens_mask"].sum(1, keepdim=True)
+        pad_mask = self.temporal_pad_mask(encoder_out, token_length)
         encoder_out, pad_mask = self.temporal_pool(time, encoder_out, pad_mask)
         decoder_in, pad_mask = self.prepare_decoder_input(
             bhvr_tgt, encoder_out, pad_mask, batch["bhvr_length"]
@@ -441,17 +449,19 @@ class BhvrDecoder(Decoder):
 
         # decoder forward
         decoder_out: torch.Tensor
+        ctx_emb = ctx_emb.detach()
         decoder_out = self.decoder(decoder_in, ctx_emb, time, space, pad_mask)
+
         # compute behavior
         nb_injected_tokens = bhvr_tgt.shape[1]
         decoder_out = decoder_out[:, -nb_injected_tokens:]
         bhvr = self.get_bhvr(decoder_out)
 
         # Compute loss & r2
-        length_mask = self.get_length_mask(decoder_out, bhvr_tgt, batch["token_length"])
+        length_mask = self.get_length_mask(decoder_out, bhvr_tgt, token_length)
         loss = self.loss(bhvr, bhvr_tgt, length_mask)
         r2 = self.r2(bhvr, bhvr_tgt, length_mask)
-        return loss, r2
+        return {"loss": loss, "r2": r2}
 
     def temporal_pad_mask(
         self, ref: torch.Tensor, max_lenght: torch.Tensor
@@ -502,17 +512,17 @@ class BhvrDecoder(Decoder):
         max_length: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         b, t = bhvr_vel.size()[:2]
-        extra_tokens = repeat(self.cls_token, "h -> b t h", b=b, t=t)
+        query_tokens = repeat(self.query_token, "h -> b t h", b=b, t=t)
         if encoder_out.shape[1] < t:
             to_add = t - encoder_out.shape[1]
             encoder_out = F.pad(encoder_out, (0, 0, 0, to_add), value=0)
-        decoder_in = torch.cat([encoder_out, extra_tokens], dim=1)
+        decoder_in = torch.cat([encoder_out, query_tokens], dim=1)
 
         if encoder_out.shape[1] < t:
             to_add = t - pad_mask.shape[1]
             pad_mask = F.pad(pad_mask, (0, to_add), value=True)
-        extra_pad_mask = self.temporal_pad_mask(extra_tokens, max_length)
-        pad_mask = torch.cat([pad_mask, extra_pad_mask], dim=1)
+        query_pad_mask = self.temporal_pad_mask(query_tokens, max_length)
+        pad_mask = torch.cat([pad_mask, query_pad_mask], dim=1)
 
         return decoder_in, pad_mask
 
@@ -522,15 +532,18 @@ class BhvrDecoder(Decoder):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         b, t = bhvr_vel.size()[:2]
         dev = bhvr_vel.device
-        injected_time = repeat(torch.arange(t, device=dev), "t -> b t", b=b)
-        decode_time = injected_time
+
+        time = repeat(torch.arange(t, device=dev), "t -> b t", b=b)
+        query_time = time
         if self.causal and self.behavior_lag_lookahead:
-            # allow looking N-bins of neural data into the "future"; we back-shift during the actual decode comparison.
-            decode_time = injected_time + self.bhvr_lag_bins
-        time = torch.cat([injected_time, decode_time], dim=1)
+            # allow looking N-bins of neural data into the "future";
+            # we back-shift during the actual decode comparison.
+            query_time = time + self.bhvr_lag_bins
+        time = torch.cat([time, query_time], dim=1)
+
         # Do use space for this decoder
-        injected_space = torch.zeros((b, t), device=dev, dtype=torch.long)
-        space = torch.cat([injected_space, injected_space], dim=1)
+        query_space = torch.zeros((b, t), device=dev, dtype=torch.long)
+        space = torch.cat([query_space, query_space], dim=1)
 
         return time, space
 
@@ -538,7 +551,9 @@ class BhvrDecoder(Decoder):
         bhvr = self.out(decoder_out)
 
         if self.bhvr_lag_bins:
+            # exclude the last N-bins
             bhvr = bhvr[:, : -self.bhvr_lag_bins]
+            # add to the left N-bins to match the lag
             bhvr = F.pad(bhvr, (0, 0, self.bhvr_lag_bins, 0), value=0)
         return bhvr
 
@@ -565,9 +580,35 @@ class BhvrDecoder(Decoder):
     ) -> np.ndarray:
         tgt = bhvr_tgt[length_mask].float().detach().cpu()
         bhvr = bhvr[length_mask].float().detach().cpu()
+
         # o.g. r2 is computed with sklearn.metrics.r2_score
         r2_score = R2Score(multioutput="raw_values")
         r2 = r2_score(bhvr, tgt)
         if r2.mean() < -10:
             r2 = np.zeros_like(r2)
         return r2
+
+
+class NDT2Model(nn.Module):
+    def __init__(
+        self,
+        mae_mask_manager: Optional[MaeMaskManager] = None,
+        ctx_manager: Optional[ContextManager] = None,
+        spikes_patchifier: Optional[SpikesPatchifier] = None,
+        encoder: Optional[Encoder] = None,
+        decoder: Optional[Decoder] = None,
+    ):
+        super().__init__()
+        self.mae_mask_manager = mae_mask_manager
+        self.ctx_manager = ctx_manager
+        self.spikes_patchifier = spikes_patchifier
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, batch, method: str = "ssl"):
+        if method == "ssl":
+            batch = self.mae_mask_manager(batch)
+        encoder_input = self.spikes_patchifier(batch["spike_tokens"])
+        ctx_emb = self.ctx_manager(batch, encoder_input.dtype)
+        encoder_out = self.encoder(encoder_input, ctx_emb, batch)
+        return self.decoder(encoder_out, ctx_emb, batch)

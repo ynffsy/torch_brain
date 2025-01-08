@@ -1,16 +1,16 @@
 from typing import Dict, Tuple
+from collections import defaultdict
 
 import numpy as np
-import scipy.signal as signal
 import torch
 import torch.nn.functional as F
 from einops import rearrange, repeat
-from model import ContextManager
 
 from temporaldata import ArrayDict, Data, IrregularTimeSeries, RegularTimeSeries
-from torch_brain.data import chain
-from torch_brain.nn import InfiniteVocabEmbedding, prepare_for_multitask_readout
+from torch_brain.nn import InfiniteVocabEmbedding
 from torch_brain.utils.binning import bin_spikes
+
+from torch_brain.data import pad, track_mask
 
 
 # TODO rename
@@ -83,11 +83,8 @@ class Ndt2Tokenizer:
         patch_size: Tuple[int, int],
         pad_val: int,
         ctx_tokenizer: Dict[str, InfiniteVocabEmbedding],
-        mask_ratio: float,
-        decoder_registry=None,
-        inc_behavior=False,
-        inc_mask=False,
         unsorted=True,
+        is_ssl=True,
     ):
         self.bin_time: float = bin_time
         self.ctx_time: float = ctx_time
@@ -96,20 +93,13 @@ class Ndt2Tokenizer:
         assert float_modulo_test(self.ctx_time, self.bin_time)
 
         self.pad_val: int = pad_val
-        self.mask_ratio: float = mask_ratio
+        self.unsorted: bool = unsorted
+        self.is_ssl: bool = is_ssl
 
         self.ctx_tokenizer = ctx_tokenizer
 
-        self.unsorted = unsorted
-        # legacy not used yet
-        self.decoder_registry = decoder_registry
-        self.inc_behavior = inc_behavior
-        self.inc_mask = inc_mask
-
     def __call__(self, data: Data) -> Dict:
         # -- Spikes
-
-        # -- Bin, pad (space-dimension) if necessary
         spikes = data.spikes
         nb_units = len(data.units.id)
         if self.unsorted:
@@ -121,64 +111,43 @@ class Ndt2Tokenizer:
 
         # TODO fix this need to call timestamsp
         spikes.timestamps
-        t_binned = bin_spikes(spikes, nb_units, self.bin_time)
+
+        # -- Bin spikes
+        try:
+            t_binned = bin_spikes(spikes, nb_units, self.bin_time)
+        except:
+            return None
+
         t_binned = torch.tensor(t_binned, dtype=torch.int32)
-        t_binned, token_length = self.pad_spikes(t_binned)
+
         # -- Patch neurons
-        spikes, time_idx, space_idx = self.patchify(t_binned)
+        spikes, time_idx, space_idx, channel_counts = self.patchify(t_binned)
 
         spike_data = {
-            "spike_tokens": spikes,
-            "time_idx": time_idx,
-            "space_idx": space_idx,
-            "token_length": token_length,
+            "spike_tokens": pad(spikes),
+            "time_idx": pad(time_idx),
+            "space_idx": pad(space_idx),
+            "spike_tokens_mask": track_mask(spikes),
+            "channel_counts": pad(channel_counts),
         }
 
-        # -- ctx tokens
+        # -- Ctx tokens
         for key, tokenizer in self.ctx_tokenizer.items():
-            # TODO fix this... sesion are not accessible with .id in contrast to seuject
+            # TODO fix this... sesion are not accessible with .id in contrast to subject
+            # spike_data[key + "_idx"] = tokenizer(getattr(data, key).id)
+
             if key == "session":
                 spike_data["session_idx"] = tokenizer(data.session)
             else:
                 spike_data[key + "_idx"] = tokenizer(getattr(data, key).id)
 
         behavior_data = {}
-        if self.inc_behavior:
+        if not self.is_ssl:
             # -- Behavior
             behavior_data["bhvr_vel"] = data.finger.vel
             behavior_data["bhvr_length"] = data.finger.vel.shape[0]
 
         return spike_data | behavior_data
-
-    def pad_spikes(self, t_binned: torch.Tensor) -> Tuple[torch.Tensor, int]:
-        """
-        Pads the input tensor `t_binned` to ensure its dimensions are multiples of the specified patch size.
-        Args:
-            t_binned (torch.Tensor): The input tensor containing binned spike data.
-                                     Expected shape is (nb_units, time_length).
-        Returns:
-            torch.Tensor: The padded tensor with dimensions adjusted to be multiples of the patch size.
-            int: The token length calculated as the product of the time length and the number of spatial patches.
-        """
-
-        nb_units = t_binned.size(0)
-        nb_units_per_patch = self.patch_size[0]
-        if nb_units % nb_units_per_patch != 0:
-            assert (t_binned != self.pad_val).all()
-            extra_neurons = nb_units_per_patch - (nb_units % nb_units_per_patch)
-            t_binned = F.pad(t_binned, (0, 0, 0, extra_neurons), value=0)
-
-        time_bin = t_binned.size(1)
-        if time_bin % self.num_bins != 0:
-            assert (t_binned != self.pad_val).all()
-            extra_time = self.num_bins - (time_bin % self.num_bins)
-            t_binned = F.pad(t_binned, (0, extra_time, 0, 0), value=0)
-            time_bin -= extra_time
-
-        # token_length can be problematic if we have a the nb_units_per_patch not a multiple of nb_units
-        num_spatial_patches = nb_units // nb_units_per_patch
-        token_length = time_bin * num_spatial_patches
-        return t_binned, token_length
 
     def patchify(self, t_binned: torch.Tensor):
         """
@@ -188,6 +157,20 @@ class Ndt2Tokenizer:
             time_idx: (num_temporal_patches, num_spatial_patches)
             space_idx: (num_temporal_patches, num_spatial_patches)
         """
+
+        nb_units = t_binned.shape[0]
+        nb_units_per_patch = self.patch_size[0]
+        if nb_units % nb_units_per_patch != 0:
+            assert (t_binned != self.pad_val).all()
+            extra_neurons = nb_units_per_patch - (nb_units % nb_units_per_patch)
+            t_binned = F.pad(t_binned, (0, 0, 0, extra_neurons), value=0)
+
+        time_bin = t_binned.shape[1]
+        if time_bin % self.num_bins != 0:
+            assert (t_binned != self.pad_val).all()
+            extra_time = self.num_bins - (time_bin % self.num_bins)
+            t_binned = F.pad(t_binned, (0, extra_time, 0, 0), value=0)
+
         num_spatial_patches = t_binned.size(0) // self.patch_size[0]
         num_temporal_patches = t_binned.size(1) // self.patch_size[1]
         # major trick to have time before space, as in o.g. NDT2(nb_units, time_length) ()
@@ -207,7 +190,21 @@ class Ndt2Tokenizer:
         space_idx = torch.arange(num_spatial_patches, dtype=torch.int32)
         space_idx = repeat(space_idx, "n -> (t n)", t=num_temporal_patches)
 
-        return spike_tokens, time_idx, space_idx
+        shape = (
+            num_temporal_patches,
+            num_spatial_patches,
+        )
+        channel_counts = torch.full(shape, self.patch_size[0], dtype=torch.long)
+        if nb_units % nb_units_per_patch != 0:
+            channel_counts[:, -1] = self.patch_size[0] - extra_neurons
+        channel_counts = rearrange(
+            channel_counts,
+            "t n -> (t n)",
+            n=num_spatial_patches,
+            t=num_temporal_patches,
+        )
+
+        return spike_tokens, time_idx, space_idx, channel_counts
 
     def extract_chan_nb(self, units: ArrayDict):
         channel_names = units.channel_name

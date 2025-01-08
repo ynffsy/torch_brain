@@ -1,0 +1,37 @@
+defaults:
+  - _default
+  - dataset: ibl_small_1.yaml
+  - _self_
+
+wandb:
+  project: NDT2_IBL
+
+batch_size: 512
+mask_ratio: 0.5
+is_ssl: true
+unsorted: false
+keep_M1_units: false
+train_ratio: 0.8
+
+model:
+  encoder:
+    depth: 3
+    ffn_mult: 2
+
+ctx_time: 2.0
+bin_time: 0.02
+custom_ndt2_data_spliter: false
+
+optimizer:
+  scheduler: true
+  lr: 0.0005
+  weight_decay: 0.01
+  start_factor: 0.1
+  warmup_steps: 100
+  decay_steps: 2500
+  lr_min: 1e-6
+
+patch_size: [64, 1]
+
+load_from_checkpoint: false
+
