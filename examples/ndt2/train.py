@@ -195,7 +195,6 @@ class DataModule(L.LightningDataModule):
                 transform=self.transforms,
             )
             self.train_intervals = self.train_dataset.get_sampling_intervals()
-            print(self.train_intervals)
 
             self.val_dataset = Dataset(
                 root=cfg.data_root,
@@ -204,7 +203,6 @@ class DataModule(L.LightningDataModule):
                 transform=self.transforms,
             )
             self.val_intervals = self.val_dataset.get_sampling_intervals()
-            print(self.val_intervals)
 
             self.test_dataset = Dataset(
                 root=cfg.data_root,
