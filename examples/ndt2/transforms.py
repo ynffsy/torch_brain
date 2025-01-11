@@ -116,7 +116,7 @@ class Ndt2Tokenizer:
         try:
             t_binned = bin_spikes(spikes, nb_units, self.bin_time)
         except:
-            return None
+            t_binned = np.zeros((1, self.num_bins))
 
         t_binned = torch.tensor(t_binned, dtype=torch.int32)
 

@@ -215,13 +215,13 @@ class DataModule(L.LightningDataModule):
 
             self.eval_intervals = self.test_dataset.get_sampling_intervals()
 
-        # else:
-        self.dataset.disable_data_leakage_check()
-        self.train_intervals: Dict[str, List[Tuple[float, float]]]
-        self.val_intervals: Dict[str, List[Tuple[float, float]]]
-        self.eval_intervals: Optional[Dict[str, List[Tuple[float, float]]]]
-        intervals = self.ndt2_custom_sampling_intervals()
-        self.train_intervals, self.val_intervals, self.eval_intervals = intervals
+        else:
+            self.dataset.disable_data_leakage_check()
+            self.train_intervals: Dict[str, List[Tuple[float, float]]]
+            self.val_intervals: Dict[str, List[Tuple[float, float]]]
+            self.eval_intervals: Optional[Dict[str, List[Tuple[float, float]]]]
+            intervals = self.ndt2_custom_sampling_intervals()
+            self.train_intervals, self.val_intervals, self.eval_intervals = intervals
 
     def get_ctx_vocab(self, ctx_keys):
         return {k: getattr(self.dataset, f"get_{k}_ids")() for k in ctx_keys}
