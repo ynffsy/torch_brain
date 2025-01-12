@@ -3,23 +3,39 @@ program: train.py
 
 name: trial_sweep
 
+project: NDT2_IBL
+
 metric:
   name: val_loss
   goal: minimize
 
-method: grid # grid, random, bayes
+method: random
 parameters:
-  # base_lr:
-  #   min: !!float 1.5625e-6
-  #   max: !!float 1.5625e-5
-  # batch_size:
-  #   value: 128
+  optimizer.lr:
+    distribution: log_uniform_values  
+    min: 1e-4
+    max: 1e-2
+  mask_ratio:
+    distribution: uniform
+    min: 0.1
+    max: 0.5
+  optimizer.weight_decay:
+    distribution: log_uniform_values  
+    min: 1e-3
+    max: 1e-1
+  model.dim:
+    values: [128, 256, 512]
+  patch_size: 
+    values: 
+      - [64, 1]
+      - [32, 1]
+
 
 command:
 - ${env}
 - ${interpreter}
 - ${program} # first line
-- --config-name=train_ibl_small_ssl.yaml # specify the root-level yaml file
+- --config-name=ibl_params_sweep.yaml # specify the root-level yaml file
 - +sweep=True # to make the training script "sweep-aware"
-- eval_epochs=1 # quick val_loss feedback
-- ${args_no_hyphens} # HP tuning overrides
+- ${args_no_hyphens}
+

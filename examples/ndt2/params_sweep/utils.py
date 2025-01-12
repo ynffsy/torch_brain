@@ -12,8 +12,10 @@ def get_sweep_run_name(cfg):
         This helper function can be modified as per the user's requirements and the hparams that are being monitored.
         name the sweep's run based on the hyperparameters being monitored.
     """
-    lr = cfg.base_lr
-    model_name = "poyo-plus"
-    dataset_name = cfg.dataset[0].selection[0].dandiset
-    canonical_name = f"sweep/lr:{lr:.2e}/{dataset_name}/{model_name}"
+    lr = cfg.optimizer.lr
+    mask_ratio = cfg.mask_ratio
+    weight_decay = cfg.optimizer.weight_decay
+    emb_dim = cfg.model.dim
+    patch_size = cfg.patch_size
+    canonical_name = f"sweep/lr:{lr:.1e}-emb_dim:{emb_dim}-patch_size:{patch_size[0]}-weight_decay:{weight_decay:.1e}-mask_ratio:{mask_ratio:.1f}"
     return canonical_name

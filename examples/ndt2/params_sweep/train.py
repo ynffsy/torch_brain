@@ -8,7 +8,7 @@ import hydra
 from omegaconf import DictConfig
 import sys
 
-sys.path.insert(0, "../")  
+sys.path.insert(0, "..")
 # so that we pick the `run_training` from the main `train.py` script
 from train import run_training
 
@@ -20,7 +20,7 @@ from utils import get_sweep_run_name
 def main(cfg: DictConfig):
     # If sweep is enabled, dynamically name the run using the helper
     if cfg.get("sweep", True):
-        cfg.name = get_sweep_run_name(cfg)
+        cfg.wandb.run_name = get_sweep_run_name(cfg)
     # Rest of the training is exactly identical to the original train.py script.
     run_training(cfg)
 
