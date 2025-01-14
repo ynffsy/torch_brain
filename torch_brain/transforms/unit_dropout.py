@@ -6,6 +6,24 @@ import numpy as np
 from temporaldata import Data, RegularTimeSeries, IrregularTimeSeries
 
 
+class PercentDistribution:
+    r"""Distribution for dropping a specified percentage of units.
+
+    Args:
+        dropout_rate (float): The fraction of units to drop, ranging from 0.0 to 1.0.
+        seed (Optional[int]): Seed for the random number generator.
+    """
+
+    def __init__(self, dropout: float = 0.1, seed: Optional[int] = None):
+        assert 0.0 <= dropout <= 1.0, "Dropout rate must be between 0.0 and 1.0."
+        self.dropout_rate = dropout
+        self.rng = np.random.default_rng(seed=seed)
+
+    def sample(self, num_units: int):
+        num_units_to_keep = int(num_units * (1 - self.dropout_rate))
+        return num_units_to_keep
+
+
 class TriangleDistribution:
     r"""Triangular distribution with a peak at mode_units, going from min_units to
     max_units. 
@@ -127,7 +145,7 @@ class UnitDropout:
         self.reset_index = reset_index
         # TODO this currently assumes the type of distribution we use, in the future,
         # the distribution might be passed as an argument.
-        self.distribution = TriangleDistribution(*args, **kwargs)
+        self.distribution = PercentDistribution(*args, **kwargs)
 
     def __call__(self, data: Data):
         # get units from data
