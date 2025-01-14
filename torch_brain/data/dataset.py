@@ -402,7 +402,7 @@ class Dataset(torch.utils.data.Dataset):
             current split and other splits (eg. the test split).
         """
         self._check_for_data_leakage_flag = False
-        logging.warn(
+        logging.warning(
             f"Data leakage check is disabled. Please be absolutely sure that there is "
             f"no leakage between {self.split} and other splits."
         )

@@ -26,6 +26,32 @@ class FeedForward(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+    
+
+"""
+Assumes that input is tensor of shape (B, N, D) where B is the batch size, N is the number of samples, and D is the dimensionality of the samples.
+It's also assumed that N was computed as N=T*K, where T is the number of unique timestamps and K is the number of token indexes per timestamp (e.g.
+units/channels, latents, sessions). We'd like to determine the coefficient of variation across timestamps, since we're observing constant 
+output wrt time. Hence we expect the CV to decrease close to 0 as the signal propagates through the network.
+
+Note: sampling_rate is the number of timestamps per sample (K of them).
+"""
+def coef_variation(x, sampling_rate):
+    if x is None:
+        return 0.0
+    
+    # First reshape the tensor to (B, T, K, D)
+    B, _, D = x.shape
+    x = x.view(B, sampling_rate, -1, D)
+
+    # Compute the mean and standard deviation across the timestamps
+    mean = x.mean(dim=1)
+    std = x.std(dim=1)
+    cv = std / torch.abs(mean)
+
+    # Compute the mean CV across indexes and the batch
+    cv = cv.mean(dim=-1).mean()
+    return cv
 
 
 class PerceiverRotary(nn.Module):
@@ -135,6 +161,10 @@ class PerceiverRotary(nn.Module):
     ]:
         if latent_mask is not None:
             raise NotImplementedError("latent_mask is not supported yet.")
+        
+        # print(f"Inputs CV (1): {coef_variation(inputs, 100)}")
+        # print(f"Latents CV (1): {coef_variation(latents, 30)}")
+        # print(f"Output Queries CV (1): {coef_variation(output_queries, 30)}")
 
         # compute timestamp embeddings
         input_timestamp_emb = self.rotary_emb(input_timestamps)
@@ -150,9 +180,9 @@ class PerceiverRotary(nn.Module):
                 f"Expected stacked latents with 3 dimensions (batch, num_tokens, dim), "
                 f"got ({latents.shape})."
             )
-            assert (
-                input_seqlen is None
-            ), f"input_seqlen should be None as it will not be used."
+            # assert (
+            #     input_seqlen is None
+            # ), f"input_seqlen should be None as it will not be used."
         elif self.batch_type[0] == "chained":
             assert inputs.dim() == 2, (
                 f"Expected chained inputs with 2 dimensions (num_tokens, dim), "
@@ -178,7 +208,9 @@ class PerceiverRotary(nn.Module):
             query_seqlen=latent_seqlen,  # used if memory efficient attention
             context_seqlen=input_seqlen,  # used if memory efficient attention
         )
+        # print(f"Latents CV (2): {coef_variation(latents, 30)}")
         latents = latents + self.enc_ffn(latents)
+        # print(f"Latents CV (3): {coef_variation(latents, 30)}")
 
         # reshape latents if needed
         if self.batch_type[0] == "stacked" and self.batch_type[1] == "chained":
@@ -201,11 +233,15 @@ class PerceiverRotary(nn.Module):
             )
 
         # process
+        i = 4
         for self_attn, self_ff in self.proc_layers:
             latents = latents + self.dropout(
                 self_attn(latents, latent_timestamp_emb, x_seqlen=latent_seqlen)
             )
             latents = latents + self.dropout(self_ff(latents))
+            i += 1
+        
+        # print(f"Latents CV ({i}): {coef_variation(latents, 30)}")
 
         if output_queries is None:
             return latents
@@ -230,6 +266,7 @@ class PerceiverRotary(nn.Module):
                 len(latent_seqlen), latent_seqlen[0], self.dim
             )
 
+        # breakpoint()
         # decode
         output_queries = output_queries + self.dec_atn(
             output_queries,
@@ -240,6 +277,10 @@ class PerceiverRotary(nn.Module):
             query_seqlen=output_query_seqlen,
             context_seqlen=latent_seqlen,
         )
+        # print(f"Output Queries CV (2): {coef_variation(output_queries, 30)}")
         output_queries = output_queries + self.dec_ffn(output_queries)
+        # print(f"Output Queries CV (3): {coef_variation(output_queries, 30)}")
+
+        # breakpoint()
 
         return output_queries

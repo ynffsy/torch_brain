@@ -7,6 +7,10 @@ import torch
 
 from torch_brain.data.dataset import DatasetIndex
 
+import logging
+
+log = logging.getLogger(__name__)
+
 
 class RandomFixedWindowSampler(torch.utils.data.Sampler):
     r"""Samples fixed-length windows randomly, given intervals defined in the
@@ -45,12 +49,34 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
 
     @cached_property
     def _estimated_len(self):
+        # total_lengths = {}
+        # for session_name, sampling_intervals in self.interval_dict.items():
+        #     total_lengths[session_name] = 0
+        #     for start, end in sampling_intervals:
+        #         total_lengths[session_name] += (end - start) // self.window_length
+        # trunc_ratio = 0.1
+        # trunc_lengths = {
+        #     session_name: total_lengths[session_name] * trunc_ratio
+        #     for session_name in total_lengths
+        # }
+        # for session_name, sampling_intervals in self.interval_dict.items():
+        #     log.info(f"Session {session_name} has {total_lengths[session_name]}s of data, truncating to {trunc_lengths[session_name]}s")
+        # pooled_trunc_length = max(trunc_lengths.values())
+        # log.info(f"Pooled trunc length: {pooled_trunc_length}s, (new total length: {pooled_trunc_length * len(total_lengths)}s)")
+        # self.trunc_lengths = trunc_lengths
+
         num_samples = 0
         total_short_dropped = 0.0
-
+        
         for session_name, sampling_intervals in self.interval_dict.items():
+            # session_interv_counter = 0
             for start, end in sampling_intervals:
                 interval_length = end - start
+
+                # if session_interv_counter > self.trunc_lengths[session_name]:
+                #     break
+                # session_interv_counter += interval_length // self.window_length
+
                 if interval_length < self.window_length:
                     if self.drop_short:
                         total_short_dropped += interval_length
@@ -81,8 +107,14 @@ class RandomFixedWindowSampler(torch.utils.data.Sampler):
 
         indices = []
         for session_name, sampling_intervals in self.interval_dict.items():
+            # session_interv_counter = 0
             for start, end in sampling_intervals:
                 interval_length = end - start
+
+                # if session_interv_counter > self.trunc_lengths[session_name]:
+                #     break
+                # session_interv_counter += interval_length // self.window_length
+
                 if interval_length < self.window_length:
                     if self.drop_short:
                         continue

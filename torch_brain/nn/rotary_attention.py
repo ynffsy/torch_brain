@@ -20,6 +20,35 @@ except ImportError:
 from torch_brain.nn.rotary_embedding import apply_rotary_pos_emb
 
 
+"""
+Assumes that input is tensor of shape (B, N, D) where B is the batch size, N is the number of samples, and D is the dimensionality of the samples.
+It's also assumed that N was computed as N=T*K, where T is the number of unique timestamps and K is the number of token indexes per timestamp (e.g.
+units/channels, latents, sessions). We'd like to determine the coefficient of variation across timestamps, since we're observing constant 
+output wrt time. Hence we expect the CV to decrease close to 0 as the signal propagates through the network.
+
+Note: sampling_rate is the number of timestamps per sample (K of them).
+"""
+def coef_variation(x, sampling_rate, headed=False):
+    if x is None:
+        return 0.0
+
+    if headed:
+        x = rearrange(x, "b h n d -> b n (h d)")
+    
+    # First reshape the tensor to (B, T, K, D)
+    B, _, D = x.shape
+    x = x.view(B, sampling_rate, -1, D).type(torch.DoubleTensor)
+
+    # Compute the mean and standard deviation across the timestamps
+    mean = torch.abs(x).mean(dim=1)
+    std = x.std(dim=1)
+    cv = std / mean
+
+    # Compute the mean CV across indexes and the batch
+    cv = cv.mean(dim=-1).mean()
+    return cv
+
+
 class RotaryCrossAttention(nn.Module):
     def __init__(
         self,
@@ -92,6 +121,17 @@ class RotaryCrossAttention(nn.Module):
         self.to_kv = nn.Linear(context_dim, inner_dim * 2, bias=False)
         self.to_out = nn.Linear(inner_dim, dim)
 
+        # self._reset_parameters()
+    
+    # def _reset_parameters(self):
+    #     nn.init.xavier_uniform_(self.to_q.weight)
+    #     nn.init.xavier_uniform_(self.to_kv.weight)
+    #     nn.init.xavier_uniform_(self.to_out.weight)
+
+    #     nn.init.zeros_(self.to_q.bias)
+    #     nn.init.zeros_(self.to_kv.bias)
+    #     nn.init.zeros_(self.to_out.bias)
+
     def forward(
         self,
         x_query,
@@ -111,7 +151,7 @@ class RotaryCrossAttention(nn.Module):
         k, v = self.to_kv(x_context).chunk(2, dim=-1)
 
         if self.batch_type == "stacked":
-            assert query_seqlen is None and context_seqlen is None
+            # assert query_seqlen is None and context_seqlen is None
 
             rotary_attn_func = rotary_attn_backend_map[self.backend]
 
@@ -298,6 +338,8 @@ def rotary_attn_func(
     Returns:
         The output tensor, with shape (b, n_q, (h d))
     """
+
+    # breakpoint()
 
     # default attention expects shape b h n d
     query = rearrange(query, "b n (h d) -> b h n d", h=num_heads)

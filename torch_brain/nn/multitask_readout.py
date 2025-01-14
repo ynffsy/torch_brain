@@ -296,7 +296,7 @@ class MultitaskReadout(nn.Module):
             self.projections[decoder_id] = nn.Linear(latent_dim, spec.dim)
 
         # Need task specs layer to decide loss type
-        self.decoder_specs = decoder_specs
+        self.decoder_specs = decoder_specs 
         self.batch_type = batch_type
 
     def forward(
