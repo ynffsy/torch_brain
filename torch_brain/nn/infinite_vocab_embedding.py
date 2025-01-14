@@ -344,7 +344,7 @@ class InfiniteVocabEmbedding(nn.Module):
         error_msgs,
     ):
         if not self.is_lazy():
-            incoming_vocab = state_dict.pop(prefix + "vocab")
+            incoming_vocab = state_dict.pop(prefix + "vocab").copy()
 
             # incoming_vocab and self.vocab might have the same keys but in a different order
             # reorder incoming_vocab to match self.vocab, and get the remapping indices
