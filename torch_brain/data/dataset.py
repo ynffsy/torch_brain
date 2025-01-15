@@ -250,7 +250,7 @@ class Dataset(torch.utils.data.Dataset):
         sample = data.slice(start, end)
 
         sample.units.id = np.core.defchararray.add(
-            f"{sample.subject.id}/", sample.units.id.astype(str)
+            f"{data.brainset.id}/{sample.subject.id}/", sample.units.id.astype(str)
             # f"{sample.brainset}/{sample.session}/", sample.units.id.astype(str)
         )
 
@@ -286,7 +286,7 @@ class Dataset(torch.utils.data.Dataset):
 
         data.units.id = np.core.defchararray.add(
             # f"{data.brainset}/{data.session}/", data.units.id.astype(str)
-            f"{data.subject.id}/", data.units.id.astype(str)
+            f"{data.brainset.id}/{data.subject.id}/", data.units.id.astype(str)
         )
         return data
 
@@ -356,7 +356,7 @@ class Dataset(torch.utils.data.Dataset):
             if unit_ids_format == "brainset/session/unit":
                 unit_ids.extend(
                     [
-                        f"{data.subject.id}/{unit_id}"
+                        f"{data.brainset.id}/{data.subject.id}/{unit_id}"
                         # f"{data.brainset.id}/{data.session.id}/{unit_id}"
                         for unit_id in data.units.id
                     ]
@@ -384,11 +384,19 @@ class Dataset(torch.utils.data.Dataset):
             unit_ids = data.units.id
             unit_ids = np.core.defchararray.add(
                 # f"{data.brainset}/{data.session}/",
-                f"{data.subject.id}/",
+                f"{data.brainset.id}/{data.subject.id}/",
                 unit_ids.astype(str),
             )
             unit_ids_list.extend(unit_ids)
         return unit_ids_list
+    
+    def get_subject_ids(self):
+        r"""Returns all subject ids in the dataset."""
+        subject_ids = []
+        for session_id in self.session_dict.keys():
+            data = self._data_objects[session_id]
+            subject_ids.append(f"{data.brainset.id}/{data.subject.id}")
+        return sorted(list(set(subject_ids)))
 
     def get_session_ids(self):
         r"""Returns all session ids in the dataset."""
