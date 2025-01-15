@@ -37,7 +37,7 @@ def compute_loss_or_metric(
             # TODO mse could be used as a loss or as a metric. Currently it fails when
             # called as a metric
             # MSE loss
-            loss_noreduce = F.mse_loss(output, target, reduction="none").sum(dim=-1)
+            loss_noreduce = F.mse_loss(output, target, reduction="none")
             return (weights * loss_noreduce).mean()
             # loss_noreduce = F.mse_loss(output, target, reduction="none").mean(dim=-1)
             # return (weights * loss_noreduce).sum() / weights.sum()
