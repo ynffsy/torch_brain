@@ -1,0 +1,9 @@
+patch_size: [64, 1] 
+mask_ratio: 0.4 
+
+model:
+  dim: 256
+
+optimizer:
+  lr: 2.3e-3
+  weight_decay: 1.4e-2

@@ -4,7 +4,7 @@ callbacks:
   patience: 250
 
 wandb:
-  enable: false
+  enable: true
   entity: aandre8-gatech  # chooses default username
   project: reproduce_NDT2
   run_name: null
@@ -16,7 +16,7 @@ epochs: 800
 eval_epochs: 1
 
 precision: bf16-mixed
-num_workers: 0
+num_workers: 16
 
 log_dir: ./logs
 log_every_n_steps: 1
@@ -47,6 +47,7 @@ model:
     decode_time_pool: "mean"
     behavior_dim: 2
     behavior_lag: 0.12
+    
 
 subtask_idx: 2
 data_root: ./data/process
@@ -55,3 +56,6 @@ ctx_time: 1.0
 bin_time: 0.02
 patch_size: [32, 1]
 pad_val: 64
+
+
+ctx_keys: ["session", "subject"]

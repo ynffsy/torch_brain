@@ -2,6 +2,7 @@ import logging
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
+import wandb
 import hydra
 import lightning as L
 import numpy as np
@@ -61,7 +62,21 @@ class TrainWrapper(L.LightningModule):
             decoder_out = self.model(batch, "bhv")
             superv_loss = decoder_out["loss"]
             self.log("train_kinematic_decoding_loss", decoder_out["loss"])
-            self.log("train_kinematic_r2", decoder_out["r2"].mean())
+
+            task = self.cfg.model.bhv_decoder.get("task", "regression")
+            if task == "regression":
+                self.log("train_kinematic_r2", decoder_out["r2"].mean())
+            elif task == "classification":
+                self.log(
+                    f"train_acc",
+                    decoder_out["acc"].mean(),
+                    add_dataloader_idx=False,
+                )
+                self.log(
+                    f"train_balanced_acc",
+                    decoder_out["balanced_acc"].mean(),
+                    add_dataloader_idx=False,
+                )
 
         loss = ssl_loss + superv_loss
         self.log("train_loss", loss, prog_bar=True)
@@ -93,12 +108,25 @@ class TrainWrapper(L.LightningModule):
                 decoder_out["loss"],
                 add_dataloader_idx=False,
             )
-            self.log(
-                f"{prefix}kinematic_r2",
-                decoder_out["r2"].mean(),
-                add_dataloader_idx=False,
-            )
 
+            task = self.cfg.model.bhv_decoder.get("task", "regression")
+            if task == "regression":
+                self.log(
+                    f"{prefix}kinematic_r2",
+                    decoder_out["r2"].mean(),
+                    add_dataloader_idx=False,
+                )
+            elif task == "classification":
+                self.log(
+                    f"{prefix}acc",
+                    decoder_out["acc"].mean(),
+                    add_dataloader_idx=False,
+                )
+                self.log(
+                    f"{prefix}balanced_acc",
+                    decoder_out["balanced_acc"].mean(),
+                    add_dataloader_idx=False,
+                )
         loss = ssl_loss + superv_loss
         self.log(
             f"{prefix}loss",
@@ -376,6 +404,15 @@ class DataModule(L.LightningDataModule):
 def set_wandb(cfg, log) -> Optional[WandbLogger]:
     if not cfg.wandb.enable:
         return None
+
+    # Initialize wandb before anything else
+    wandb.init(
+        project=cfg.wandb.project,
+        entity=cfg.wandb.entity,
+        name=cfg.wandb.run_name,
+        config=OmegaConf.to_container(cfg, resolve=True),
+    )
+
     wandb_logger = WandbLogger(
         entity=cfg.wandb.entity,
         project=cfg.wandb.project,
@@ -386,31 +423,6 @@ def set_wandb(cfg, log) -> Optional[WandbLogger]:
     log.info(f"Using wandb logger: {wandb_logger.version}")
 
     return wandb_logger
-
-
-def set_callbacks(cfg) -> List[Callback]:
-    cfg = cfg.callbacks
-    callbacks = [
-        ModelSummary(max_depth=3),
-        LearningRateMonitor(logging_interval="step"),
-    ]
-    if cfg.checkpoint:
-        callbacks.append(
-            ModelCheckpoint(
-                monitor="val_loss", save_top_k=1, mode="min", every_n_epochs=1
-            )
-        )
-    if cfg.early_stop:
-        callbacks.append(
-            EarlyStopping(
-                monitor="val_loss",
-                mode="min",
-                strict=False,
-                check_finite=False,
-                patience=cfg.patience,
-            )
-        )
-    return callbacks
 
 
 def run_training(cfg):
@@ -439,7 +451,7 @@ def run_training(cfg):
         mae_mask_manager = MaeMaskManager(cfg.mask_ratio)
 
     # Context manager
-    ctx_manager = ContextManager(dim)
+    ctx_manager = ContextManager(dim, cfg.ctx_keys)
 
     # Spikes patchifier
     spikes_patchifier = SpikesPatchifier(dim, cfg.patch_size)
@@ -479,6 +491,10 @@ def run_training(cfg):
     train_wrapper = TrainWrapper(cfg, model)
 
     # Tokenizer
+    bhvr_dim = None
+    if not cfg.is_ssl:
+        bhvr_dim = cfg.model.bhv_decoder["behavior_dim"]
+
     ctx_tokenizer = ctx_manager.get_ctx_tokenizer()
     tokenizer = Ndt2Tokenizer(
         ctx_time=cfg.ctx_time,
@@ -488,6 +504,9 @@ def run_training(cfg):
         ctx_tokenizer=ctx_tokenizer,
         unsorted=cfg.unsorted,
         is_ssl=cfg.is_ssl,
+        bhvr_key=cfg.get("bhvr_key"),
+        bhvr_dim=bhvr_dim,
+        ibl_binning=cfg.get("ibl_binning", False),
     )
 
     # Set up data module
@@ -496,7 +515,12 @@ def run_training(cfg):
 
     # Load from checkpoint
     if cfg.get("load_from_checkpoint", False):
-        ckpt = torch.load(cfg.checkpoint_path)
+        if cfg.get("fragment_checkpoint"):
+            ses = cfg.dataset[0].selection[0]["sessions"][0]
+            checkpoint_path = f"{cfg.checkpoint_path}{cfg.checkpoint_prefix}-{ses}.ckpt"
+            ckpt = torch.load(checkpoint_path)
+        else:
+            ckpt = torch.load(cfg.checkpoint_path)
         model.ctx_manager.load_state_dict(ckpt["context_manager_state_dict"])
         model.spikes_patchifier.load_state_dict(ckpt["spikes_patchifier_state_dict"])
         model.encoder.load_state_dict(ckpt["encoder_state_dict"])
@@ -513,7 +537,31 @@ def run_training(cfg):
     L.seed_everything(cfg.seed)
 
     # Callbacks
-    callbacks = set_callbacks(cfg)
+    callbacks = [
+        ModelSummary(max_depth=3),
+        LearningRateMonitor(logging_interval="step"),
+    ]
+    if cfg.callbacks.checkpoint:
+        callbacks.append(
+            ModelCheckpoint(
+                dirpath=cfg.callbacks.checkpoint_path,
+                filename=f"{cfg.wandb.run_name}",
+                monitor="val_loss",
+                save_top_k=1,
+                mode="min",
+                every_n_epochs=1,
+            )
+        )
+    if cfg.callbacks.early_stop:
+        callbacks.append(
+            EarlyStopping(
+                monitor="val_loss",
+                mode="min",
+                strict=False,
+                check_finite=False,
+                patience=cfg.callbacks.patience,
+            )
+        )
 
     # Set up trainer
     trainer = L.Trainer(
@@ -539,16 +587,18 @@ def run_training(cfg):
     # finish wandb
     if wandb_logger:
         wandb_logger.finalize(status="success")
+        wandb.finish()
 
 
-@hydra.main(version_base="1.3", config_path="./configs", config_name="train_ssl.yaml")
+@hydra.main(version_base="1.3", config_path="./ibl_configs", config_name="pretrain")
 def main(cfg):
     if cfg.get("fragment_dataset", False):
+        run_name = cfg.wandb.run_name
         sessions = cfg.dataset[0].selection[0]["sessions"].copy()
         for ses in sessions:
             cfg.dataset[0].selection[0]["sessions"] = [ses]
+            cfg.wandb.run_name = f"{run_name}-{ses}"
             run_training(cfg)
-            break
 
     else:
         run_training(cfg)

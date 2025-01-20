@@ -11,6 +11,7 @@ from torch_brain.nn import InfiniteVocabEmbedding
 from torch_brain.utils.binning import bin_spikes
 
 from torch_brain.data import pad, track_mask
+from ibl.eval_utils import bin_behaviors
 
 
 # TODO rename
@@ -85,6 +86,9 @@ class Ndt2Tokenizer:
         ctx_tokenizer: Dict[str, InfiniteVocabEmbedding],
         unsorted=True,
         is_ssl=True,
+        bhvr_key="finger.vel",
+        bhvr_dim=2,
+        ibl_binning=False,
     ):
         self.bin_time: float = bin_time
         self.ctx_time: float = ctx_time
@@ -95,7 +99,9 @@ class Ndt2Tokenizer:
         self.pad_val: int = pad_val
         self.unsorted: bool = unsorted
         self.is_ssl: bool = is_ssl
-
+        self.bhvr_key: str = bhvr_key
+        self.ibl_binning: bool = ibl_binning
+        self.bhvr_dim: int = bhvr_dim
         self.ctx_tokenizer = ctx_tokenizer
 
     def __call__(self, data: Data) -> Dict:
@@ -122,7 +128,6 @@ class Ndt2Tokenizer:
 
         # -- Patch neurons
         spikes, time_idx, space_idx, channel_counts = self.patchify(t_binned)
-
         spike_data = {
             "spike_tokens": pad(spikes),
             "time_idx": pad(time_idx),
@@ -144,8 +149,40 @@ class Ndt2Tokenizer:
         behavior_data = {}
         if not self.is_ssl:
             # -- Behavior
-            behavior_data["bhvr_vel"] = data.finger.vel
-            behavior_data["bhvr_length"] = data.finger.vel.shape[0]
+            bhvr = getattr(data, self.bhvr_key)
+
+            try:
+                bhvr = getattr(bhvr, self.bhvr_key)
+                bhvr = np.eye(self.bhvr_dim)[bhvr]
+            except:
+                pass
+
+            if self.ibl_binning:
+                intervals = np.c_[data.trials.start, data.trials.end]
+                params = {
+                    "interval_len": 2,
+                    "binsize": 0.02,
+                    "single_region": False,
+                    "align_time": "stimOn_times",
+                    "time_window": (-0.5, 1.5),
+                    "fr_thresh": 0.5,
+                }
+
+                # TODO use mask_dict and refactor
+                bhvr_data = getattr(data, self.bhvr_key)
+                bhvr_value = bhvr_data.values
+
+                behave_dict, mask_dict = bin_behaviors(
+                    bhvr_data.timestamps,
+                    bhvr_value.squeeze(),
+                    intervals=intervals,
+                    beh=self.bhvr_key,
+                    **params,
+                )
+                bhvr = behave_dict[self.bhvr_key][:, None]
+
+            behavior_data["bhvr"] = pad(bhvr)
+            behavior_data["bhvr_mask"] = track_mask(bhvr)
 
         return spike_data | behavior_data
 
@@ -190,10 +227,7 @@ class Ndt2Tokenizer:
         space_idx = torch.arange(num_spatial_patches, dtype=torch.int32)
         space_idx = repeat(space_idx, "n -> (t n)", t=num_temporal_patches)
 
-        shape = (
-            num_temporal_patches,
-            num_spatial_patches,
-        )
+        shape = (num_temporal_patches, num_spatial_patches)
         channel_counts = torch.full(shape, self.patch_size[0], dtype=torch.long)
         if nb_units % nb_units_per_patch != 0:
             channel_counts[:, -1] = self.patch_size[0] - extra_neurons

@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, repeat
-from torchmetrics import R2Score
+from sklearn.metrics import r2_score, accuracy_score, balanced_accuracy_score
 
 from torch_brain.nn import InfiniteVocabEmbedding
 
@@ -39,6 +39,7 @@ class MaeMaskManager(nn.Module):
 
             batch[k] = t[:, :encoder_frac]
             batch[f"{k}_target"] = t[:, encoder_frac:]
+
         batch["encoder_frac"] = encoder_frac
         batch["shuffle"] = shuffle
 
@@ -396,21 +397,22 @@ class BhvrDecoder(Decoder):
         decode_time_pool,
         behavior_dim,
         bin_time,
-        behavior_lag,
+        behavior_lag=None,
         causal=True,
         activation="gelu",
         pre_norm=False,
-        behavior_lag_lookahead=True,
+        task="regression",
     ):
         super().__init__()
         self.dim = dim
         self.causal = causal
         self.bin_time = bin_time
-        self.behavior_lag = behavior_lag
-        self.bhvr_lag_bins = round(behavior_lag / bin_time)
+        self.lag = behavior_lag
         self.decode_time_pool = decode_time_pool
         self.behavior_dim = behavior_dim
-        self.behavior_lag_lookahead = behavior_lag_lookahead
+        self.task = task
+        if self.lag:
+            self.bhvr_lag_bins = round(self.lag / bin_time)
 
         self.query_token = nn.Parameter(torch.randn(dim))
         self.decoder = Transformer(
@@ -435,21 +437,25 @@ class BhvrDecoder(Decoder):
         batch: Dict[str, torch.Tensor],
     ):
         # prepare decoder input and temporal padding mask
-        bhvr_tgt = batch["bhvr_vel"]
-        time = batch["time_idx"]
+        bhvr_tgt = batch["bhvr"]
+        bhvr_length = batch["bhvr_mask"].sum(1, keepdim=True)
         token_length = batch["spike_tokens_mask"].sum(1, keepdim=True)
+        time = batch["time_idx"]
+
         pad_mask = self.temporal_pad_mask(encoder_out, token_length)
+
         encoder_out, pad_mask = self.temporal_pool(time, encoder_out, pad_mask)
         decoder_in, pad_mask = self.prepare_decoder_input(
-            bhvr_tgt, encoder_out, pad_mask, batch["bhvr_length"]
+            bhvr_tgt, encoder_out, pad_mask, bhvr_length
         )
 
         # get time, space
-        time, space = self.get_time_space(bhvr_tgt)
+        time, space = self.get_time_space(encoder_out, bhvr_tgt)
 
         # decoder forward
         decoder_out: torch.Tensor
         ctx_emb = ctx_emb.detach()
+
         decoder_out = self.decoder(decoder_in, ctx_emb, time, space, pad_mask)
 
         # compute behavior
@@ -459,16 +465,28 @@ class BhvrDecoder(Decoder):
 
         # Compute loss & r2
         length_mask = self.get_length_mask(decoder_out, bhvr_tgt, token_length)
+        bhvr_tgt = bhvr_tgt.to(bhvr.dtype)  # TODO make it cleanner
         loss = self.loss(bhvr, bhvr_tgt, length_mask)
-        r2 = self.r2(bhvr, bhvr_tgt, length_mask)
-        return {"loss": loss, "r2": r2}
+
+        if self.task == "regression":
+            r2 = self.r2(bhvr, bhvr_tgt, length_mask)
+            return {"loss": loss, "r2": r2}
+        elif self.task == "classification":
+            pred = bhvr.argmax(dim=-1).cpu()
+            tgt = bhvr_tgt.argmax(dim=-1).cpu()
+            acc = accuracy_score(tgt, pred)
+            balanced_acc = balanced_accuracy_score(tgt, pred)
+            return {"loss": loss, "acc": acc, "balanced_acc": balanced_acc}
+        else:
+            raise NotImplementedError
 
     def temporal_pad_mask(
         self, ref: torch.Tensor, max_lenght: torch.Tensor
     ) -> torch.Tensor:
+
         token_position = torch.arange(ref.shape[1], device=ref.device)
         token_position = rearrange(token_position, "t -> () t")
-        return token_position >= rearrange(max_lenght, "b -> b ()")
+        return token_position >= max_lenght
 
     def temporal_pool(
         self,
@@ -506,12 +524,12 @@ class BhvrDecoder(Decoder):
 
     def prepare_decoder_input(
         self,
-        bhvr_vel: torch.Tensor,
+        bhvr: torch.Tensor,
         encoder_out: torch.Tensor,
         pad_mask: torch.Tensor,
         max_length: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        b, t = bhvr_vel.size()[:2]
+        b, t = bhvr.size()[:2]
         query_tokens = repeat(self.query_token, "h -> b t h", b=b, t=t)
         if encoder_out.shape[1] < t:
             to_add = t - encoder_out.shape[1]
@@ -526,31 +544,51 @@ class BhvrDecoder(Decoder):
 
         return decoder_in, pad_mask
 
-    def get_time_space(
-        self,
-        bhvr_vel: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        b, t = bhvr_vel.size()[:2]
-        dev = bhvr_vel.device
+    # def get_time_space(self, bhvr: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    #     b, t = bhvr.size()[:2]
+    #     dev = bhvr.device
 
-        time = repeat(torch.arange(t, device=dev), "t -> b t", b=b)
-        query_time = time
-        if self.causal and self.behavior_lag_lookahead:
+    #     time = repeat(torch.arange(t, device=dev), "t -> b t", b=b)
+    #     query_time = time
+    #     if self.causal and self.lag:
+    #         # allow looking N-bins of neural data into the "future";
+    #         # we back-shift during the actual decode comparison.
+    #         query_time = time + self.bhvr_lag_bins
+    #     time = torch.cat([time, query_time], dim=1)
+
+    #     # Do use space for this decoder
+    #     query_space = torch.zeros((b, t), device=dev, dtype=torch.long)
+    #     space = torch.cat([query_space, query_space], dim=1)
+
+    #     return time, space
+
+    def get_time_space(
+        self, encoder_out: torch.Tensor, bhvr: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        b, t_enc = encoder_out.size()[:2]
+        dev = encoder_out.device
+        time = repeat(torch.arange(t_enc, device=dev), "t -> b t", b=b)
+
+        if self.task == "classification":
+            query_time = repeat(torch.tensor([t_enc], device=dev), "t -> b t", b=b)
+        else:
+            t = bhvr.shape[1]
+            query_time = repeat(torch.arange(t, device=dev), "t -> b t", b=b)
+        if self.causal and self.lag:
             # allow looking N-bins of neural data into the "future";
             # we back-shift during the actual decode comparison.
             query_time = time + self.bhvr_lag_bins
         time = torch.cat([time, query_time], dim=1)
 
         # Do use space for this decoder
-        query_space = torch.zeros((b, t), device=dev, dtype=torch.long)
-        space = torch.cat([query_space, query_space], dim=1)
+        space = torch.zeros_like(time)
 
         return time, space
 
     def get_bhvr(self, decoder_out: torch.Tensor) -> torch.Tensor:
         bhvr = self.out(decoder_out)
 
-        if self.bhvr_lag_bins:
+        if self.lag:
             # exclude the last N-bins
             bhvr = bhvr[:, : -self.bhvr_lag_bins]
             # add to the left N-bins to match the lag
@@ -566,14 +604,22 @@ class BhvrDecoder(Decoder):
         length_mask = ~self.temporal_pad_mask(decoder_out, max_length)
         no_nan_mask = ~torch.isnan(decoder_out).any(-1) & ~torch.isnan(bhvr_tgt).any(-1)
         length_mask = length_mask & no_nan_mask
-        length_mask[:, : self.bhvr_lag_bins] = False
+        if self.lag:
+            length_mask[:, : self.bhvr_lag_bins] = False
+
         return length_mask
 
     def loss(
         self, bhvr: torch.Tensor, bhvr_tgt: torch.Tensor, length_mask: torch.Tensor
     ) -> torch.Tensor:
-        loss = F.mse_loss(bhvr, bhvr_tgt, reduction="none")
-        return loss[length_mask].mean()
+        if self.task == "regression":
+            loss = F.mse_loss(bhvr, bhvr_tgt, reduction="none")
+            return loss[length_mask].mean()
+        elif self.task == "classification":
+            loss = F.binary_cross_entropy_with_logits(bhvr, bhvr_tgt, reduction="none")
+            return loss[length_mask].mean()
+        else:
+            raise NotImplementedError
 
     def r2(
         self, bhvr: torch.Tensor, bhvr_tgt: torch.Tensor, length_mask: torch.Tensor
@@ -581,9 +627,7 @@ class BhvrDecoder(Decoder):
         tgt = bhvr_tgt[length_mask].float().detach().cpu()
         bhvr = bhvr[length_mask].float().detach().cpu()
 
-        # o.g. r2 is computed with sklearn.metrics.r2_score
-        r2_score = R2Score(multioutput="raw_values")
-        r2 = r2_score(bhvr, tgt)
+        r2 = r2_score(tgt, bhvr, multioutput="raw_values")
         if r2.mean() < -10:
             r2 = np.zeros_like(r2)
         return r2

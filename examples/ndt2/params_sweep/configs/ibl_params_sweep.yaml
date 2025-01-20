@@ -10,9 +10,9 @@ wandb:
 
 name: ndt_ibl_sweep
 
-data_root: ~/brainsets_private/processed/ibl
+data_root: /home/aandre8/brainsets_private/processed/
 
-log_dir: ~/torch_brain/examples/ndt2/logs
+log_dir: /home/aandre8/torch_brain/examples/ndt2/logs
 
 log_every_n_steps: 1
 fast_dev_run: false
@@ -76,4 +76,3 @@ custom_ndt2_data_spliter: false
 split_seed: 0
 train_ratio: 0.8
 
-# subtask_idx: 2
