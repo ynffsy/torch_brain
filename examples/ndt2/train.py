@@ -424,6 +424,14 @@ def set_wandb(cfg, log) -> Optional[WandbLogger]:
 
     return wandb_logger
 
+def get_ckpt(cfg):
+    if cfg.get("fragment_checkpoint"):
+        ses = cfg.dataset[0].selection[0]["sessions"][0]
+        checkpoint_path = f"{cfg.checkpoint_path}{cfg.checkpoint_prefix}-{ses}.ckpt"
+        ckpt = torch.load(checkpoint_path)
+    else:
+        ckpt = torch.load(cfg.checkpoint_path)
+    return ckpt
 
 def run_training(cfg):
     L.seed_everything(cfg.seed)
@@ -495,6 +503,15 @@ def run_training(cfg):
     if not cfg.is_ssl:
         bhvr_dim = cfg.model.bhv_decoder["behavior_dim"]
 
+    # Load from checkpoint
+    if cfg.get("load_from_checkpoint", False):
+        ckpt = get_ckpt(cfg)
+        model.ctx_manager.load_state_dict(ckpt["context_manager_state_dict"])
+        model.spikes_patchifier.load_state_dict(ckpt["spikes_patchifier_state_dict"])
+        model.encoder.load_state_dict(ckpt["encoder_state_dict"])
+        if not cfg.get("new_decoder", False):
+            model.decoder.load_state_dict(ckpt["decoder_state_dict"])
+    
     ctx_tokenizer = ctx_manager.get_ctx_tokenizer()
     tokenizer = Ndt2Tokenizer(
         ctx_time=cfg.ctx_time,
@@ -512,29 +529,14 @@ def run_training(cfg):
     # Set up data module
     data_module = DataModule(cfg, tokenizer, cfg.is_ssl)
     data_module.setup()
-
-    # Load from checkpoint
+    
     if cfg.get("load_from_checkpoint", False):
-        if cfg.get("fragment_checkpoint"):
-            ses = cfg.dataset[0].selection[0]["sessions"][0]
-            checkpoint_path = f"{cfg.checkpoint_path}{cfg.checkpoint_prefix}-{ses}.ckpt"
-            ckpt = torch.load(checkpoint_path)
-        else:
-            ckpt = torch.load(cfg.checkpoint_path)
-        model.ctx_manager.load_state_dict(ckpt["context_manager_state_dict"])
-        model.spikes_patchifier.load_state_dict(ckpt["spikes_patchifier_state_dict"])
-        model.encoder.load_state_dict(ckpt["encoder_state_dict"])
-        if not cfg.get("new_decoder", False):
-            model.decoder.load_state_dict(ckpt["decoder_state_dict"])
-
         # Register new context
         ctx_manager.extend_vocab(data_module.get_ctx_vocab(ctx_manager.keys))
-
     else:
         # Register context
         ctx_manager.init_vocab(data_module.get_ctx_vocab(ctx_manager.keys))
 
-    L.seed_everything(cfg.seed)
 
     # Callbacks
     callbacks = [
@@ -542,16 +544,17 @@ def run_training(cfg):
         LearningRateMonitor(logging_interval="step"),
     ]
     if cfg.callbacks.checkpoint:
-        callbacks.append(
-            ModelCheckpoint(
+        checkpoint_callback = ModelCheckpoint(
                 dirpath=cfg.callbacks.checkpoint_path,
                 filename=f"{cfg.wandb.run_name}",
                 monitor="val_loss",
                 save_top_k=1,
+                save_last=True,
                 mode="min",
                 every_n_epochs=1,
             )
-        )
+        checkpoint_callback.CHECKPOINT_NAME_LAST = f"{cfg.wandb.run_name}-last"
+        callbacks.append(checkpoint_callback)
     if cfg.callbacks.early_stop:
         callbacks.append(
             EarlyStopping(
