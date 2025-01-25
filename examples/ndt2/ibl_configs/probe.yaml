@@ -1,7 +1,7 @@
 defaults:
   - _default
   - dataset: test
-  - model: [encoder_small, decoder]
+  - model: [encoder_large, decoder]
   - sweep
   - _self_
 
@@ -15,21 +15,11 @@ fragment_dataset: true
 is_ssl: false
 
 
-num_workers: 8
-batch_size: 32
+num_workers: 16
+batch_size: 128
 
 optimizer:
   scheduler: false
   lr: 1e-4 # [4e-5, 7e-5, 1e-4]
   accelerate_factor: 10
   weight_decay: 0.01  
-
-
-
-
-
-
-
-
-
-

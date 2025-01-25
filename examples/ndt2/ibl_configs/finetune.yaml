@@ -1,7 +1,7 @@
 defaults:
   - _default
   - dataset: test
-  - model: [encoder_small, decoder]
+  - model: [encoder_large, decoder]
   - sweep
   - _self_
 
@@ -13,8 +13,8 @@ checkpoint_path: /nethome/aandre8/torch_brain/examples/ndt2/logs/NDT2_IBL/6i2j9c
 
 fragment_dataset: true
 
-num_workers: 8
-batch_size: 64
+num_workers: 16
+batch_size: 128
 
 optimizer:
   scheduler: true
