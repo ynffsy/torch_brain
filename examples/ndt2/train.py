@@ -37,6 +37,7 @@ from torch_brain.data.sampler import (
     SequentialFixedWindowSampler,
 )
 from torch_brain.transforms import Compose
+from torch_brain.utils import seed_everything
 
 log = logging.getLogger(__name__)
 
@@ -435,6 +436,7 @@ def get_ckpt(cfg):
 
 def run_training(cfg):
     L.seed_everything(cfg.seed)
+    seed_everything(cfg.seed)
 
     if cfg.fast_dev_run:
         cfg.wandb.enable = False
