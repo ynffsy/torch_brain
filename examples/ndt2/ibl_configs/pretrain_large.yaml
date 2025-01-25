@@ -8,10 +8,10 @@ defaults:
 wandb:
   run_name: pretrain_large
 
-num_workers: 16
+num_workers: 8
 batch_size: 512
 
-
+epochs: 1000
 
 optimizer:
   scheduler: true
