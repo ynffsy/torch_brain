@@ -7,9 +7,6 @@ log_dir: /home/aandre8/torch_brain/examples/ndt2/logs
 data_root: /home/aandre8/brainsets_private/processed/
   
 load_from_checkpoint: false
-load_scheduler: false
-load_seed: false
-
 
 ctx_time: 2.0
 bin_time: 0.02
@@ -18,8 +15,6 @@ ctx_keys: ["session", "subject"]
 
 is_ssl: true
 model:
-  # max_time_patches: 250
-  # max_space_patches: 250
   max_time_patches: 256
   max_space_patches: 256
 
