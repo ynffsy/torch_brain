@@ -162,6 +162,11 @@ class TrainWrapper(L.LightningModule):
         params = self.parameters()
         if cfg.get("accelerate_factor", 1) > 1:
             params = self.split_params(self.named_parameters())
+        if cfg.get("freeze_encoder", False):
+            for _, param in self.model.encoder.named_parameters():
+                param.requires_grad = False
+            for _, param in self.model.spikes_patchifier.named_parameters():
+                param.requires_grad = False
 
         optimizer = torch.optim.AdamW(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
 
