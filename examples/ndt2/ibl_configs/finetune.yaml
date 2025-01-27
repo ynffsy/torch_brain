@@ -23,3 +23,6 @@ optimizer:
   decay_steps: 2500
   lr_min: 1e-6
 
+callbacks:
+  monitor_avg: true
+

@@ -36,6 +36,8 @@ from torch_brain.data.sampler import (
     RandomFixedWindowSampler,
     SequentialFixedWindowSampler,
 )
+from torchmetrics import MeanMetric
+
 from torch_brain.transforms import Compose
 from torch_brain.utils import seed_everything
 
@@ -50,6 +52,9 @@ class TrainWrapper(L.LightningModule):
         self.model = model
         self.cfg = cfg
         self.is_ssl = cfg.is_ssl
+        self.val_loss_avg = None
+        if cfg.callbacks.get("monitor_avg", False):
+            self.val_loss_avg = MeanMetric()
 
     def training_step(self, batch, batch_idx):
         ssl_loss = 0.0
@@ -136,6 +141,17 @@ class TrainWrapper(L.LightningModule):
             sync_dist=True,
             add_dataloader_idx=False,
         )
+
+        if self.val_loss_avg is not None:
+            self.val_loss_avg.update(loss)
+            loss_avg = self.val_loss_avg.compute()
+            self.log(
+                f"{prefix}loss_avg",
+                loss_avg,
+                sync_dist=True,
+                add_dataloader_idx=False,
+            )
+            self.val_loss_avg.reset()
 
         return loss
 
@@ -430,6 +446,7 @@ def set_wandb(cfg, log) -> Optional[WandbLogger]:
 
     return wandb_logger
 
+
 def get_ckpt(cfg):
     if cfg.get("fragment_checkpoint"):
         ses = cfg.dataset[0].selection[0]["sessions"][0]
@@ -438,6 +455,7 @@ def get_ckpt(cfg):
     else:
         ckpt = torch.load(cfg.checkpoint_path)
     return ckpt
+
 
 def run_training(cfg):
     L.seed_everything(cfg.seed)
@@ -518,7 +536,7 @@ def run_training(cfg):
         model.encoder.load_state_dict(ckpt["encoder_state_dict"])
         if not cfg.get("new_decoder", False):
             model.decoder.load_state_dict(ckpt["decoder_state_dict"])
-    
+
     ctx_tokenizer = ctx_manager.get_ctx_tokenizer()
     tokenizer = Ndt2Tokenizer(
         ctx_time=cfg.ctx_time,
@@ -536,7 +554,7 @@ def run_training(cfg):
     # Set up data module
     data_module = DataModule(cfg, tokenizer, cfg.is_ssl)
     data_module.setup()
-    
+
     if cfg.get("load_from_checkpoint", False):
         # Register new context
         ctx_manager.extend_vocab(data_module.get_ctx_vocab(ctx_manager.keys))
@@ -544,28 +562,28 @@ def run_training(cfg):
         # Register context
         ctx_manager.init_vocab(data_module.get_ctx_vocab(ctx_manager.keys))
 
-
     # Callbacks
     callbacks = [
         ModelSummary(max_depth=3),
         LearningRateMonitor(logging_interval="step"),
     ]
     if cfg.callbacks.checkpoint:
+        monitor = "val_loss"
+        if cfg.callbacks.get("monitor_avg", False):
+            monitor = "val_loss_avg"
         checkpoint_callback = ModelCheckpoint(
-                dirpath=cfg.callbacks.checkpoint_path,
-                filename=f"{cfg.wandb.run_name}",
-                monitor="val_loss",
-                save_top_k=1,
-                save_last=True,
-                mode="min",
-                every_n_epochs=1,
-            )
-        checkpoint_callback.CHECKPOINT_NAME_LAST = f"{cfg.wandb.run_name}-last"
+            dirpath=cfg.callbacks.checkpoint_path,
+            filename=f"{cfg.wandb.run_name}",
+            monitor=monitor,
+            save_top_k=1,
+            mode="min",
+            every_n_epochs=1,
+        )
         callbacks.append(checkpoint_callback)
     if cfg.callbacks.early_stop:
         callbacks.append(
             EarlyStopping(
-                monitor="val_loss",
+                monitor=monitor,
                 mode="min",
                 strict=False,
                 check_finite=False,
