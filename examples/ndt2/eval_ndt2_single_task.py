@@ -57,23 +57,22 @@ def get_ctx_vocab(self, ctx_keys):
 # SET UP
 # -------
 ap = argparse.ArgumentParser()
-ap.add_argument("--eid", type=str, default="c7bf2d49-4937-4597-b307-9f39cb1c7b16")
+ap.add_argument("--eid", type=str, default="d23a44ef-1402-4ed7-97f5-47e9a7a504d9")
 ap.add_argument("--behavior", type=str, default="choice")
 ap.add_argument("--model_path", type=str, default="./logs/lightning_logs/")
-ap.add_argument("--ckpt_name", type=str, default="2xpi3x0u")
+ap.add_argument("--ckpt_name", type=str, default="/home/hice1/aandre8/scratch/alex/checkpoints/")
 ap.add_argument("--save_path", type=str, default="./results/")
-ap.add_argument("--data_path", type=str, default="./data/processed/")
 ap.add_argument("--config_path", type=str, default="./configs/")
-ap.add_argument("--config_name", type=str, default="train_ibl_choice.yaml")
+ap.add_argument("--config_name", type=str, default="probe_choice.yaml")
 args = ap.parse_args()
 
 save_path = args.save_path
-data_path = args.data_path
 config_path = args.config_path
 model_path = args.model_path
 config_name = args.config_name
 ckpt_name = args.ckpt_name
 eid = args.eid
+bhvr = args.behavior
 
 logging.info(f"Evaluating session: {eid}")
 
@@ -86,29 +85,29 @@ params = {
     "fr_thresh": 0.5,
 }
 
+with initialize(version_base="1.3", config_path="./ibl_configs"):
+    cfg = compose(config_name=config_name)
+
+
 # ---------
 # LOAD DATA
 # ---------
-dataset = Dataset(
-    root=data_path,
-    split="test",  # "train"/"valid"/"test"
-    include=[
-        {
-            "selection": [
-                {
-                    "dandiset": f"ibl_{eid}",
-                    "sortsets": {eid},
-                }
-            ],
-        }
-    ],
-)
+dataset_cfg = OmegaConf.create([
+    {
+        "selection": [
+            {
+                "brainset": "ibl",
+                "sessions": [eid]
+            }
+        ]
+    }
+])
+
+dataset = Dataset(root=cfg.data_root, split="test", config=dataset_cfg)
 
 # ----------
 # LOAD MODEL
 # ----------
-with initialize(version_base="1.3", config_path="./ibl_configs", job_name="pretrain"):
-    cfg = compose(config_name=config_name)
 
 L.seed_everything(cfg.seed)
 # seed_everything(cfg.seed)
@@ -165,7 +164,9 @@ model = NDT2Model(mae_mask_manager, ctx_manager, spikes_patchifier, encoder, dec
 bhvr_dim = cfg.model.bhv_decoder["behavior_dim"]
 
 # Load from checkpoint
-ckpt = torch.load(cfg.checkpoint_path)
+# TODO update this
+path = f"{cfg.checkpoint_path}/probe_{bhvr}-{eid}.ckpt"
+ckpt = torch.load(path)
 model.ctx_manager.load_state_dict(ckpt["context_manager_state_dict"])
 model.spikes_patchifier.load_state_dict(ckpt["spikes_patchifier_state_dict"])
 model.encoder.load_state_dict(ckpt["encoder_state_dict"])
@@ -186,16 +187,21 @@ tokenizer = Ndt2Tokenizer(
 )
 
 test_dataset = Dataset(
-    root=cfg.data_root, config=cfg.dataset, split="test", transform=tokenizer
+    root=cfg.data_root, config=dataset_cfg, split="test", transform=tokenizer
 )
 inter = test_dataset.get_sampling_intervals()
 eval_sampler = SequentialFixedWindowSampler(
     interval_dict=inter, window_length=cfg.ctx_time, drop_short=True
 )
 
+dataset = Dataset(
+    root=cfg.data_root, config=dataset_cfg, split=None, transform=tokenizer
+)
+batch_size = 8
 eval_loader = DataLoader(
-    dataset=test_dataset,
-    batch_size=cfg.batch_size,
+    dataset=dataset,
+    # batch_size=cfg.batch_size,
+    batch_size = batch_size,
     sampler=eval_sampler,
     collate_fn=collate,
     num_workers=cfg.num_workers,
@@ -263,22 +269,22 @@ session_gt_output = {}
 session_pred_output = {}
 
 for batch in tqdm(eval_loader):
-    absolute_starts = batch.pop("absolute_start")  # (B,)
-    session_ids = batch.pop("session_id")  # (B,)
-    output_subtask_index = batch.pop("output_subtask_index")
+    # absolute_starts = batch.pop("absolute_start")  # (B,)
+    # session_ids = batch.pop("session_id")  # (B,)
+    # output_subtask_index = batch.pop("output_subtask_index")
 
-    batch_format = None
-    if "input_mask" in batch:
-        batch_format = "padded"
-    elif "input_seqlen" in batch:
-        batch_format = "chained"
-    else:
-        raise ValueError("Invalid batch format.")
+    # batch_format = None
+    # if "input_mask" in batch:
+    #     batch_format = "padded"
+    # elif "input_seqlen" in batch:
+    #     batch_format = "chained"
+    # else:
+    #     raise ValueError("Invalid batch format.")
 
-    # move_to_gpu(batch, pl_module)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    move_to_gpu(batch, device)
+    # # move_to_gpu(batch, pl_module)
+    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # model.to(device)
+    # move_to_gpu(batch, device)
 
     # Autocast is explicitly set based on the precision specified by the user.
     # By default, torch autocasts to float16 for 16-bit inference.
@@ -293,10 +299,22 @@ for batch in tqdm(eval_loader):
             return None, False
 
     dtype, enabled = get_autocast_args(trainer)
-    # forward pass
-    with torch.cuda.amp.autocast(enabled=enabled, dtype=dtype):
-        with torch.inference_mode():
-            pred_output, loss, losses_taskwise = model(**batch)
+    
+    with torch.inference_mode():
+        decoder_out = model(batch, "bhv")
+
+    decoder_out = model(batch, "bhv")
+
+    # # forward pass
+    # with torch.cuda.amp.autocast(enabled=enabled, dtype=dtype):
+    #     with torch.inference_mode():
+    #         # pred_output, loss, losses_taskwise = model(**batch)
+    #         decoder_out = model(batch, "bhv")
+    
+    print(decoder_out)
+
+    print("exit")
+    exit(0)
 
     # we need to get the timestamps, the ground truth values, the task ids as well
     # as the subtask ids. since the batch is padded and chained, this is a bit tricky
