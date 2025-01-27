@@ -469,14 +469,24 @@ class BhvrDecoder(Decoder):
         loss = self.loss(bhvr, bhvr_tgt, length_mask)
 
         if self.task == "regression":
-            r2 = self.r2(bhvr, bhvr_tgt, length_mask)
-            return {"loss": loss, "r2": r2}
+            tgt = bhvr_tgt[length_mask].float().detach().cpu()
+            pred = bhvr[length_mask].float().detach().cpu()
+            r2 = r2_score(tgt, pred, multioutput="raw_values")
+            if r2.mean() < -10:
+                r2 = np.zeros_like(r2)
+            return {"loss": loss, "r2": r2, "pred": bhvr}
+
         elif self.task == "classification":
-            pred = bhvr.argmax(dim=-1).cpu()
             tgt = bhvr_tgt.argmax(dim=-1).cpu()
+            pred = bhvr.argmax(dim=-1).cpu()
             acc = accuracy_score(tgt, pred)
             balanced_acc = balanced_accuracy_score(tgt, pred)
-            return {"loss": loss, "acc": acc, "balanced_acc": balanced_acc}
+            return {
+                "loss": loss,
+                "acc": acc,
+                "balanced_acc": balanced_acc,
+                "pred": bhvr,
+            }
         else:
             raise NotImplementedError
 
@@ -620,17 +630,6 @@ class BhvrDecoder(Decoder):
             return loss[length_mask].mean()
         else:
             raise NotImplementedError
-
-    def r2(
-        self, bhvr: torch.Tensor, bhvr_tgt: torch.Tensor, length_mask: torch.Tensor
-    ) -> np.ndarray:
-        tgt = bhvr_tgt[length_mask].float().detach().cpu()
-        bhvr = bhvr[length_mask].float().detach().cpu()
-
-        r2 = r2_score(tgt, bhvr, multioutput="raw_values")
-        if r2.mean() < -10:
-            r2 = np.zeros_like(r2)
-        return r2
 
 
 class NDT2Model(nn.Module):
