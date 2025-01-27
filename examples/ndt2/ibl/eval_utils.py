@@ -9,10 +9,11 @@ from tqdm import tqdm
 import torch
 from scipy.interpolate import interp1d
 
-# import matplotlib.pyplot as plt
-# import matplotlib.colors as colors
-# from scipy.special import gammaln
-# from sklearn.cluster import SpectralClustering
+import matplotlib.pyplot as plt
+
+import matplotlib.colors as colors
+from scipy.special import gammaln
+from sklearn.cluster import SpectralClustering
 from sklearn.metrics import r2_score
 
 """

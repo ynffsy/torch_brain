@@ -2,7 +2,7 @@ import os
 from tqdm import tqdm
 import argparse
 from hydra import compose, initialize
-from sklearn.metrics import accuracy_score, balanced_accuracy_score
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, r2_score
 import logging
 import lightning as L
 import numpy as np
@@ -57,13 +57,13 @@ def get_ctx_vocab(self, ctx_keys):
 # SET UP
 # -------
 ap = argparse.ArgumentParser()
-ap.add_argument("--eid", type=str, default="d23a44ef-1402-4ed7-97f5-47e9a7a504d9")
-ap.add_argument("--behavior", type=str, default="choice")
+ap.add_argument("--eid", type=str, default="03d9a098-07bf-4765-88b7-85f8d8f620cc")
+ap.add_argument("--behavior", type=str, default="whisker")
 ap.add_argument("--model_path", type=str, default="./logs/lightning_logs/")
-ap.add_argument("--ckpt_name", type=str, default="/home/hice1/aandre8/scratch/alex/checkpoints/")
+ap.add_argument("--ckpt_name", type=str, default="/nethome/aandre8/")
 ap.add_argument("--save_path", type=str, default="./results/")
 ap.add_argument("--config_path", type=str, default="./configs/")
-ap.add_argument("--config_name", type=str, default="probe_choice.yaml")
+ap.add_argument("--config_name", type=str, default="probe_whisker.yaml")
 args = ap.parse_args()
 
 save_path = args.save_path
@@ -92,16 +92,9 @@ with initialize(version_base="1.3", config_path="./ibl_configs"):
 # ---------
 # LOAD DATA
 # ---------
-dataset_cfg = OmegaConf.create([
-    {
-        "selection": [
-            {
-                "brainset": "ibl",
-                "sessions": [eid]
-            }
-        ]
-    }
-])
+dataset_cfg = OmegaConf.create(
+    [{"selection": [{"brainset": "ibl", "sessions": [eid]}]}]
+)
 
 dataset = Dataset(root=cfg.data_root, split="test", config=dataset_cfg)
 
@@ -158,14 +151,13 @@ decoder = BhvrDecoder(
 model = NDT2Model(mae_mask_manager, ctx_manager, spikes_patchifier, encoder, decoder)
 
 
-# ckpt = torch.load(f"{model_path}/{ckpt_name}/last.ckpt", map_location="cpu")
-
-
 bhvr_dim = cfg.model.bhv_decoder["behavior_dim"]
 
 # Load from checkpoint
 # TODO update this
-path = f"{cfg.checkpoint_path}/probe_{bhvr}-{eid}.ckpt"
+
+path = f"{ckpt_name}probe_{bhvr}-{eid}.ckpt"
+
 ckpt = torch.load(path)
 model.ctx_manager.load_state_dict(ckpt["context_manager_state_dict"])
 model.spikes_patchifier.load_state_dict(ckpt["spikes_patchifier_state_dict"])
@@ -186,9 +178,7 @@ tokenizer = Ndt2Tokenizer(
     ibl_binning=cfg.get("ibl_binning", False),
 )
 
-test_dataset = Dataset(
-    root=cfg.data_root, config=dataset_cfg, split="test", transform=tokenizer
-)
+test_dataset = Dataset(root=cfg.data_root, config=dataset_cfg, split="test")
 inter = test_dataset.get_sampling_intervals()
 eval_sampler = SequentialFixedWindowSampler(
     interval_dict=inter, window_length=cfg.ctx_time, drop_short=True
@@ -197,11 +187,9 @@ eval_sampler = SequentialFixedWindowSampler(
 dataset = Dataset(
     root=cfg.data_root, config=dataset_cfg, split=None, transform=tokenizer
 )
-batch_size = 8
 eval_loader = DataLoader(
     dataset=dataset,
-    # batch_size=cfg.batch_size,
-    batch_size = batch_size,
+    batch_size=cfg.batch_size,
     sampler=eval_sampler,
     collate_fn=collate,
     num_workers=cfg.num_workers,
@@ -215,31 +203,6 @@ eval_loader = DataLoader(
 #     step=sequence_length / 2,
 # )
 
-# optimizer = Lamb(
-#     model.parameters(),  # filter(lambda p: p.requires_grad, model.parameters()),
-#     lr=max_lr,
-#     weight_decay=cfg.weight_decay,
-# )
-
-# scheduler = torch.optim.lr_scheduler.OneCycleLR(
-#     optimizer,
-#     max_lr=max_lr,
-#     epochs=epochs,
-#     steps_per_epoch=len(val_loader),
-#     pct_start=cfg.pct_start,
-#     anneal_strategy="cos",
-#     div_factor=1,
-# )
-
-# wrapper = train_wrapper.TrainWrapper(
-#     model=model,
-#     optimizer=optimizer,
-#     scheduler=scheduler,
-# )
-
-
-# Callbacks
-callbacks = [ModelSummary(max_depth=3)]
 
 # Set up trainer
 trainer = L.Trainer(
@@ -248,7 +211,7 @@ trainer = L.Trainer(
     check_val_every_n_epoch=cfg.eval_epochs,
     max_epochs=cfg.epochs,
     log_every_n_steps=1,
-    callbacks=callbacks,
+    callbacks=None,
     accelerator="gpu",
     precision=cfg.precision,
     num_sanity_val_steps=0,
@@ -268,24 +231,10 @@ session_subtask_index = {}
 session_gt_output = {}
 session_pred_output = {}
 
+pred_outputs = None
+gt_outputs = None
+
 for batch in tqdm(eval_loader):
-    # absolute_starts = batch.pop("absolute_start")  # (B,)
-    # session_ids = batch.pop("session_id")  # (B,)
-    # output_subtask_index = batch.pop("output_subtask_index")
-
-    # batch_format = None
-    # if "input_mask" in batch:
-    #     batch_format = "padded"
-    # elif "input_seqlen" in batch:
-    #     batch_format = "chained"
-    # else:
-    #     raise ValueError("Invalid batch format.")
-
-    # # move_to_gpu(batch, pl_module)
-    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    # model.to(device)
-    # move_to_gpu(batch, device)
-
     # Autocast is explicitly set based on the precision specified by the user.
     # By default, torch autocasts to float16 for 16-bit inference.
     # This behavior is overridden to use bfloat16 if specified in trainer.precision.
@@ -299,186 +248,52 @@ for batch in tqdm(eval_loader):
             return None, False
 
     dtype, enabled = get_autocast_args(trainer)
-    
-    with torch.inference_mode():
-        decoder_out = model(batch, "bhv")
 
-    decoder_out = model(batch, "bhv")
+    # forward pass
+    with torch.cuda.amp.autocast(enabled=enabled, dtype=dtype):
+        with torch.inference_mode():
+            decoder_out = model(batch, "bhv")
 
-    # # forward pass
-    # with torch.cuda.amp.autocast(enabled=enabled, dtype=dtype):
-    #     with torch.inference_mode():
-    #         # pred_output, loss, losses_taskwise = model(**batch)
-    #         decoder_out = model(batch, "bhv")
-    
-    print(decoder_out)
+    pred_output = decoder_out["pred"].detach().cpu()
 
-    print("exit")
-    exit(0)
+    # TODO maybe gt could be obtained in another way
+    # e.g.: session_id = f"ibl/{eid}"
+    # choice = test_dataset._data_objects[session_id].choice.choice
+    gt_output = batch["bhvr"].detach().cpu()
+    if pred_outputs is None:
+        pred_outputs = pred_output
+        gt_outputs = gt_output
+    else:
+        pred_outputs = torch.cat((pred_outputs, pred_output), dim=0)
+        gt_outputs = torch.cat((gt_outputs, gt_output), dim=0)
 
-    # we need to get the timestamps, the ground truth values, the task ids as well
-    # as the subtask ids. since the batch is padded and chained, this is a bit tricky
-    # tldr: this extracts the ground truth in the same format as the model output
-    batch_size = len(pred_output)
-    # get gt_output and timestamps to be in the same format as pred_output
-    timestamps = [{} for _ in range(batch_size)]
-    subtask_index = [{} for _ in range(batch_size)]
-    gt_output = [{} for _ in range(batch_size)]
-
-    # collect ground truth
-    for taskname, spec in model.readout.decoder_specs.items():
-        taskid = Decoder.from_string(taskname).value
-
-        # get the mask of tokens that belong to this task
-        mask = batch["output_decoder_index"] == taskid
-
-        if not torch.any(mask):
-            # there is not a single token for this task, so we skip
-            continue
-
-        # we need to distribute the outputs to their respective samples
-
-        if batch_format == "padded":
-            token_batch = torch.where(mask)[0]
-        elif batch_format == "chained":
-            token_batch = batch["output_batch_index"][mask]
-
-        batch_i, token_batch = torch.unique(token_batch, return_inverse=True)
-        for i in range(len(batch_i)):
-            timestamps[batch_i[i]][taskname] = (
-                batch["output_timestamps"][mask][token_batch == i]
-                + absolute_starts[batch_i[i]]
-            )
-            subtask_index[batch_i[i]][taskname] = output_subtask_index[taskname][
-                (token_batch == i).detach().cpu()
-            ]
-            gt_output[batch_i[i]][taskname] = batch["output_values"][taskname][
-                token_batch == i
-            ]
-
-    # register all of the data
-    for i in range(batch_size):
-        session_id = session_ids[i]
-
-        if session_id not in session_pred_output:
-            session_pred_output[session_id] = {}
-            session_gt_output[session_id] = {}
-            session_timestamp[session_id] = {}
-            session_subtask_index[session_id] = {}
-
-        for taskname, pred_values in pred_output[i].items():
-            if taskname not in session_pred_output[session_id]:
-                session_pred_output[session_id][taskname] = pred_values.detach().cpu()
-                session_gt_output[session_id][taskname] = (
-                    gt_output[i][taskname].detach().cpu()
-                )
-                session_timestamp[session_id][taskname] = (
-                    timestamps[i][taskname].detach().cpu()
-                )
-                session_subtask_index[session_id][taskname] = (
-                    subtask_index[i][taskname].detach().cpu()
-                )
-            else:
-                session_pred_output[session_id][taskname] = torch.cat(
-                    (
-                        session_pred_output[session_id][taskname],
-                        pred_values.detach().cpu(),
-                    )
-                )
-                session_gt_output[session_id][taskname] = torch.cat(
-                    (
-                        session_gt_output[session_id][taskname],
-                        gt_output[i][taskname].detach().cpu(),
-                    )
-                )
-                session_timestamp[session_id][taskname] = torch.cat(
-                    (
-                        session_timestamp[session_id][taskname],
-                        timestamps[i][taskname].detach().cpu(),
-                    )
-                )
-                session_subtask_index[session_id][taskname] = torch.cat(
-                    (
-                        session_subtask_index[session_id][taskname],
-                        subtask_index[i][taskname].detach().cpu(),
-                    )
-                )
 
 # -----
 # EVAL
 # -----
-results = {"Choice": {}, "Block": {}, "Whisker": {}, "Wheel": {}}
+results = {bhvr: {}}
 
-# Eval discrete behaviors
-session_id = f"ibl_{eid}/{eid}"
-test_data = dataset.get_session_data(session_ids[0])
-intervals = np.c_[
-    dataset.get_session_data(session_id).trials.start,
-    dataset.get_session_data(session_id).trials.end,
-]
-choice = dataset.get_session_data(session_id).choice.choice
-block = dataset.get_session_data(session_id).block.block
-reward = dataset.get_session_data(session_id).reward.reward
 
-if args.behavior == "choice":
-    choice = session_gt_output[session_id]["CHOICE"]
-    pred = session_pred_output[session_id]["CHOICE"].argmax(-1)
-    results["Choice"]["accuracy"] = accuracy_score(choice, pred)
-    results["Choice"]["balanced_accuracy"] = balanced_accuracy_score(choice, pred)
+if bhvr == "choice" or bhvr == "block":
+    pred = pred_outputs.argmax(-1)
+    target = gt_outputs.argmax(-1)
+    results[bhvr]["accuracy"] = accuracy_score(target, pred)
+    results[bhvr]["balanced_accuracy"] = balanced_accuracy_score(target, pred)
 
-if args.behavior == "block":
-    block = session_gt_output[session_id]["BLOCK"]
-    pred = session_pred_output[session_id]["BLOCK"].argmax(-1)
-    results["Block"]["accuracy"] = accuracy_score(block, pred)
-    results["Block"]["balanced_accuracy"] = balanced_accuracy_score(block, pred)
+from ibl.eval_utils import compute_R2_main, viz_single_cell
 
 # Eval continuous behaviors
-if args.behavior == "wheel":
-    wh_gt = session_gt_output[session_id]["WHEEL"]
-    wh_pred = session_pred_output[session_id]["WHEEL"]
-    wh_timestamps = session_timestamp[session_id]["WHEEL"]
-    wh_subtask_index = session_subtask_index[session_id]["WHEEL"]
-
-    wh_gt_vals = wh_gt.squeeze()
-    wh_pred_vals = wh_pred.squeeze()
-
-    behave_dict, mask_dict = bin_behaviors(
-        wh_timestamps, wh_gt_vals.numpy(), intervals=intervals, beh="wheel", **params
-    )
-
-    binned_wh_gt = behave_dict["wheel"]
-
-    behave_dict, mask_dict = bin_behaviors(
-        wh_timestamps, wh_pred_vals.numpy(), intervals=intervals, beh="wheel", **params
-    )
-    binned_wh_pred = behave_dict["wheel"]
-
-if args.behavior == "whisker":
-    me_gt = session_gt_output[session_id]["WHISKER"]
-    me_pred = session_pred_output[session_id]["WHISKER"]
-    me_timestamps = session_timestamp[session_id]["WHISKER"]
-    me_subtask_index = session_subtask_index[session_id]["WHISKER"]
-
-    me_gt_vals = me_gt.squeeze()
-    me_pred_vals = me_pred.squeeze()
-
-    behave_dict, mask_dict = bin_behaviors(
-        me_timestamps, me_gt_vals.numpy(), intervals=intervals, beh="whisker", **params
-    )
-
-    binned_me_gt = behave_dict["whisker"]
-
-    behave_dict, mask_dict = bin_behaviors(
-        me_timestamps,
-        me_pred_vals.numpy(),
-        intervals=intervals,
-        beh="whisker",
-        **params,
-    )
-    binned_me_pred = behave_dict["whisker"]
-
-if (args.behavior == "whisker") or (args.behavior == "wheel"):
+if bhvr == "wheel" or bhvr == "whisker":
     T = 100
+    gt = np.array(pred_outputs).reshape(-1, T, 1)
+    pred = np.array(gt_outputs).reshape(-1, T, 1)
+
+    test_dataset.disable_data_leakage_check()
+    data = test_dataset.get_recording_data(f"ibl/{eid}")
+    choice = data.choice.choice
+    reward = data.reward.reward
+    block = data.block.block
+
     X = np.concatenate(
         (
             _one_hot(choice.reshape(-1, 1), T),
@@ -505,17 +320,16 @@ if (args.behavior == "whisker") or (args.behavior == "wheel"):
     var_behlist = []
 
     if args.behavior == "wheel":
-        gt = binned_wh_gt.reshape(-1, T, 1)
-        pred = binned_wh_pred.reshape(-1, T, 1)
         avail_beh = "wheel-speed"
     elif args.behavior == "whisker":
-        gt = binned_me_gt.reshape(-1, T, 1)
-        pred = binned_me_pred.reshape(-1, T, 1)
         avail_beh = "whisker-motion-energy"
-
+    print(gt.shape, pred.shape)
     y = gt[:, :, [0]]
     y_pred = pred[:, :, [0]]
-    _r2_psth, _r2_trial = viz_single_cell(
+    # y = y.reshape(-1, T)
+    # y_pred = y_pred.reshape(-1, T)
+    # print(X.shape, y.shape, y_pred.shape)
+    _, _r2_trial = viz_single_cell(
         X,
         y,
         y_pred,
@@ -531,20 +345,11 @@ if (args.behavior == "whisker") or (args.behavior == "wheel"):
         save_path="../results/",
         save_plot=False,
     )
-    plt.close("all")
-    beh_name = "Wheel" if avail_beh == "wheel-speed" else "Whisker"
-    results[beh_name]["r2_psth"] = _r2_psth
-    results[beh_name]["r2_trial"] = _r2_trial
-
-    # res_path = f"{save_path}/{eid}/"
-    # os.makedirs(res_path, exist_ok=True)
-    save_res = {"gt": y, "pred": y_pred, "beh_name": beh_name, "eid": eid}
-    # os.makedirs(f"{save_path}/raw/", exist_ok=True)
-    # np.save(f"{save_path}/raw/{eid}_{beh_name}.npy", save_res)
+    results[bhvr]["_r2_trial"] = _r2_trial
 
 print(results)
 
 res_path = f"{save_path}/{eid}/"
 if not os.path.exists(res_path):
     os.makedirs(res_path)
-np.save(f"{res_path}/{args.behavior}.npy", results)
+np.save(f"{res_path}/{bhvr}.npy", results)
