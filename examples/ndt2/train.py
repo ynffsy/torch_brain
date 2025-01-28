@@ -54,7 +54,8 @@ class TrainWrapper(L.LightningModule):
         self.is_ssl = cfg.is_ssl
         self.val_loss_avg = None
         if cfg.callbacks.get("monitor_avg", False):
-            self.val_loss_avg = MeanMetric()
+            self.alpha = 0.05  # Smoothing factor
+            self.ema_loss = None  # Start with no EMA
 
     def training_step(self, batch, batch_idx):
         ssl_loss = 0.0
@@ -143,16 +144,17 @@ class TrainWrapper(L.LightningModule):
         )
 
         if self.val_loss_avg is not None:
-            self.val_loss_avg.update(loss)
-            loss_avg = self.val_loss_avg.compute()
+            # Update EMA
+            if ema_loss is None:  # Initialize EMA with the first loss
+                ema_loss = loss.item()
+            else:
+                ema_loss = self.alpha * loss.item() + (1 - self.alpha) * ema_loss
             self.log(
                 f"{prefix}loss_avg",
-                loss_avg,
+                ema_loss,
                 sync_dist=True,
                 add_dataloader_idx=False,
             )
-            self.val_loss_avg.reset()
-
         return loss
 
     def split_params(self, params):

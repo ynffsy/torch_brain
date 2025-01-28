@@ -22,6 +22,7 @@ optimizer:
   warmup_steps: 100
   decay_steps: 2500
   lr_min: 1e-6
+  patience: 200
 
 callbacks:
   monitor_avg: true
