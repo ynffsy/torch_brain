@@ -155,6 +155,7 @@ class PerceiverRotary(nn.Module):
         latent_mask=None,  # (B, N_latent) or None
         latent_seqlen=None,  # None or (B,)
         output_query_seqlen=None,  # None or (B,)
+        return_latent_timestamp_emb=False,
     ) -> Union[
         TensorType["batch", "*nqueries", "dim"],  # if padded
         TensorType["ntotal_queries", "dim"],  # if chained
@@ -244,6 +245,8 @@ class PerceiverRotary(nn.Module):
         # print(f"Latents CV ({i}): {coef_variation(latents, 30)}")
 
         if output_queries is None:
+            if return_latent_timestamp_emb:
+                return latents, latent_timestamp_emb
             return latents
 
         output_timestamp_emb = self.rotary_emb(output_query_timestamps)
