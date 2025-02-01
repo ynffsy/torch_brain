@@ -19,6 +19,8 @@ from torch_brain.registry import ModalitySpec
 from torch_brain.utils import (
     create_linspace_latent_tokens,
     create_start_end_unit_tokens,
+    resolve_weights_based_on_interval_membership,
+    isin_interval,
 )
 
 
@@ -258,7 +260,6 @@ class POYOTokenizer:
         weight_registry (Dict): Registry of the weights.
         latent_step (float): Step size for generating latent tokens.
         num_latents_per_step (int): Number of latents per step.
-        subtask_weights (List[float]): Loss-weights for different subtasks.
     """
 
     def __init__(
@@ -270,16 +271,11 @@ class POYOTokenizer:
         readout_spec: ModalitySpec,
         sequence_length: float = 1.0,
         eval: bool = False,
-        subtask_weights: Optional[Iterable[float]] = None,
     ):
         self.unit_tokenizer = unit_tokenizer
         self.session_tokenizer = session_tokenizer
 
         self.readout_spec = readout_spec
-
-        self.subtask_weights = subtask_weights
-        if self.subtask_weights is not None:
-            self.subtask_weights = np.array(self.subtask_weights, dtype=np.float32)
 
         self.latent_step = latent_step
         self.num_latents_per_step = num_latents_per_step
@@ -328,22 +324,20 @@ class POYOTokenizer:
         if output_values.dtype == np.float64:
             output_values = output_values.astype(np.float32)
 
-        session_index = self.session_tokenizer(data.session)
-        session_index = np.repeat(session_index, len(output_timestamps))
+        # normalize if needed
+        if "normalize_mean" in data.config:
+            output_values = output_values - np.array(data.config["normalize_mean"])
+        if "normalize_std" in data.config:
+            output_values = output_values / np.array(data.config["normalize_std"])
 
-        # Weights for the output predictions (used in the loss function)
-        output_subtask_index = data.get_nested_attribute(self.readout_spec.context_key)
-        if self.subtask_weights is None:
-            output_weights = np.ones(len(output_values), dtype=np.float32)
-        else:
-            output_weights = self.subtask_weights[output_subtask_index]
+        # create session index for output
+        output_session_index = self.session_tokenizer(data.session)
+        output_session_index = np.repeat(output_session_index, len(output_timestamps))
 
-        # Mask for the output predictions
-        output_mask = np.ones(len(output_values), dtype=bool)
-        if self.eval:
-            # During eval, only evaluate on the subtask specified in the config
-            target_subtask_index = data.config["eval_subtask_index"]
-            output_mask = output_mask & (output_subtask_index == target_subtask_index)
+        # resolve weights
+        output_weights = resolve_weights_based_on_interval_membership(
+            output_timestamps, data, config=data.config.get("weights", None)
+        )
 
         batch = {
             # input sequence
@@ -355,9 +349,9 @@ class POYOTokenizer:
             "latent_index": latent_index,
             "latent_timestamps": latent_timestamps,
             # output sequence
-            "output_session_index": pad8(session_index),
+            "output_session_index": pad8(output_session_index),
             "output_timestamps": pad8(output_timestamps),
-            "output_mask": pad8(output_mask),
+            "output_mask": track_mask8(output_session_index),
             # ground truth targets
             "target_values": pad8(output_values),
             "target_weights": pad8(output_weights),
@@ -366,6 +360,9 @@ class POYOTokenizer:
         if self.eval:
             batch["session_id"] = data.session
             batch["absolute_start"] = data.absolute_start
-            batch["output_subtask_index"] = pad8(output_subtask_index)
+
+            eval_interval_key = data.config.get("eval_interval", None)
+            eval_interval = data.get_nested_attribute(eval_interval_key)
+            batch["output_mask"] = pad8(isin_interval(output_timestamps, eval_interval))
 
         return batch
