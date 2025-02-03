@@ -11,8 +11,8 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
-        "temporaldata==0.1.1",
-        "torch==2.2.0",
+        "temporaldata",
+        "torch>=2.0.0",
         "einops~=0.6.0",
         "rich==13.3.2",
         "torch-optimizer==0.3.0",
