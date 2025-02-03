@@ -21,6 +21,7 @@ from torch_brain.utils import (
     create_start_end_unit_tokens,
     resolve_weights_based_on_interval_membership,
     isin_interval,
+    prepare_for_readout,
 )
 
 
@@ -31,7 +32,18 @@ class POYO(nn.Module):
     POYO is a transformer-based model for neural decoding from electrophysiological
     recordings.
 
-    TODO: Document the model architecture
+    1. Input tokens are constructed by combining unit embeddings, token type embeddings,
+        and time embeddings for each spike in the sequence.
+    2. The input sequence is compressed using cross-attention, where learnable latent
+        tokens (each with an associated timestamp) attend to the input tokens.
+    3. The compressed latent token representations undergo further refinement through
+        multiple self-attention processing layers.
+    4. Query tokens are constructed for the desired outputs by combining session
+        embeddings, and output timestamps.
+    5. These query tokens attend to the processed latent representations through
+        cross-attention, producing outputs in the model's dimensional space (dim).
+    6. Finally, a task-specific linear layer maps the outputs from the model dimension
+        to the appropriate output dimension.
 
     Args:
         dim: Hidden dimension of the model
@@ -47,13 +59,13 @@ class POYO(nn.Module):
         emb_init_scale: Scale for embedding initialization
         t_min: Minimum timestamp resolution for rotary embeddings
         t_max: Maximum timestamp resolution for rotary embeddings
+        readout_spec: Specification for the target task
     """
 
     def __init__(
         self,
         *,
         dim=512,
-        dim_out=2,
         dim_head=64,
         num_latents=64,
         depth=2,
@@ -65,6 +77,7 @@ class POYO(nn.Module):
         emb_init_scale=0.02,
         t_min=1e-4,
         t_max=4.0,
+        readout_spec: ModalitySpec,
     ):
         super().__init__()
 
@@ -121,7 +134,7 @@ class POYO(nn.Module):
         )
 
         # Output projections + loss
-        self.readout = nn.Linear(dim, dim_out)
+        self.readout = nn.Linear(dim, readout_spec.dim)
 
         self.dim = dim
 
@@ -318,26 +331,13 @@ class POYOTokenizer:
             num_latents_per_step=self.num_latents_per_step,
         )
 
-        ### prepare output queries and targets
-        output_timestamps = data.get_nested_attribute(self.readout_spec.timestamp_key)
-        output_values = data.get_nested_attribute(self.readout_spec.value_key)
-        if output_values.dtype == np.float64:
-            output_values = output_values.astype(np.float32)
-
-        # normalize if needed
-        if "normalize_mean" in data.config:
-            output_values = output_values - np.array(data.config["normalize_mean"])
-        if "normalize_std" in data.config:
-            output_values = output_values / np.array(data.config["normalize_std"])
+        output_timestamps, output_values, output_weights, eval_mask = (
+            prepare_for_readout(data, self.readout_spec)
+        )
 
         # create session index for output
         output_session_index = self.session_tokenizer(data.session)
         output_session_index = np.repeat(output_session_index, len(output_timestamps))
-
-        # resolve weights
-        output_weights = resolve_weights_based_on_interval_membership(
-            output_timestamps, data, config=data.config.get("weights", None)
-        )
 
         batch = {
             # input sequence
@@ -361,8 +361,7 @@ class POYOTokenizer:
             batch["session_id"] = data.session
             batch["absolute_start"] = data.absolute_start
 
-            eval_interval_key = data.config.get("eval_interval", None)
-            eval_interval = data.get_nested_attribute(eval_interval_key)
-            batch["output_mask"] = pad8(isin_interval(output_timestamps, eval_interval))
+            if eval_mask is not None:
+                batch["output_mask"] = pad8(eval_mask)
 
         return batch
