@@ -36,7 +36,7 @@ torch.set_float32_matmul_precision("medium")
 logger = logging.getLogger(__name__)
 
 
-class POYOTrainWrapper(L.LightningModule):
+class TrainWrapper(L.LightningModule):
     def __init__(
         self,
         cfg: DictConfig,
@@ -163,7 +163,7 @@ class DataModule(L.LightningDataModule):
         self.val_dataset = Dataset(
             root=self.cfg.data_root,
             config=self.cfg.dataset,
-            split="test",
+            split="valid",
             transform=eval_tokenizer,
         )
         self.val_dataset.disable_data_leakage_check()
@@ -283,7 +283,7 @@ def main(cfg: DictConfig):
         )
 
     # get modality details
-    readout_spec = MODALITIY_REGISTRY[cfg.readout_modality_name]
+    readout_spec = MODALITIY_REGISTRY[cfg.readout_id]
 
     # make model and tokenizer
     model = poyo_mp(dim_out=readout_spec.dim)
@@ -306,7 +306,7 @@ def main(cfg: DictConfig):
     model.session_emb.initialize_vocab(data_module.get_session_ids())
 
     # Lightning train wrapper
-    wrapper = POYOTrainWrapper(
+    wrapper = TrainWrapper(
         cfg=cfg,
         model=model,
         modality_spec=readout_spec,

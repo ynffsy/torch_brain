@@ -355,6 +355,6 @@ class POYOPlusTokenizer:
             # we will add a few more fields needed for evaluation
             batch["session_id"] = data.session
             batch["absolute_start"] = data.absolute_start
-            batch["output_eval_mask"] = chain(output_eval_mask, allow_missing_keys=True)
+            batch["eval_mask"] = chain(output_eval_mask, allow_missing_keys=True)
 
         return batch

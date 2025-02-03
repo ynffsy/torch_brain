@@ -226,11 +226,11 @@ def prepare_for_multitask_readout(
             values[key] = values[key].astype(np.float32)
 
         weights[key] = resolve_weights_based_on_interval_membership(
-            timestamps, data, config=readout_config.get("weights", None)
+            timestamps[-1], data, config=readout_config.get("weights", None)
         )
 
         # resolve eval mask
-        eval_mask = None
+        eval_mask[key] = np.ones_like(timestamps[-1], dtype=bool)
         eval_interval_key = data.config.get("eval_interval", None)
         if eval_interval_key is not None:
             eval_interval = data.get_nested_attribute(eval_interval_key)

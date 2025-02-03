@@ -57,18 +57,18 @@ def prepare_for_readout(
             mean = np.array(readout_config["normalize_mean"])
         else:
             mean = readout_config["normalize_mean"]
-        values[key] = values[key] - mean
+        values = values - mean
     if "normalize_std" in readout_config:
         # if std is a list, its a per-channel std (usually for x,y coordinates)
         if isinstance(readout_config["normalize_std"], list):
             std = np.array(readout_config["normalize_std"])
         else:
             std = readout_config["normalize_std"]
-        values[key] = values[key] / std
+        values = values / std
 
     # here we assume that we won't be running a model at float64 precision
-    if values[key].dtype == np.float64:
-        values[key] = values[key].astype(np.float32)
+    if values.dtype == np.float64:
+        values = values.astype(np.float32)
 
     # resolve weights
     weights = resolve_weights_based_on_interval_membership(

@@ -57,7 +57,7 @@ class POYO(nn.Module):
         emb_init_scale: Scale for embedding initialization
         t_min: Minimum timestamp resolution for rotary embeddings
         t_max: Maximum timestamp resolution for rotary embeddings
-        readout_spec: Specification for the target task
+        dim_out: Dimension of the output
     """
 
     def __init__(
@@ -75,7 +75,7 @@ class POYO(nn.Module):
         emb_init_scale=0.02,
         t_min=1e-4,
         t_max=4.0,
-        readout_spec: ModalitySpec,
+        dim_out,
     ):
         super().__init__()
 
@@ -132,7 +132,7 @@ class POYO(nn.Module):
         )
 
         # Output projections + loss
-        self.readout = nn.Linear(dim, readout_spec.dim)
+        self.readout = nn.Linear(dim, dim_out)
 
         self.dim = dim
 
@@ -287,6 +287,25 @@ class POYOTokenizer:
         self.session_tokenizer = session_tokenizer
 
         self.readout_spec = readout_spec
+
+        if not isinstance(sequence_length, float):
+            raise ValueError("sequence_length must be a float")
+        if not sequence_length > 0:
+            raise ValueError("sequence_length must be greater than 0")
+        self.sequence_length = sequence_length
+
+        if not isinstance(latent_step, float):
+            raise ValueError("latent_step must be a float")
+        if not latent_step > 0:
+            raise ValueError("latent_step must be greater than 0")
+        self.latent_step = latent_step
+
+        # check if sequence_length is a multiple of latent_step
+        if abs(sequence_length % latent_step) > 1e-10:
+            self.log.warning(
+                f"sequence_length ({sequence_length}) is not a multiple of latent_step "
+                f"({latent_step}). This is a simple warning, and this behavior is allowed."
+            )
 
         self.latent_step = latent_step
         self.num_latents_per_step = num_latents_per_step

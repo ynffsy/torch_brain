@@ -5,7 +5,8 @@ log_dir: ./logs
 
 sequence_length: 1.0  # in seconds
 latent_step: 0.125  # in seconds
-readout_modality_name: cursor_velocity_2d
+# TODO: resolve the readout_id from dataset, raise error if multiple found
+readout_id: cursor_velocity_2d
 
 epochs: 1000
 eval_epochs: 1  # frequency for doing validation 
@@ -27,7 +28,6 @@ wandb:
   run_name: null
   log_model: false
 
-backend_config: gpu_fp32
 precision: 32
 nodes: 1
 gpus: 1
