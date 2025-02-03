@@ -1,4 +1,4 @@
-from setuptools import find_packages, find_namespace_packages, setup
+from setuptools import find_packages, setup
 
 setup(
     name="torch_brain",
@@ -8,7 +8,7 @@ setup(
     description="A deep learning framework for neural data",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    packages=find_packages() + find_namespace_packages(include=["hydra_plugins.*"]),
+    packages=find_packages(),
     include_package_data=True,
     install_requires=[
         "temporaldata==0.1.1",
