@@ -12,6 +12,7 @@ setup(
     include_package_data=True,
     install_requires=[
         "temporaldata",
+        "numpy<2.0.0",
         "torch>=2.0.0",
         "einops~=0.6.0",
         "rich==13.3.2",
