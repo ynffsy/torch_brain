@@ -337,9 +337,6 @@ def main(cfg: DictConfig):
         check_val_every_n_epoch=cfg.eval_epochs,
         max_epochs=cfg.epochs,
         log_every_n_steps=1,
-        strategy=(
-            "ddp_find_unused_parameters_true" if torch.cuda.is_available() else "auto"
-        ),
         callbacks=callbacks,
         precision=cfg.precision,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
