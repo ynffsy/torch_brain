@@ -2,14 +2,15 @@ import os
 from tqdm import tqdm
 import argparse
 from hydra import compose, initialize
-from sklearn.metrics import accuracy_score, balanced_accuracy_score, r2_score
-import logging
+
 import lightning as L
-import numpy as np
-import pandas as pd
-import torch
-from lightning.pytorch.callbacks import ModelSummary
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.callbacks import ModelSummary
+
+from sklearn.metrics import accuracy_score, balanced_accuracy_score
+import numpy as np
+import torch
+
 from model import (
     BhvrDecoder,
     ContextManager,
@@ -17,20 +18,17 @@ from model import (
     NDT2Model,
     SpikesPatchifier,
 )
+from train import TrainWrapper
+from transforms import Ndt2Tokenizer
+
 from omegaconf import OmegaConf, open_dict
 from torch.utils.data import DataLoader
-from transforms import Ndt2Tokenizer
 from torch_brain.data import Dataset, collate
 from torch_brain.data.sampler import SequentialFixedWindowSampler
-from train import TrainWrapper
 
-# from scripts.eval_utils import bin_behaviors, viz_single_cell
+import logging
 
-# import logging
-
-# logging.basicConfig(level=logging.INFO)
-
-# torch.set_float32_matmul_precision("medium")
+logging.basicConfig(level=logging.INFO)
 
 
 def move_to_gpu(d, device):
@@ -60,19 +58,22 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--eid", type=str, default="03d9a098-07bf-4765-88b7-85f8d8f620cc")
 ap.add_argument("--behavior", type=str, default="whisker")
 ap.add_argument("--model_path", type=str, default="./logs/lightning_logs/")
-ap.add_argument("--ckpt_name", type=str, default="/nethome/aandre8/")
-ap.add_argument("--save_path", type=str, default="./results/")
-ap.add_argument("--config_path", type=str, default="./configs/")
-ap.add_argument("--config_name", type=str, default="probe_whisker.yaml")
+ap.add_argument("--ckpt_name", type=str, default="/home/hice1/aandre8/scratch/alex/checkpoints/")
+ap.add_argument("--save_file", type=str, default="/home/hice1/aandre8/scratch/alex/results/results.txt")
+ap.add_argument("--config_path", type=str, default="./ibl_configs")
+ap.add_argument("--config_name_prefix", type=str, default="probe_")
+ap.add_argument("--ckpt_postfix", type=str, default="")
 args = ap.parse_args()
 
-save_path = args.save_path
+save_file = args.save_file
 config_path = args.config_path
 model_path = args.model_path
-config_name = args.config_name
+config_name_prefix = args.config_name_prefix
+ckpt_postfix = args.ckpt_postfix
 ckpt_name = args.ckpt_name
 eid = args.eid
 bhvr = args.behavior
+config_name = f"{config_name_prefix}{bhvr}"
 
 logging.info(f"Evaluating session: {eid}")
 
@@ -85,7 +86,7 @@ params = {
     "fr_thresh": 0.5,
 }
 
-with initialize(version_base="1.3", config_path="./ibl_configs"):
+with initialize(version_base="1.3", config_path=config_path):
     cfg = compose(config_name=config_name)
 
 
@@ -156,7 +157,7 @@ bhvr_dim = cfg.model.bhv_decoder["behavior_dim"]
 # Load from checkpoint
 # TODO update this
 
-path = f"{ckpt_name}probe_{bhvr}-{eid}.ckpt"
+path = f"{ckpt_name}probe_{bhvr}{ckpt_postfix}-{eid}.ckpt"
 
 ckpt = torch.load(path)
 model.ctx_manager.load_state_dict(ckpt["context_manager_state_dict"])
@@ -192,16 +193,8 @@ eval_loader = DataLoader(
     batch_size=cfg.batch_size,
     sampler=eval_sampler,
     collate_fn=collate,
-    num_workers=cfg.num_workers,
+    num_workers=1,
 )
-
-# TODO CHECK THIS
-# sequence_length = 1.0
-# val_sampler = SequentialFixedWindowSampler(
-#     interval_dict=val_dataset.get_sampling_intervals(),
-#     window_length=sequence_length,
-#     step=sequence_length / 2,
-# )
 
 
 # Set up trainer
@@ -268,6 +261,14 @@ for batch in tqdm(eval_loader):
         gt_outputs = torch.cat((gt_outputs, gt_output), dim=0)
 
 
+
+data = {
+    "gt": gt_outputs,
+    "pred": pred_outputs
+}
+
+np.save(f"/home/hice1/aandre8/scratch/alex/results/{eid}_{bhvr}.npy", data)
+
 # -----
 # EVAL
 # -----
@@ -281,75 +282,79 @@ if bhvr == "choice" or bhvr == "block":
     results[bhvr]["balanced_accuracy"] = balanced_accuracy_score(target, pred)
 
 from ibl.eval_utils import compute_R2_main, viz_single_cell
+from sklearn.metrics import r2_score
 
 # Eval continuous behaviors
 if bhvr == "wheel" or bhvr == "whisker":
-    T = 100
-    gt = np.array(pred_outputs).reshape(-1, T, 1)
-    pred = np.array(gt_outputs).reshape(-1, T, 1)
+    results[bhvr]["r2"] = r2_score(gt_outputs.flatten(), pred_outputs.flatten())
+    
+    # would be useful to have the viz
+    # T = 100
+    # gt = np.array(pred_outputs).reshape(-1, T, 1)
+    # pred = np.array(gt_outputs).reshape(-1, T, 1)
 
-    test_dataset.disable_data_leakage_check()
-    data = test_dataset.get_recording_data(f"ibl/{eid}")
-    choice = data.choice.choice
-    reward = data.reward.reward
-    block = data.block.block
+    # test_dataset.disable_data_leakage_check()
+    # data = test_dataset.get_recording_data(f"ibl/{eid}")
+    # choice = data.choice.choice
+    # reward = data.reward.reward
+    # block = data.block.block
 
-    X = np.concatenate(
-        (
-            _one_hot(choice.reshape(-1, 1), T),
-            _one_hot(reward.reshape(-1, 1), T),
-            _one_hot(block.reshape(-1, 1), T),
-        ),
-        axis=2,
-    )
+    # X = np.concatenate(
+    #     (
+    #         _one_hot(choice.reshape(-1, 1), T),
+    #         _one_hot(reward.reshape(-1, 1), T),
+    #         _one_hot(block.reshape(-1, 1), T),
+    #     ),
+    #     axis=2,
+    # )
 
-    var_name2idx = {"block": [2], "choice": [0], "reward": [1]}
-    var_value2label = {
-        "block": {
-            (0,): "p(left)=0.2",
-            (1,): "p(left)=0.5",
-            (2,): "p(left)=0.8",
-        },
-        "choice": {(0,): "right", (1,): "left"},
-        "reward": {
-            (0,): "no reward",
-            (1,): "reward",
-        },
-    }
-    var_tasklist = ["block", "choice", "reward"]
-    var_behlist = []
+    # var_name2idx = {"block": [2], "choice": [0], "reward": [1]}
+    # var_value2label = {
+    #     "block": {
+    #         (0,): "p(left)=0.2",
+    #         (1,): "p(left)=0.5",
+    #         (2,): "p(left)=0.8",
+    #     },
+    #     "choice": {(0,): "right", (1,): "left"},
+    #     "reward": {
+    #         (0,): "no reward",
+    #         (1,): "reward",
+    #     },
+    # }
+    # var_tasklist = ["block", "choice", "reward"]
+    # var_behlist = []
 
-    if args.behavior == "wheel":
-        avail_beh = "wheel-speed"
-    elif args.behavior == "whisker":
-        avail_beh = "whisker-motion-energy"
-    print(gt.shape, pred.shape)
-    y = gt[:, :, [0]]
-    y_pred = pred[:, :, [0]]
+    # if args.behavior == "wheel":
+    #     avail_beh = "wheel-speed"
+    # elif args.behavior == "whisker":
+    #     avail_beh = "whisker-motion-energy"
+
+    # y = gt[:, :, [0]]
+    # y_pred = pred[:, :, [0]]
     # y = y.reshape(-1, T)
     # y_pred = y_pred.reshape(-1, T)
-    # print(X.shape, y.shape, y_pred.shape)
-    _, _r2_trial = viz_single_cell(
-        X,
-        y,
-        y_pred,
-        var_name2idx,
-        var_tasklist,
-        var_value2label,
-        var_behlist,
-        subtract_psth="task",
-        aligned_tbins=[],
-        neuron_idx=avail_beh,
-        neuron_region="",
-        method="poyo",
-        save_path="../results/",
-        save_plot=False,
-    )
-    results[bhvr]["_r2_trial"] = _r2_trial
+    # _, _ = viz_single_cell(
+    #     X,
+    #     y,
+    #     y_pred,
+    #     var_name2idx,
+    #     var_tasklist,
+    #     var_value2label,
+    #     var_behlist,
+    #     subtract_psth="task",
+    #     aligned_tbins=[],
+    #     neuron_idx=avail_beh,
+    #     neuron_region="",
+    #     method="poyo",
+    #     save_path="/home/hice1/aandre8/scratch/alex/results/",
+    #     save_plot=True,
+    # )
 
 print(results)
 
-res_path = f"{save_path}/{eid}/"
-if not os.path.exists(res_path):
-    os.makedirs(res_path)
-np.save(f"{res_path}/{bhvr}.npy", results)
+
+with open(save_file, "a") as f:
+    if bhvr == "choice" or bhvr == "block":
+        f.write(f"{eid}, {results[bhvr]['accuracy']}\n")
+    else:
+        f.write(f"{eid}, {results[bhvr]['r2']}\n")

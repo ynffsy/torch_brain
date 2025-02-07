@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 wandb:
-  run_name: probe_block
+  run_name: probe_block_long_finetune
 
 bhvr_key: block
 

@@ -3,12 +3,10 @@ defaults:
   - _self_
 
 wandb:
-  run_name: probe_choice
+  run_name: probe_choice_long_finetune
 
 bhvr_key: choice
 
-optimizer:
-  lr: 5e-5
 
 model:
   bhv_decoder:

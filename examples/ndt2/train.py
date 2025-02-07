@@ -29,14 +29,14 @@ from omegaconf import OmegaConf, open_dict
 from torch import optim
 from torch.utils.data import DataLoader
 from transforms import FilterUnit, Ndt2Tokenizer
-
+import torch.functional as F
 from temporaldata import Interval
 from torch_brain.data import Dataset, collate
 from torch_brain.data.sampler import (
     RandomFixedWindowSampler,
     SequentialFixedWindowSampler,
 )
-from torchmetrics import MeanMetric
+from collections import deque
 
 from torch_brain.transforms import Compose
 from torch_brain.utils import seed_everything
@@ -54,9 +54,16 @@ class TrainWrapper(L.LightningModule):
         self.is_ssl = cfg.is_ssl
         self.val_loss_smoothing = False
         if cfg.callbacks.get("monitor_avg", False):
-            self.alpha = 0.05  # Smoothing factor
-            self.ema_loss = None  # Start with no EMA
             self.val_loss_smoothing = True
+            self.window_size = 10
+            self.loss_queue = deque(maxlen=self.window_size)
+                
+    def moving_average(self, x):
+        """
+        Computes a simple moving average over the last 'window_size' losses.
+        """
+        self.loss_queue.append(x.item())
+        return sum(self.loss_queue) / len(self.loss_queue) 
 
     def training_step(self, batch, batch_idx):
         ssl_loss = 0.0
@@ -145,16 +152,10 @@ class TrainWrapper(L.LightningModule):
         )
 
         if self.val_loss_smoothing:
-            # Update EMA
-            if self.ema_loss is None:  # Initialize EMA with the first loss
-                self.ema_loss = loss.item()
-            else:
-                self.ema_loss = (
-                    self.alpha * loss.item() + (1 - self.alpha) * self.ema_loss
-                )
+            avg_loss = self.moving_average(loss)
             self.log(
                 f"{prefix}loss_avg",
-                self.ema_loss,
+                avg_loss,
                 sync_dist=True,
                 add_dataloader_idx=False,
             )

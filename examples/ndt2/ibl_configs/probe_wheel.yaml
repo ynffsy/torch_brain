@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 wandb:
-  run_name: probe_wheel
+  run_name: probe_wheel_long_finetune
 
 bhvr_key: wheel
 ibl_binning: true
