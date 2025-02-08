@@ -1,15 +1,10 @@
 #!/bin/bash
-#SBATCH -J IBL-NDT2
-#SBATCH -o /home/hice1/aandre8/scratch/alex/logs/SlurmEval.out
-#SBATCH -e /home/hice1/aandre8/scratch/alex/logs/SlurmEval.err
 #SBATCH -GA100:1
 #SBATCH --cpus-per-gpu=1
 #SBATCH --mem=64G
 #SBATCH --time=00:40:00
 
-
-source /home/hice1/aandre8/scratch/alex/venv/bin/activate
-
+cd ..
 
 file_path="/home/hice1/aandre8/scratch/alex/results"
 files=(

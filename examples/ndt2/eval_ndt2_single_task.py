@@ -208,7 +208,7 @@ trainer = L.Trainer(
     accelerator="gpu",
     precision=cfg.precision,
     num_sanity_val_steps=0,
-    strategy="auto",
+    strategy="single_device",
 )
 
 # Train wrapper

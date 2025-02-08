@@ -1,14 +1,10 @@
 #!/bin/bash
-#SBATCH -J IBL-NDT2
-#SBATCH -o ${LOG_DIR}/SlurmProbe.out
-#SBATCH -e ${LOG_DIR}/SlurmProbe.err
 #SBATCH -GH200:1
 #SBATCH --cpus-per-gpu=8
 #SBATCH --mem=128G
 #SBATCH --time=04:00:00
 
-source ${VENV_PATH}
-
+cd ..
 srun python train.py --config-name probe_block
 srun python train.py --config-name probe_choice
 srun python train.py --config-name probe_wheel
