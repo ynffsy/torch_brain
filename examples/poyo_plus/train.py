@@ -200,7 +200,8 @@ class DataModule(L.LightningDataModule):
         self.test_dataset.disable_data_leakage_check()
 
     def get_session_ids(self):
-        return self.train_dataset.get_session_ids()
+        # Each recording is a different session
+        return self.train_dataset.get_recording_ids()
 
     def get_unit_ids(self):
         return self.train_dataset.get_unit_ids()
@@ -259,9 +260,7 @@ class DataModule(L.LightningDataModule):
 
         self.log.info(f"Training on {len(train_sampler)} samples")
         self.log.info(f"Training on {len(self.train_dataset.get_unit_ids())} units")
-        self.log.info(
-            f"Training on {len(self.train_dataset.get_session_ids())} sessions"
-        )
+        self.log.info(f"Training on {len(self.get_session_ids())} sessions")
 
         return train_loader
 

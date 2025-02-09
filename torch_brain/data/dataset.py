@@ -3,7 +3,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import copy
 import numpy as np
 import omegaconf
@@ -73,13 +73,15 @@ class Dataset(torch.utils.data.Dataset):
         config: Optional[str] = None,
         recording_id: Optional[str] = None,
         split: Optional[str] = None,
-        transform=None,
+        transform: Optional[Callable[[Data], Any]] = None,
+        unit_id_prefix_fn: Optional[Callable[[Data], str]] = None,
     ):
         super().__init__()
         self.root = root
         self.config = config
         self.split = split
         self.transform = transform
+        self.unit_id_prefix_fn = unit_id_prefix_fn
 
         if config is not None:
             assert (
@@ -282,15 +284,12 @@ class Dataset(torch.utils.data.Dataset):
         # TODO: add more tests to make sure that slice does not modify the original data object
         # note there should be no issues as long as the self._data_objects stay lazy
         sample = data.slice(start, end)
-
-        sample.units.id = np.core.defchararray.add(
-            f"{sample.brainset}/{sample.session}/", sample.units.id.astype(str)
-        )
+        sample.units.id = self._get_unit_ids_with_prefix(sample)
 
         if self._check_for_data_leakage_flag and self.split is not None:
             sample._check_for_data_leakage(self.split)
 
-        sample.session = recording_id  # TODO: update to recording
+        sample.recording_id = recording_id
         sample.config = self.recording_dict[recording_id]["config"]
         return sample
 
@@ -316,9 +315,7 @@ class Dataset(torch.utils.data.Dataset):
         else:
             data = copy.deepcopy(data)
 
-        data.units.id = np.core.defchararray.add(
-            f"{data.brainset}/{data.session}/", data.units.id.astype(str)
-        )
+        data.units.id = self._get_unit_ids_with_prefix(data)
         return data
 
     def get_sampling_intervals(self):
@@ -371,52 +368,28 @@ class Dataset(torch.utils.data.Dataset):
             ans[recording_id] = self.recording_dict[recording_id]["config"]
         return ans
 
-    def get_session_ids(self):
+    def get_recording_ids(self):
         r"""Returns the session ids of the dataset."""
         return sorted(list(self.recording_dict.keys()))
 
-    # def get_unit_ids(self):
-    #     r"""Returns the unit ids of the dataset."""
-    #     unit_ids = []
-    #     for recording_id in self._data_objects.keys():
-    #         data = copy.copy(self._data_objects[recording_id])
+    def _get_unit_ids_with_prefix(self, data: Data) -> np.ndarray:
+        r"""Add prefix string to data.units.id. This is an inplace modification.
+        Prefix string is chosen based on unit_id_prefix_fmt.
+        """
+        if self.unit_id_prefix_fn is not None:
+            prefix_str = self.unit_id_prefix_fn(data)
+        else:
+            prefix_str = f"{data.brainset.id}/{data.session.id}/"
 
-    #         supported_formats = ["brainset/session/unit", "brainset/device/unit"]
-    #         unit_ids_format = self.recording_dict[recording_id]["config"].get(
-    #             "unit_ids_format", "brainset/session/unit"
-    #         )
-    #         if unit_ids_format == "brainset/session/unit":
-    #             unit_ids.extend(
-    #                 [
-    #                     f"{data.brainset.id}/{data.session.id}/{unit_id}"
-    #                     for unit_id in data.units.id
-    #                 ]
-    #             )
-    #         elif unit_ids_format == "brainset/device/unit":
-    #             unit_ids.extend(
-    #                 [
-    #                     f"{data.brainset.id}/{data.device.id}/{unit_id}"
-    #                     for unit_id in data.units.id
-    #                 ]
-    #             )
-    #         else:
-    #             raise ValueError(
-    #                 f"unit_ids_format {unit_ids_format} is not supported. Supported formats are: {supported_formats}"
-    #             )
-
-    #     unit_ids = sorted(list(set(unit_ids)))
-    #     return unit_ids
+        unit_ids = data.units.id
+        return np.core.defchararray.add(prefix_str, unit_ids.astype(str))
 
     def get_unit_ids(self):
         r"""Returns all unit ids in the dataset."""
         unit_ids_list = []
         for recording_id in self.recording_dict.keys():
             data = self._data_objects[recording_id]
-            unit_ids = data.units.id
-            unit_ids = np.core.defchararray.add(
-                f"{data.brainset}/{data.session}/",
-                unit_ids.astype(str),
-            )
+            unit_ids = self._get_unit_ids_with_prefix(data)
             unit_ids_list.extend(unit_ids)
         return unit_ids_list
 
