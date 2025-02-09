@@ -98,6 +98,7 @@ def test_poyo_plus_tokenizer(task_specs):
             domain="auto",
         ),
         units=ArrayDict(id=np.array(["unit1", "unit2", "unit3"])),
+        recording_id="test/session1",
         session="session1",
         # Add config matching the YAML structure
         config={
@@ -179,6 +180,7 @@ def test_poyo_plus_tokenizer_to_model(task_specs, model):
             start=np.array([0, 0.5]),
             end=np.array([0.1, 0.55]),
         ),
+        recording_id="test/session1",
         session="session1",
         config={
             "multitask_readout": [
