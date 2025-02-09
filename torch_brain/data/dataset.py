@@ -60,6 +60,12 @@ class Dataset(torch.utils.data.Dataset):
             in a session based on a predefined split.
         transform: A transform to apply to the data. This transform should be a callable
             that takes a Data object and returns a Data object.
+        unit_id_prefix_fn: Optional[Callable[[Data], str]]
+            Function to generate prefix strings for unit IDs to ensure uniqueness across the dataset.
+            Takes a Data object as input and returns a string prefix.
+            By default (when None), uses: "<brainset-id>/<session-id>/"
+            Example:
+                >>> unit_id_prefix_fn = lambda data: f"{data.brainset.id}/{data.session.id}/"
     """
 
     _check_for_data_leakage_flag: bool = True
@@ -373,8 +379,11 @@ class Dataset(torch.utils.data.Dataset):
         return sorted(list(self.recording_dict.keys()))
 
     def _get_unit_ids_with_prefix(self, data: Data) -> np.ndarray:
-        r"""Add prefix string to data.units.id. This is an inplace modification.
-        Prefix string is chosen based on unit_id_prefix_fmt.
+        r"""Add prefix string to data.units.id and return a new numpy string array.
+
+        If `unit_id_prefix_fn` is set (not None), then this function is used
+        to decide the prefix string. Otherwise, the default value is:
+        `<data.brainset.id>/<data.session.id>/`
         """
         if self.unit_id_prefix_fn is not None:
             prefix_str = self.unit_id_prefix_fn(data)
