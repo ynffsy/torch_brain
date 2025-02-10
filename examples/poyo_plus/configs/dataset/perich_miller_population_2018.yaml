@@ -94,6 +94,7 @@
         metrics:
           - metric:
               _target_: torchmetrics.R2Score
+              num_outputs: 2
         eval_interval: movement_phases.reach_period
 
 # Random target reaching
@@ -133,4 +134,5 @@
         metrics:
           - metric:
               _target_: torchmetrics.R2Score
+              num_outputs: 2
         eval_interval: movement_phases.random_period
