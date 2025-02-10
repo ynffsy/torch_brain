@@ -15,10 +15,10 @@ from omegaconf import DictConfig
 from torch_brain.registry import MODALITIY_REGISTRY
 from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
-from torch_brain.utils.datamodules import DataModule
-from torch_brain.utils.stitcher import StitchEvaluator
+from torch_brain.utils.stitcher import MultiTaskDecodingStitchEvaluator
+from torch_brain.models import POYOPlusTokenizer
 
-from train import POYOTrainWrapper
+from train import TrainWrapper, DataModule
 
 # higher speed on machines with tensor cores
 torch.set_float32_matmul_precision("medium")
@@ -102,7 +102,7 @@ def load_model_from_ckpt(model: nn.Module, ckpt_path: str) -> None:
     model.load_state_dict(state_dict)
 
 
-@hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
+@hydra.main(version_base="1.3", config_path="./configs", config_name="finetune_poyo_mp.yaml")
 def main(cfg: DictConfig):
     # fix random seed, skipped if cfg.seed is None
     seed_everything(cfg.seed)
@@ -124,8 +124,17 @@ def main(cfg: DictConfig):
     load_model_from_ckpt(model, cfg.ckpt_path)
     log.info(f"Loaded model weights from {cfg.ckpt_path}")
 
+    
+    tokenizer = POYOPlusTokenizer(
+        model.unit_emb.tokenizer,
+        model.session_emb.tokenizer,
+        decoder_registry=MODALITIY_REGISTRY,
+        latent_step=cfg.latent_step,
+        num_latents_per_step=cfg.model.num_latents,
+    )
+
     # setup data module
-    data_module = DataModule(cfg, model.unit_emb.tokenizer, model.session_emb.tokenizer)
+    data_module = DataModule(cfg, tokenizer)
     data_module.setup()
 
     # register units and sessions
@@ -136,16 +145,20 @@ def main(cfg: DictConfig):
     model.session_emb.subset_vocab(session_ids)
 
     # Lightning train wrapper
-    wrapper = POYOTrainWrapper(
-        cfg=cfg,
-        model=model,
-        dataset_config_dict=data_module.get_recording_config_dict(),
-        steps_per_epoch=len(data_module.train_dataloader()),
-    )
+    # wrapper = TrainWrapper(
+    #     cfg=cfg,
+    #     model=model,
+    #     dataset_config_dict=data_module.get_recording_config_dict(),
+    #     steps_per_epoch=len(data_module.train_dataloader()),
+    # )
 
-    evaluator = StitchEvaluator(
-        dataset_config_dict=data_module.get_recording_config_dict()
-    )
+    wrapper = TrainWrapper(cfg=cfg, model=model)
+
+    # evaluator = MultiTaskDecodingStitchEvaluator(
+    #     dataset_config_dict=data_module.get_recording_config_dict()
+    # )
+
+    evaluator = MultiTaskDecodingStitchEvaluator(metrics=data_module.get_metrics())
 
     callbacks = [
         evaluator,

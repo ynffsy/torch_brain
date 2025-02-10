@@ -84,6 +84,10 @@ class TrainWrapper(L.LightningModule):
 
         # compute loss
         loss = torch.tensor(0, device=self.device, dtype=torch.float32)
+
+        if batch_idx > 0:
+            self.log("unit embedding weight gradient", self.model.unit_emb.weight.grad.mean())
+
         taskwise_loss = {}
         for readout_id in output_values.keys():
             output = output_values[readout_id]
@@ -319,7 +323,7 @@ class DataModule(L.LightningDataModule):
         return test_loader
 
 
-@hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
+@hydra.main(version_base="1.3", config_path="./configs", config_name="train_poyo_mp.yaml")
 def main(cfg: DictConfig):
     logger.info("POYO+!")
     # fix random seed, skipped if cfg.seed is None
@@ -362,17 +366,32 @@ def main(cfg: DictConfig):
 
     evaluator = MultiTaskDecodingStitchEvaluator(metrics=data_module.get_metrics())
 
+    # callbacks = [
+    #     evaluator,
+    #     ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
+    #     ModelCheckpoint(
+    #         save_last=True,
+    #         save_on_train_epoch_end=True,
+    #         every_n_epochs=cfg.eval_epochs,
+    #     ),
+    #     LearningRateMonitor(
+    #         logging_interval="step"
+    #     ),  # Create a callback to log the learning rate.
+    #     tbrain_callbacks.MemInfo(),
+    #     tbrain_callbacks.EpochTimeLogger(),
+    #     tbrain_callbacks.ModelWeightStatsLogger(),
+    # ]
+
     callbacks = [
         evaluator,
-        ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
+        ModelSummary(max_depth=2),
         ModelCheckpoint(
-            save_last=True,
+            save_top_k=-1,  # -1 = save *all* checkpoints
             save_on_train_epoch_end=True,
-            every_n_epochs=cfg.eval_epochs,
+            every_n_epochs=1,  # or cfg.eval_epochs, but 1 saves every epoch
+            filename="{epoch}"  # optional naming format
         ),
-        LearningRateMonitor(
-            logging_interval="step"
-        ),  # Create a callback to log the learning rate.
+        LearningRateMonitor(logging_interval="step"),
         tbrain_callbacks.MemInfo(),
         tbrain_callbacks.EpochTimeLogger(),
         tbrain_callbacks.ModelWeightStatsLogger(),
