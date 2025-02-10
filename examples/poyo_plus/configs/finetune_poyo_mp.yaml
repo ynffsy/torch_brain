@@ -1,7 +1,7 @@
 defaults:
   - base.yaml
   - model: poyo_single_session.yaml
-  - dataset: perich_miller_population_2018.yaml
+  - dataset: andersen_nih.yaml
   - _self_
 
 train_transforms:
@@ -14,7 +14,7 @@ train_transforms:
 wandb:
   run_name: poyo_mp_mini_finetune
 
-ckpt_path: null  # Must specify path to model to finetune
+ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/poyo/logs/poyo/w2ll81zk/checkpoints/epoch=194.ckpt  # Must specify path to model to finetune
 
 # Num of epochs to freeze perceiver network while finetuning
 # -1 => Keep frozen, i.e. perform Unit-identification

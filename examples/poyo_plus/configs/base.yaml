@@ -1,12 +1,12 @@
 # Base config for training poyo_plus
 
-data_root: ./data/processed/
-log_dir: ./logs
+data_root: /home/ynffsy/Desktop/andersen_lab/data/poyo/processed
+log_dir: /home/ynffsy/Desktop/andersen_lab/results/poyo/logs
 
 sequence_length: 1.0  # in seconds
 latent_step: 0.125
 
-epochs: 1000
+epochs: 100
 eval_epochs: 1
 
 batch_size: 128
@@ -30,6 +30,7 @@ precision: 32
 nodes: 1
 gpus: 1
 
-ckpt_path: null  # for resuming training, or loading a model during finetuning
+ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/poyo/logs/poyo/w2ll81zk/checkpoints/epoch=194.ckpt
+#ckpt_path: null  # for resuming training, or loading a model during finetuning
 
 num_sanity_val_steps: 0  # only supports 0 (none) and -1 (all) right now
