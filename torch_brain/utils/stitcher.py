@@ -229,9 +229,15 @@ class MultiTaskDecodingStitchEvaluator(L.Callback):
     def __init__(self, metrics: dict):
         self.metrics = metrics
 
-    def on_validation_epoch_start(self, trainer, pl_module):
+    def on_validation_epoch_start(self, trainer, pl_module, prefix="val"):
         # prepare a cache for each contiguous sequence
-        self.sequence_index = trainer.datamodule.val_sequence_index
+        if prefix == "test":
+            self.sequence_index = trainer.datamodule.test_sequence_index
+        elif prefix == "val":
+            self.sequence_index = trainer.datamodule.val_sequence_index
+        else:
+            raise ValueError(f"Unsupported prefix: {prefix}")
+
         num_sequences = self.sequence_index.max().item() + 1
         self.sample_ptr = 0
 
@@ -377,7 +383,7 @@ class MultiTaskDecodingStitchEvaluator(L.Callback):
                     )
 
     def on_test_epoch_start(self, *args, **kwargs):
-        self.on_validation_epoch_start(*args, **kwargs)
+        self.on_validation_epoch_start(*args, **kwargs, prefix="test")
 
     def on_test_batch_end(self, *args, **kwargs):
         self.on_validation_batch_end(*args, **kwargs)
