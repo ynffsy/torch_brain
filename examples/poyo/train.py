@@ -17,7 +17,7 @@ from omegaconf import DictConfig, OmegaConf
 from temporaldata import Data
 
 from torch_brain.registry import MODALITIY_REGISTRY, ModalitySpec
-from torch_brain.models.poyo import POYOTokenizer, poyo_mp
+from torch_brain.models.poyo import poyo_mp
 from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
 from torch_brain.utils.stitcher import DecodingStitchEvaluator
@@ -77,6 +77,7 @@ class TrainWrapper(L.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
+        batch, extra = batch
         target_values = batch.pop("target_values")
         target_weights = batch.pop("target_weights")
         output_mask = batch.pop("output_mask")
@@ -116,11 +117,12 @@ class TrainWrapper(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
+        batch, extra = batch
         target_values = batch.pop("target_values")
         batch.pop("target_weights")
-        absolute_starts = batch.pop("absolute_start")
-        session_ids = batch.pop("session_id")
-        output_mask = batch.pop("output_mask")
+        absolute_starts = extra.pop("absolute_start")
+        session_ids = extra.pop("session_id")
+        eval_mask = extra.pop("eval_mask")
 
         # forward pass
         output_values = self.model(**batch)
@@ -129,7 +131,7 @@ class TrainWrapper(L.LightningModule):
         batch["target_values"] = target_values
         batch["absolute_start"] = absolute_starts
         batch["session_id"] = session_ids
-        batch["output_mask"] = output_mask
+        batch["eval_mask"] = eval_mask
 
         return output_values
 
@@ -158,13 +160,11 @@ class DataModule(L.LightningDataModule):
         )
         self.train_dataset.disable_data_leakage_check()
 
-        eval_tokenizer = copy.copy(self.tokenizer)
-        eval_tokenizer.eval = True
         self.val_dataset = Dataset(
             root=self.cfg.data_root,
             config=self.cfg.dataset,
             split="valid",
-            transform=eval_tokenizer,
+            transform=self.tokenizer,
         )
         self.val_dataset.disable_data_leakage_check()
 
@@ -172,7 +172,7 @@ class DataModule(L.LightningDataModule):
             root=self.cfg.data_root,
             config=self.cfg.dataset,
             split="test",
-            transform=eval_tokenizer,
+            transform=self.tokenizer,
         )
         self.test_dataset.disable_data_leakage_check()
 
@@ -286,19 +286,10 @@ def main(cfg: DictConfig):
     readout_spec = MODALITIY_REGISTRY[cfg.readout_id]
 
     # make model and tokenizer
-    model = poyo_mp(dim_out=readout_spec.dim)
-
-    tokenizer = POYOTokenizer(
-        unit_tokenizer=model.unit_emb.tokenizer,
-        session_tokenizer=model.session_emb.tokenizer,
-        latent_step=cfg.latent_step,
-        num_latents_per_step=cfg.model.num_latents,
-        readout_spec=readout_spec,
-        sequence_length=cfg.sequence_length,
-    )
+    model = poyo_mp(readout_spec=readout_spec)
 
     # setup data module
-    data_module = DataModule(cfg=cfg, tokenizer=tokenizer)
+    data_module = DataModule(cfg=cfg, tokenizer=model.get_tokenizer())
     data_module.setup()
 
     # register units and sessions

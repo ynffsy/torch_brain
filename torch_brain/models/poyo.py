@@ -58,6 +58,10 @@ class POYO(nn.Module):
         t_min: Minimum timestamp resolution for rotary embeddings
         t_max: Maximum timestamp resolution for rotary embeddings
         dim_out: Dimension of the output
+        decoder_registry (Dict): Registry of the decoders.
+        weight_registry (Dict): Registry of the weights.
+        latent_step (float): Step size for generating latent tokens.
+        num_latents_per_step (int): Number of latents per step.
     """
 
     def __init__(
@@ -73,11 +77,34 @@ class POYO(nn.Module):
         lin_dropout=0.4,
         atn_dropout=0.0,
         emb_init_scale=0.02,
+        sequence_length: float = 1.0,
         t_min=1e-4,
         t_max=4.0,
-        dim_out,
+        latent_step: float,
+        readout_spec: ModalitySpec,
     ):
         super().__init__()
+
+        self.readout_spec = readout_spec
+
+        if not isinstance(sequence_length, float):
+            raise ValueError("sequence_length must be a float")
+        if not sequence_length > 0:
+            raise ValueError("sequence_length must be greater than 0")
+        self.sequence_length = sequence_length
+
+        if not isinstance(latent_step, float):
+            raise ValueError("latent_step must be a float")
+        if not latent_step > 0:
+            raise ValueError("latent_step must be greater than 0")
+        self.latent_step = latent_step
+
+        # check if sequence_length is a multiple of latent_step
+        if abs(sequence_length % latent_step) > 1e-10:
+            self.log.warning(
+                f"sequence_length ({sequence_length}) is not a multiple of latent_step "
+                f"({latent_step}). This is a simple warning, and this behavior is allowed."
+            )
 
         # embeddings
         self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
@@ -132,9 +159,82 @@ class POYO(nn.Module):
         )
 
         # Output projections + loss
-        self.readout = nn.Linear(dim, dim_out)
+        self.readout = nn.Linear(dim, readout_spec.dim)
 
         self.dim = dim
+
+    def tokenize(self, data: Data) -> Dict:
+        # context window
+        start, end = 0, self.sequence_length
+
+        ### prepare input
+        unit_ids = data.units.id
+        spike_unit_index = data.spikes.unit_index
+        spike_timestamps = data.spikes.timestamps
+
+        # create start and end tokens for each unit
+        (
+            se_token_type_index,
+            se_unit_index,
+            se_timestamps,
+        ) = create_start_end_unit_tokens(unit_ids, start, end)
+
+        # append start and end tokens to the spike sequence
+        spike_token_type_index = np.concatenate(
+            [se_token_type_index, np.zeros_like(spike_unit_index)]
+        )
+        spike_unit_index = np.concatenate([se_unit_index, spike_unit_index])
+        spike_timestamps = np.concatenate([se_timestamps, spike_timestamps])
+
+        # unit_index is relative to the recording, so we want it to map it to
+        # the global unit index
+        local_to_global_map = np.array(self.unit_emb.tokenizer(unit_ids))
+        spike_unit_index = local_to_global_map[spike_unit_index]
+
+        ### prepare latents
+        latent_index, latent_timestamps = create_linspace_latent_tokens(
+            start,
+            end,
+            step=self.latent_step,
+            num_latents_per_step=self.num_latents,
+        )
+
+        output_timestamps, output_values, output_weights, eval_mask = (
+            prepare_for_readout(data, self.readout_spec)
+        )
+
+        # create session index for output
+        output_session_index = self.session_emb.tokenizer(data.session)
+        output_session_index = np.repeat(output_session_index, len(output_timestamps))
+
+        batch = {
+            # input sequence
+            "input_unit_index": pad8(spike_unit_index),
+            "input_timestamps": pad8(spike_timestamps),
+            "input_token_type": pad8(spike_token_type_index),
+            "input_mask": track_mask8(spike_unit_index),
+            # latent sequence
+            "latent_index": latent_index,
+            "latent_timestamps": latent_timestamps,
+            # output sequence
+            "output_session_index": pad8(output_session_index),
+            "output_timestamps": pad8(output_timestamps),
+            "output_mask": track_mask8(output_session_index),
+            # ground truth targets
+            "target_values": pad8(output_values),
+            "target_weights": pad8(output_weights),
+        }
+
+        extra = {
+            "session_id": data.session,
+            "absolute_start": data.absolute_start,
+            "eval_mask": pad8(eval_mask),
+        }
+
+        return batch, extra
+
+    def get_tokenizer(self):
+        return self.tokenize
 
     def forward(
         self,
@@ -240,13 +340,12 @@ class POYO(nn.Module):
         return output
 
 
-def poyo_mp(dim_out, ckpt_path=None):
+def poyo_mp(readout_spec, ckpt_path=None):
     if ckpt_path is not None:
         raise NotImplementedError("Loading from checkpoint is not supported yet.")
 
     return POYO(
         dim=64,
-        dim_out=dim_out,
         dim_head=64,
         num_latents=16,
         depth=6,
@@ -255,130 +354,7 @@ def poyo_mp(dim_out, ckpt_path=None):
         ffn_dropout=0.2,
         lin_dropout=0.4,
         atn_dropout=0.2,
+        sequence_length=1.0,
+        latent_step=0.125,
+        readout_spec=readout_spec,
     )
-
-
-class POYOTokenizer:
-    r"""Tokenizer used to tokenize Data for the POYO model.
-
-    This tokenizer can be called as a transform. If you are applying multiple
-    transforms, make sure to apply this one last.
-
-    Args:
-        unit_tokenizer (Callable): Tokenizer for the units.
-        session_tokenizer (Callable): Tokenizer for the sessions.
-        decoder_registry (Dict): Registry of the decoders.
-        weight_registry (Dict): Registry of the weights.
-        latent_step (float): Step size for generating latent tokens.
-        num_latents_per_step (int): Number of latents per step.
-    """
-
-    def __init__(
-        self,
-        unit_tokenizer: Callable,
-        session_tokenizer: Callable,
-        latent_step: float,
-        num_latents_per_step: int,
-        readout_spec: ModalitySpec,
-        sequence_length: float = 1.0,
-        eval: bool = False,
-    ):
-        self.unit_tokenizer = unit_tokenizer
-        self.session_tokenizer = session_tokenizer
-
-        self.readout_spec = readout_spec
-
-        if not isinstance(sequence_length, float):
-            raise ValueError("sequence_length must be a float")
-        if not sequence_length > 0:
-            raise ValueError("sequence_length must be greater than 0")
-        self.sequence_length = sequence_length
-
-        if not isinstance(latent_step, float):
-            raise ValueError("latent_step must be a float")
-        if not latent_step > 0:
-            raise ValueError("latent_step must be greater than 0")
-        self.latent_step = latent_step
-
-        # check if sequence_length is a multiple of latent_step
-        if abs(sequence_length % latent_step) > 1e-10:
-            self.log.warning(
-                f"sequence_length ({sequence_length}) is not a multiple of latent_step "
-                f"({latent_step}). This is a simple warning, and this behavior is allowed."
-            )
-
-        self.latent_step = latent_step
-        self.num_latents_per_step = num_latents_per_step
-        self.sequence_length = sequence_length
-        self.eval = eval
-
-    def __call__(self, data: Data) -> Dict:
-        # context window
-        start, end = 0, self.sequence_length
-
-        ### prepare input
-        unit_ids = data.units.id
-        spike_unit_index = data.spikes.unit_index
-        spike_timestamps = data.spikes.timestamps
-
-        # create start and end tokens for each unit
-        (
-            se_token_type_index,
-            se_unit_index,
-            se_timestamps,
-        ) = create_start_end_unit_tokens(unit_ids, start, end)
-
-        # append start and end tokens to the spike sequence
-        spike_token_type_index = np.concatenate(
-            [se_token_type_index, np.zeros_like(spike_unit_index)]
-        )
-        spike_unit_index = np.concatenate([se_unit_index, spike_unit_index])
-        spike_timestamps = np.concatenate([se_timestamps, spike_timestamps])
-
-        # unit_index is relative to the recording, so we want it to map it to
-        # the global unit index
-        local_to_global_map = np.array(self.unit_tokenizer(unit_ids))
-        spike_unit_index = local_to_global_map[spike_unit_index]
-
-        ### prepare latents
-        latent_index, latent_timestamps = create_linspace_latent_tokens(
-            start,
-            end,
-            step=self.latent_step,
-            num_latents_per_step=self.num_latents_per_step,
-        )
-
-        output_timestamps, output_values, output_weights, eval_mask = (
-            prepare_for_readout(data, self.readout_spec)
-        )
-
-        # create session index for output
-        output_session_index = self.session_tokenizer(data.session)
-        output_session_index = np.repeat(output_session_index, len(output_timestamps))
-
-        batch = {
-            # input sequence
-            "input_unit_index": pad8(spike_unit_index),
-            "input_timestamps": pad8(spike_timestamps),
-            "input_token_type": pad8(spike_token_type_index),
-            "input_mask": track_mask8(spike_unit_index),
-            # latent sequence
-            "latent_index": latent_index,
-            "latent_timestamps": latent_timestamps,
-            # output sequence
-            "output_session_index": pad8(output_session_index),
-            "output_timestamps": pad8(output_timestamps),
-            "output_mask": track_mask8(output_session_index),
-            # ground truth targets
-            "target_values": pad8(output_values),
-            "target_weights": pad8(output_weights),
-        }
-
-        if self.eval:
-            batch["session_id"] = data.session
-            batch["absolute_start"] = data.absolute_start
-
-            if eval_mask is not None:
-                batch["output_mask"] = pad8(eval_mask)
-
-        return batch
