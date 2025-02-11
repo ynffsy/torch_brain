@@ -52,14 +52,16 @@ class TrainWrapper(L.LightningModule):
     def configure_optimizers(self):
         max_lr = self.cfg.optim.base_lr * self.cfg.batch_size  # linear scaling rule
 
-        special_emb_params = list(self.model.unit_emb.parameters()) + list(
-            self.model.session_emb.parameters()
+        special_emb_params = (
+            list(self.model.unit_emb.parameters())
+            + list(self.model.session_emb.parameters())
+            + list(self.model.readout.parameters())
         )
 
         remaining_params = [
             p
             for n, p in self.model.named_parameters()
-            if "unit_emb" not in n and "session_emb" not in n
+            if "unit_emb" not in n and "session_emb" not in n and "readout" not in n
         ]
 
         optimizer = SparseLamb(
