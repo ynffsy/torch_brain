@@ -386,10 +386,6 @@ class Dataset(torch.utils.data.Dataset):
             ans[recording_id] = self.recording_dict[recording_id]["config"]
         return ans
 
-    def get_recording_ids(self):
-        r"""Returns the session ids of the dataset."""
-        return sorted(list(self.recording_dict.keys()))
-
     def _get_unit_ids_with_prefix(self, data: Data) -> np.ndarray:
         r"""Return unit ids with prefix applied"""
         prefix_str = self.unit_id_prefix_fn(data)
@@ -423,11 +419,17 @@ class Dataset(torch.utils.data.Dataset):
             unit_ids_list.extend(unit_ids)
         return unit_ids_list
 
+    def get_session_ids(self):
+        r"""Returns the session ids of the dataset."""
+        session_ids = []
+        for data in self.recording_dict.values():
+            session_ids.append(self._get_session_id_with_prefix(data))
+        return sorted(list(set(session_ids)))
+
     def get_subject_ids(self):
         r"""Returns all subject ids in the dataset."""
         subject_ids = []
-        for recording_id in self.recording_dict.keys():
-            data = self._data_objects[recording_id]
+        for data in self.recording_dict.values():
             subject_ids.append(self._get_subject_id_with_prefix(data))
         return sorted(list(set(subject_ids)))
 

@@ -177,8 +177,7 @@ class DataModule(L.LightningDataModule):
         self.test_dataset.disable_data_leakage_check()
 
     def get_session_ids(self):
-        # In POYO, each recording is a different session
-        return self.train_dataset.get_recording_ids()
+        return self.train_dataset.get_session_ids()
 
     def get_unit_ids(self):
         return self.train_dataset.get_unit_ids()
