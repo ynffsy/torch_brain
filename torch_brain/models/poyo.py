@@ -106,6 +106,8 @@ class POYO(nn.Module):
                 f"({latent_step}). This is a simple warning, and this behavior is allowed."
             )
 
+        self.num_latents = num_latents
+
         # embeddings
         self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
         self.session_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
@@ -228,7 +230,11 @@ class POYO(nn.Module):
         extra = {
             "session_id": data.session,
             "absolute_start": data.absolute_start,
-            "eval_mask": pad8(eval_mask),
+            "eval_mask": (
+                pad8(eval_mask)
+                if eval_mask is not None
+                else track_mask8(output_session_index)
+            ),
         }
 
         return batch, extra
