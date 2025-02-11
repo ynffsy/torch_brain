@@ -375,7 +375,7 @@ class POYOTokenizer:
         }
 
         if self.eval:
-            batch["session_id"] = data.recording_id
+            batch["session_id"] = data.session.id
             batch["absolute_start"] = data.absolute_start
 
             if eval_mask is not None:

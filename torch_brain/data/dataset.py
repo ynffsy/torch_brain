@@ -421,15 +421,15 @@ class Dataset(torch.utils.data.Dataset):
 
     def get_session_ids(self):
         r"""Returns the session ids of the dataset."""
-        session_ids = []
-        for data in self.recording_dict.values():
-            session_ids.append(self._get_session_id_with_prefix(data))
-        return sorted(list(set(session_ids)))
+        ans = []
+        for data in self._data_objects.values():
+            ans.append(self._get_session_id_with_prefix(data))
+        return sorted(ans)
 
     def get_subject_ids(self):
         r"""Returns all subject ids in the dataset."""
         subject_ids = []
-        for data in self.recording_dict.values():
+        for data in self._data_objects.values():
             subject_ids.append(self._get_subject_id_with_prefix(data))
         return sorted(list(set(subject_ids)))
 
