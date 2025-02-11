@@ -285,16 +285,6 @@ class POYOPlusTokenizer:
         # context window
         start, end = 0, self.sequence_length
 
-        ## Make spike unit index start from 0
-        # Step 1: Create the map (number -> "rank"/index)
-        number_to_rank = {}
-        for rank, number in enumerate(data.units.unit_number):
-            number_to_rank[number] = rank
-
-        # Step 2: Use the map to replace each element in data.spikes.unit_index
-        for i, val in enumerate(data.spikes.unit_index):
-            data.spikes.unit_index[i] = number_to_rank[val]
-
         ### prepare input
         unit_ids = data.units.id
         spike_unit_index = data.spikes.unit_index
