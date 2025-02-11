@@ -413,8 +413,7 @@ class Dataset(torch.utils.data.Dataset):
     def get_unit_ids(self):
         r"""Returns all unit ids in the dataset."""
         unit_ids_list = []
-        for recording_id in self.recording_dict.keys():
-            data = self._data_objects[recording_id]
+        for data in self._data_objects.values():
             unit_ids = self._get_unit_ids_with_prefix(data)
             unit_ids_list.extend(unit_ids)
         return unit_ids_list
