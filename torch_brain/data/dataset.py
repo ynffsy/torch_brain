@@ -25,6 +25,11 @@ class DatasetIndex:
     end: float
 
 
+default_session_id_prefix_fn = lambda data: f"{data.brainset.id}/"
+default_unit_id_prefix_fn = lambda data: f"{data.brainset.id}/{data.session.id}/"
+default_subject_id_prefix_fn = lambda data: f"{data.brainset.id}/"
+
+
 class Dataset(torch.utils.data.Dataset):
     r"""This class abstracts a collection of lazily-loaded Data objects. Each data object
     corresponds to a full recording. It is never fully loaded into memory, but rather
@@ -60,12 +65,15 @@ class Dataset(torch.utils.data.Dataset):
             in a session based on a predefined split.
         transform: A transform to apply to the data. This transform should be a callable
             that takes a Data object and returns a Data object.
-        unit_id_prefix_fn: Optional[Callable[[Data], str]]
-            Function to generate prefix strings for unit IDs to ensure uniqueness across the dataset.
-            Takes a Data object as input and returns a string prefix.
-            By default (when None), uses: "<brainset-id>/<session-id>/"
-            Example:
-                >>> unit_id_prefix_fn = lambda data: f"{data.brainset.id}/{data.session.id}/"
+        unit_id_prefix_fn:
+            A function to generate prefix strings for unit IDs to ensure uniqueness across
+            the dataset. It takes a Data object as input and returns a string that would be
+            prefixed to all unit ids in that Data object.
+            Default corresponds to the function `lambda data: f"{data.brainset.id}/{data.session.id}/"`
+        session_id_prefix_fn: Same as unit_id_prefix_fn but for session ids.
+            Default corresponds to the function `lambda data: f"{data.brainset.id}/"`
+        subject_id_prefix_fn: Same as unit_id_prefix_fn but for subject ids.
+            Default corresponds to the function `lambda data: f"{data.brainset.id}/"`
     """
 
     _check_for_data_leakage_flag: bool = True
@@ -80,7 +88,9 @@ class Dataset(torch.utils.data.Dataset):
         recording_id: Optional[str] = None,
         split: Optional[str] = None,
         transform: Optional[Callable[[Data], Any]] = None,
-        unit_id_prefix_fn: Optional[Callable[[Data], str]] = None,
+        unit_id_prefix_fn: Callable[[Data], str] = default_unit_id_prefix_fn,
+        session_id_prefix_fn: Callable[[Data], str] = default_session_id_prefix_fn,
+        subject_id_prefix_fn: Callable[[Data], str] = default_subject_id_prefix_fn,
     ):
         super().__init__()
         self.root = root
@@ -88,6 +98,8 @@ class Dataset(torch.utils.data.Dataset):
         self.split = split
         self.transform = transform
         self.unit_id_prefix_fn = unit_id_prefix_fn
+        self.session_id_prefix_fn = session_id_prefix_fn
+        self.subject_id_prefix_fn = subject_id_prefix_fn
 
         if config is not None:
             assert (
@@ -290,13 +302,13 @@ class Dataset(torch.utils.data.Dataset):
         # TODO: add more tests to make sure that slice does not modify the original data object
         # note there should be no issues as long as the self._data_objects stay lazy
         sample = data.slice(start, end)
-        sample.units.id = self._get_unit_ids_with_prefix(sample)
 
         if self._check_for_data_leakage_flag and self.split is not None:
             sample._check_for_data_leakage(self.split)
 
-        sample.recording_id = recording_id
+        self._update_data_with_prefixed_ids(sample)
         sample.config = self.recording_dict[recording_id]["config"]
+
         return sample
 
     def get_recording_data(self, recording_id: str):
@@ -321,7 +333,7 @@ class Dataset(torch.utils.data.Dataset):
         else:
             data = copy.deepcopy(data)
 
-        data.units.id = self._get_unit_ids_with_prefix(data)
+        self._update_data_with_prefixed_ids(data)
         return data
 
     def get_sampling_intervals(self):
@@ -379,19 +391,28 @@ class Dataset(torch.utils.data.Dataset):
         return sorted(list(self.recording_dict.keys()))
 
     def _get_unit_ids_with_prefix(self, data: Data) -> np.ndarray:
-        r"""Add prefix string to data.units.id and return a new numpy string array.
+        r"""Return unit ids with prefix applied"""
+        prefix_str = self.unit_id_prefix_fn(data)
+        return np.core.defchararray.add(prefix_str, data.units.id.astype(str))
 
-        If `unit_id_prefix_fn` is set (not None), then this function is used
-        to decide the prefix string. Otherwise, the default value is:
-        `<data.brainset.id>/<data.session.id>/`
-        """
-        if self.unit_id_prefix_fn is not None:
-            prefix_str = self.unit_id_prefix_fn(data)
-        else:
-            prefix_str = f"{data.brainset.id}/{data.session.id}/"
+    def _get_session_id_with_prefix(self, data: Data) -> str:
+        r"""Return session id with prefix applied"""
+        return f"{self.session_id_prefix_fn(data)}{data.session.id}"
 
-        unit_ids = data.units.id
-        return np.core.defchararray.add(prefix_str, unit_ids.astype(str))
+    def _get_subject_id_with_prefix(self, data: Data) -> str:
+        r"""Return subject with prefix applied"""
+        return f"{self.subject_id_prefix_fn(data)}{data.subject.id}"
+
+    def _update_data_with_prefixed_ids(self, data: Data):
+        r"""Inplace add prefixes to unit ids, session id, and subect id"""
+        if hasattr(data, "units"):
+            data.units.id = self._get_unit_ids_with_prefix(data)
+
+        if hasattr(data, "session"):
+            data.session.id = self._get_session_id_with_prefix(data)
+
+        if hasattr(data, "subject"):
+            data.subject.id = self._get_subject_id_with_prefix(data)
 
     def get_unit_ids(self):
         r"""Returns all unit ids in the dataset."""
@@ -407,7 +428,7 @@ class Dataset(torch.utils.data.Dataset):
         subject_ids = []
         for recording_id in self.recording_dict.keys():
             data = self._data_objects[recording_id]
-            subject_ids.append(f"{data.brainset.id}/{data.subject.id}")
+            subject_ids.append(self._get_subject_id_with_prefix(data))
         return sorted(list(set(subject_ids)))
 
     def disable_data_leakage_check(self):

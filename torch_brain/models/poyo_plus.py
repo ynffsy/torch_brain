@@ -318,7 +318,7 @@ class POYOPlusTokenizer:
         )
 
         ### prepare outputs
-        session_index = self.session_tokenizer(data.recording_id)
+        session_index = self.session_tokenizer(data.session.id)
 
         (
             output_timestamps,

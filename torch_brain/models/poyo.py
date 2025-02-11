@@ -353,7 +353,7 @@ class POYOTokenizer:
         )
 
         # create session index for output
-        output_session_index = self.session_tokenizer(data.recording_id)
+        output_session_index = self.session_tokenizer(data.session.id)
         output_session_index = np.repeat(output_session_index, len(output_timestamps))
 
         batch = {
