@@ -2,15 +2,53 @@
 - selection:
   - brainset: andersen_nih
     sessions:
-    - n1_20190412_CenterStart
-    - n1_20190517_CenterStart
-    - n1_20190528_CenterStart
-    - n2_20240516_CenterStart
-    - n2_20240530_CenterStart
-    - n2_20240816_CenterStart
-    - n2_20240820_CenterStart
-    - n2_20241015_CenterStart
-    - n2_20241022_CenterStart
+    # - n1_20190412_CenterStart
+    # - n1_20190517_CenterStart
+    # - n1_20190528_CenterStart
+
+    # - n2_20240516_CenterStart
+    # - n2_20240530_CenterStart
+    # - n2_20240816_CenterStart
+    # - n2_20240820_CenterStart
+    # - n2_20241015_CenterStart
+    # - n2_20241022_CenterStart
+
+    # - n1_MC_20190412_CenterStart
+    # - n1_MC_20190517_CenterStart
+    # - n1_MC_20190528_CenterStart
+
+    # - n1_PPC_20190412_CenterStart
+    # - n1_PPC_20190517_CenterStart
+    # - n1_PPC_20190528_CenterStart
+
+    - n2_MC-LAT_20240516_CenterStart
+    - n2_MC-LAT_20240530_CenterStart
+    - n2_MC-LAT_20240816_CenterStart
+    - n2_MC-LAT_20240820_CenterStart
+    - n2_MC-LAT_20241015_CenterStart
+    - n2_MC-LAT_20241022_CenterStart
+
+    # - n2_MC-MED_20240516_CenterStart
+    # - n2_MC-MED_20240530_CenterStart
+    # - n2_MC-MED_20240816_CenterStart
+    # - n2_MC-MED_20240820_CenterStart
+    # - n2_MC-MED_20241015_CenterStart
+    # - n2_MC-MED_20241022_CenterStart
+
+    # - n2_PPC-SPL_20240516_CenterStart
+    # - n2_PPC-SPL_20240530_CenterStart
+    # - n2_PPC-SPL_20240816_CenterStart
+    # - n2_PPC-SPL_20240820_CenterStart
+    # - n2_PPC-SPL_20241015_CenterStart
+    # - n2_PPC-SPL_20241022_CenterStart
+
+    # - n2_PPC-IPL_20240516_CenterStart
+    # - n2_PPC-IPL_20240530_CenterStart
+    # - n2_PPC-IPL_20240816_CenterStart
+    # - n2_PPC-IPL_20240820_CenterStart
+    # - n2_PPC-IPL_20241015_CenterStart
+    # - n2_PPC-IPL_20241022_CenterStart
+
   config:
     multitask_readout:
       - readout_id: cursor_direction_to_target_2d
