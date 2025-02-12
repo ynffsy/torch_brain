@@ -2,6 +2,7 @@
 - selection:
   - brainset: andersen_nih
     sessions:
+    ## CenterStart sessions
     # - n1_20190412_CenterStart
     # - n1_20190517_CenterStart
     # - n1_20190528_CenterStart
@@ -13,9 +14,9 @@
     # - n2_20241015_CenterStart
     # - n2_20241022_CenterStart
 
-    # - n1_MC_20190412_CenterStart
-    # - n1_MC_20190517_CenterStart
-    # - n1_MC_20190528_CenterStart
+    - n1_MC_20190412_CenterStart
+    - n1_MC_20190517_CenterStart
+    - n1_MC_20190528_CenterStart
 
     # - n1_PPC_20190412_CenterStart
     # - n1_PPC_20190517_CenterStart
@@ -28,12 +29,12 @@
     - n2_MC-LAT_20241015_CenterStart
     - n2_MC-LAT_20241022_CenterStart
 
-    # - n2_MC-MED_20240516_CenterStart
-    # - n2_MC-MED_20240530_CenterStart
-    # - n2_MC-MED_20240816_CenterStart
-    # - n2_MC-MED_20240820_CenterStart
-    # - n2_MC-MED_20241015_CenterStart
-    # - n2_MC-MED_20241022_CenterStart
+    - n2_MC-MED_20240516_CenterStart
+    - n2_MC-MED_20240530_CenterStart
+    - n2_MC-MED_20240816_CenterStart
+    - n2_MC-MED_20240820_CenterStart
+    - n2_MC-MED_20241015_CenterStart
+    - n2_MC-MED_20241022_CenterStart
 
     # - n2_PPC-SPL_20240516_CenterStart
     # - n2_PPC-SPL_20240530_CenterStart
@@ -49,14 +50,101 @@
     # - n2_PPC-IPL_20241015_CenterStart
     # - n2_PPC-IPL_20241022_CenterStart
 
+    ## CenterOut sessions
+    - n1_MC_20230818_CenterOut
+    - n1_MC_20230824_CenterOut
+    - n1_MC_20230901_CenterOut
+    - n1_MC_20230908_CenterOut
+    - n1_MC_20230929_CenterOut
+    - n1_MC_20231208_CenterOut
+    - n1_MC_20240912_CenterOut
+    - n1_MC_20240918_CenterOut
+    - n1_MC_20240927_CenterOut
+    - n1_MC_20241003_CenterOut
+    - n1_MC_20241011_CenterOut
+    - n1_MC_20241018_CenterOut
+
+    - n2_MC-LAT_20240222_CenterOut
+    - n2_MC-LAT_20240229_CenterOut
+    - n2_MC-LAT_20240306_CenterOut
+    - n2_MC-LAT_20240308_CenterOut
+    - n2_MC-LAT_20240312_CenterOut
+    - n2_MC-LAT_20240314_CenterOut
+    - n2_MC-LAT_20240319_CenterOut
+    - n2_MC-LAT_20240328_CenterOut
+    - n2_MC-LAT_20240402_CenterOut
+    - n2_MC-LAT_20240409_CenterOut
+    - n2_MC-LAT_20240411_CenterOut
+    - n2_MC-LAT_20240418_CenterOut
+    - n2_MC-LAT_20240430_CenterOut
+    - n2_MC-LAT_20240502_CenterOut
+    - n2_MC-LAT_20240503_CenterOut
+    - n2_MC-LAT_20240509_CenterOut
+    - n2_MC-LAT_20240510_CenterOut
+    - n2_MC-LAT_20240516_CenterOut
+    - n2_MC-LAT_20240521_CenterOut
+    - n2_MC-LAT_20240530_CenterOut
+    - n2_MC-LAT_20240618_CenterOut
+    - n2_MC-LAT_20240625_CenterOut
+    - n2_MC-LAT_20240702_CenterOut
+    - n2_MC-LAT_20240709_CenterOut
+    - n2_MC-LAT_20240716_CenterOut
+    - n2_MC-LAT_20240816_CenterOut
+    - n2_MC-LAT_20240820_CenterOut
+    - n2_MC-LAT_20240827_CenterOut
+    - n2_MC-LAT_20240920_CenterOut
+    - n2_MC-LAT_20240924_CenterOut
+    - n2_MC-LAT_20241001_CenterOut
+    - n2_MC-LAT_20241015_CenterOut
+    - n2_MC-LAT_20241022_CenterOut
+    - n2_MC-LAT_20241105_CenterOut
+    - n2_MC-LAT_20241211_CenterOut
+
+    - n2_MC-MED_20240222_CenterOut
+    - n2_MC-MED_20240229_CenterOut
+    - n2_MC-MED_20240306_CenterOut
+    - n2_MC-MED_20240308_CenterOut
+    - n2_MC-MED_20240312_CenterOut
+    - n2_MC-MED_20240314_CenterOut
+    - n2_MC-MED_20240319_CenterOut
+    - n2_MC-MED_20240328_CenterOut
+    - n2_MC-MED_20240402_CenterOut
+    - n2_MC-MED_20240409_CenterOut
+    - n2_MC-MED_20240411_CenterOut
+    - n2_MC-MED_20240418_CenterOut
+    - n2_MC-MED_20240430_CenterOut
+    - n2_MC-MED_20240502_CenterOut
+    - n2_MC-MED_20240503_CenterOut
+    - n2_MC-MED_20240509_CenterOut
+    - n2_MC-MED_20240510_CenterOut
+    - n2_MC-MED_20240516_CenterOut
+    - n2_MC-MED_20240521_CenterOut
+    - n2_MC-MED_20240530_CenterOut
+    - n2_MC-MED_20240618_CenterOut
+    - n2_MC-MED_20240625_CenterOut
+    - n2_MC-MED_20240702_CenterOut
+    - n2_MC-MED_20240709_CenterOut
+    - n2_MC-MED_20240716_CenterOut
+    - n2_MC-MED_20240816_CenterOut
+    - n2_MC-MED_20240820_CenterOut
+    - n2_MC-MED_20240827_CenterOut
+    - n2_MC-MED_20240920_CenterOut
+    - n2_MC-MED_20240924_CenterOut
+    - n2_MC-MED_20241001_CenterOut
+    - n2_MC-MED_20241015_CenterOut
+    - n2_MC-MED_20241022_CenterOut
+    - n2_MC-MED_20241105_CenterOut
+    - n2_MC-MED_20241211_CenterOut
+
+
   config:
     multitask_readout:
       - readout_id: cursor_direction_to_target_2d
         normalize_mean: 0.
-        normalize_std: 20.
+        normalize_std: 1.
         weights:
-          movement_phases.hold_period: 0.1
-          movement_phases.reach_period: 5.0
+          # movement_phases.hold_period: 0.0
+          movement_phases.reach_period: 1.0
         metrics:
           - metric:
               _target_: torchmetrics.R2Score
