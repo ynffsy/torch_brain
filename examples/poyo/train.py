@@ -1,3 +1,4 @@
+from functools import partial
 import logging
 from typing import Callable, Dict
 import copy
@@ -123,16 +124,16 @@ class TrainWrapper(L.LightningModule):
 
         # prepare data for evaluator
         # (goes to DecodingStitchEvaluator.on_validation_batch_end)
-        to_evaluator = DataForDecodingStitchEvaluator(
+        data_for_eval = DataForDecodingStitchEvaluator(
             timestamps=batch["model_input"]["output_timestamps"],
             preds=output_values,
             targets=batch["target_values"],
-            eval_mask=batch["eval_mask"],
+            eval_masks=batch["eval_mask"],
             session_ids=batch["session_id"],
             absolute_starts=batch["absolute_start"],
         )
 
-        return to_evaluator
+        return data_for_eval
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
@@ -165,7 +166,7 @@ class DataModule(L.LightningDataModule):
             root=self.cfg.data_root,
             config=self.cfg.dataset,
             split="valid",
-            transform=model.tokenize,
+            transform=partial(model.tokenize, eval_mode=True),
         )
         self.val_dataset.disable_data_leakage_check()
 
@@ -173,7 +174,7 @@ class DataModule(L.LightningDataModule):
             root=self.cfg.data_root,
             config=self.cfg.dataset,
             split="test",
-            transform=model.tokenize,
+            transform=partial(model.tokenize, eval_mode=True),
         )
         self.test_dataset.disable_data_leakage_check()
 

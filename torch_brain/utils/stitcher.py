@@ -77,10 +77,12 @@ def stitch(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
 
 @dataclass
 class DataForDecodingStitchEvaluator:
-    timestamps: torch.FloatTensor  # Batch x T_max
+    r"""A batch's worth of data for :class:`DecodingStitchEvaluator`"""
+
+    timestamps: torch.FloatTensor  # B x T_max
     preds: torch.FloatTensor  # B x T_max x D_output
     targets: torch.FloatTensor  # B x T_max x D_output
-    eval_mask: torch.BoolTensor  # B x T_max
+    eval_masks: torch.BoolTensor  # B x T_max
     session_ids: list  # A list of session ID strings, 1 for each batch
     absolute_starts: torch.Tensor  # Batch
 
@@ -176,7 +178,7 @@ class DecodingStitchEvaluator(L.Callback):
         # Update the cache with the predictions, targets, and timestamps
         batch_size = len(data.timestamps)
         for i in range(batch_size):
-            mask = data.eval_mask[i]
+            mask = data.eval_masks[i]
             session_id = data.session_ids[i]
             absolute_start = data.absolute_starts[i]
 

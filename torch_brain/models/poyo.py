@@ -252,7 +252,7 @@ class POYO(nn.Module):
 
         return output
 
-    def tokenize(self, data: Data) -> Dict:
+    def tokenize(self, data: Data, eval_mode: bool = False) -> Dict:
         r"""Tokenizer used to tokenize Data for the POYO model.
 
         This tokenizer can be called as a transform. If you are applying multiple
@@ -322,11 +322,17 @@ class POYO(nn.Module):
             # ground truth targets
             "target_values": pad8(output_values),
             "target_weights": pad8(output_weights),
-            # extra data needed for evaluation
-            "session_id": data.session.id,
-            "absolute_start": data.absolute_start,
-            "eval_mask": pad8(eval_mask) if eval_mask is not None else None,
         }
+
+        if eval_mode:
+            data_dict.update(
+                {
+                    # extra data needed for evaluation
+                    "session_id": data.session.id,
+                    "absolute_start": data.absolute_start,
+                    "eval_mask": pad8(eval_mask) if eval_mask is not None else None,
+                }
+            )
 
         return data_dict
 
