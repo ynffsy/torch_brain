@@ -290,7 +290,7 @@ def main(cfg: DictConfig):
     # get modality details
     readout_spec = MODALITIY_REGISTRY[cfg.readout_id]
 
-    # make model and dota module
+    # make model and data module
     model = poyo_mp(readout_spec=readout_spec)
     data_module = DataModule(cfg=cfg)
     data_module.setup_dataset_and_link_model(model)
