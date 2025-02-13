@@ -305,7 +305,7 @@ class POYO(nn.Module):
         output_session_index = np.repeat(output_session_index, len(output_timestamps))
 
         data_dict = {
-            "model_input": {
+            "model_inputs": {
                 # input sequence (keys/values for the encoder)
                 "input_unit_index": pad8(spike_unit_index),
                 "input_timestamps": pad8(spike_timestamps),

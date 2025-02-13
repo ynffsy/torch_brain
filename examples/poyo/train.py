@@ -83,10 +83,10 @@ class TrainWrapper(L.LightningModule):
     def training_step(self, batch, batch_idx):
 
         # forward pass
-        output_values = self.model(**batch["model_input"])
+        output_values = self.model(**batch["model_inputs"])
 
         # compute loss
-        mask = batch["model_input"]["output_mask"]
+        mask = batch["model_inputs"]["output_mask"]
         output_values = output_values[mask]
         target_values = batch["target_values"][mask]
         target_weights = batch["target_weights"][mask]
@@ -111,7 +111,7 @@ class TrainWrapper(L.LightningModule):
         #     self.log(f"targets/mean_{name}", targets.mean())
         #     self.log(f"targets/std_{name}", targets.std())
 
-        unit_index = batch["model_input"]["input_unit_index"].float()
+        unit_index = batch["model_inputs"]["input_unit_index"].float()
         self.log("inputs/mean_unit_index", unit_index.mean())
         self.log("inputs/std_unit_index", unit_index.std())
 
@@ -120,12 +120,12 @@ class TrainWrapper(L.LightningModule):
     def validation_step(self, batch, batch_idx):
 
         # forward pass
-        output_values = self.model(**batch["model_input"])
+        output_values = self.model(**batch["model_inputs"])
 
         # prepare data for evaluator
         # (goes to DecodingStitchEvaluator.on_validation_batch_end)
         data_for_eval = DataForDecodingStitchEvaluator(
-            timestamps=batch["model_input"]["output_timestamps"],
+            timestamps=batch["model_inputs"]["output_timestamps"],
             preds=output_values,
             targets=batch["target_values"],
             eval_masks=batch["eval_mask"],
