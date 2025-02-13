@@ -24,8 +24,8 @@ from torch_brain.utils import (
 
 
 class POYO(nn.Module):
-    """POYO model from `"A Unified, Scalable Framework for Neural Population Decoding"
-    <https://arxiv.org/abs/2310.16046>`.
+    """POYO model from `Azabou et al. 2023, A Unified, Scalable Framework for Neural Population Decoding
+    <https://arxiv.org/abs/2310.16046>`_.
 
     POYO is a transformer-based model for neural decoding from electrophysiological
     recordings.
@@ -353,7 +353,7 @@ class POYOTokenizer:
         )
 
         # create session index for output
-        output_session_index = self.session_tokenizer(data.session)
+        output_session_index = self.session_tokenizer(data.session.id)
         output_session_index = np.repeat(output_session_index, len(output_timestamps))
 
         batch = {
@@ -375,7 +375,7 @@ class POYOTokenizer:
         }
 
         if self.eval:
-            batch["session_id"] = data.session
+            batch["session_id"] = data.session.id
             batch["absolute_start"] = data.absolute_start
 
             if eval_mask is not None:

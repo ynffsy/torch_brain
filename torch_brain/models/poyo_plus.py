@@ -24,8 +24,8 @@ from torch_brain.utils import (
 
 
 class POYOPlus(nn.Module):
-    """POYO+ model from `"Multi-session, multi-task neural decoding from distinct
-    cell-types and brain regions" <https://arxiv.org/abs/2409.15666>`_.
+    """POYO+ model from `Azabou et al. 2025, Multi-session, multi-task neural decoding
+    from distinct cell-types and brain regions <https://openreview.net/forum?id=IuU0wcO0mo>`_.
 
     POYO+ is a transformer-based model for neural decoding from population recordings.
     It extends the POYO architecture with multiple task-specific decoders.
@@ -318,7 +318,7 @@ class POYOPlusTokenizer:
         )
 
         ### prepare outputs
-        session_index = self.session_tokenizer(data.session)
+        session_index = self.session_tokenizer(data.session.id)
 
         (
             output_timestamps,
@@ -353,7 +353,7 @@ class POYOPlusTokenizer:
 
         if self.eval:
             # we will add a few more fields needed for evaluation
-            batch["session_id"] = data.session
+            batch["session_id"] = data.session.id
             batch["absolute_start"] = data.absolute_start
             batch["eval_mask"] = chain(output_eval_mask, allow_missing_keys=True)
 
