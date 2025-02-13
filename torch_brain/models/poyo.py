@@ -83,7 +83,7 @@ class POYO(nn.Module):
     ):
         super().__init__()
 
-        self._ensure_valid_params(sequence_length, latent_step)
+        self._validate_params(sequence_length, latent_step)
 
         self.sequence_length = sequence_length
         self.latent_step = latent_step
@@ -336,7 +336,7 @@ class POYO(nn.Module):
 
         return data_dict
 
-    def _ensure_valid_params(self, sequence_length, latent_step):
+    def _validate_params(self, sequence_length, latent_step):
         r"""Ensure: sequence_length, and latent_step are floating point numbers greater
         than zero. And sequence_length is a multiple of latent_step.
         """
