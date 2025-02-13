@@ -166,7 +166,7 @@ class DataModule(L.LightningDataModule):
             root=self.cfg.data_root,
             config=self.cfg.dataset,
             split="valid",
-            transform=partial(model.tokenize, eval_mode=True),
+            transform=model.tokenize,
         )
         self.val_dataset.disable_data_leakage_check()
 
@@ -174,7 +174,7 @@ class DataModule(L.LightningDataModule):
             root=self.cfg.data_root,
             config=self.cfg.dataset,
             split="test",
-            transform=partial(model.tokenize, eval_mode=True),
+            transform=model.tokenize,
         )
         self.test_dataset.disable_data_leakage_check()
 
