@@ -1,4 +1,5 @@
 from typing import Dict, List, Optional, Tuple
+import logging
 
 import numpy as np
 import torch.nn as nn
@@ -363,7 +364,7 @@ class POYOPlus(nn.Module):
 
         # check if sequence_length is a multiple of latent_step
         if abs(sequence_length % latent_step) > 1e-10:
-            self.log.warning(
+            logging.warning(
                 f"sequence_length ({sequence_length}) is not a multiple of latent_step "
                 f"({latent_step}). This is a simple warning, and this behavior is allowed."
             )
