@@ -76,23 +76,23 @@ def stitch(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
 
 
 class DecodingStitchEvaluator:
-    r"""A convenient stitching and evaluation framework to use when:
-     1. Your model outputs have associated timestamps
-     2. And your sampling strategy involves overlapping time windows, requiring
-        stitching to coalesce the predictions and targets before computing the
-        evaluation metric.
-     3. (Optional) You are training on multiple sessions/recordings and want to
-        compute metrics for each session individually.
+    r"""A convenient stitching and evaluation framework for handling overlapping time windows in model predictions.
 
-    This class handles stitching of the predictions and targets for each
-    session and computes the metric for each session. The average metric value
-    across all sessions is also computed and logged.
-    Since the stitching is done only on tensors on the same GPU, sequences that are
-    split across multiple GPUs will not be stitched together. In this case, it is
-    recommended to use a stitching-aware sampler like
-    :class:`~torch_brain.data.sampler.DistributedStitchingFixedWindowSampler`
-    which ensures that the sequences are split across GPUs in a way that allows for
-    correct stitching.
+    This class is useful when:
+    1. Your model outputs have associated timestamps
+    2. Your sampling strategy involves overlapping time windows, requiring stitching to
+       coalesce the predictions and targets before computing evaluation metrics
+    3. (Optional) You are training on multiple sessions/recordings and want to compute
+       metrics for each session individually
+
+    This class handles stitching of predictions and targets for each session and computes
+    metrics individually. The average metric across all sessions is also computed and logged.
+
+    Note:
+        Since stitching is done only on tensors on the same GPU, sequences split across
+        multiple GPUs will not be stitched together. In this case, use a stitching-aware
+        sampler like :class:`~torch_brain.data.sampler.DistributedStitchingFixedWindowSampler`
+        which ensures correct sequence splitting across GPUs.
 
     This callback is called _after_ the validation_step, and expects you to return a
     :class:`~DataForDecodingStitchEvaluator` object from the validation_step lightning
@@ -104,6 +104,27 @@ class DecodingStitchEvaluator:
     timestamps for each session. The cache is updated using :meth:`.update`,
     once you're ready to stitch and compute metrics, call :meth:`.compute`, and reset
     the cache with :meth:`.reset`.
+
+    Example:
+        >>> # Initialize evaluator
+        >>> stitch_evaluator = DecodingStitchEvaluator(
+        ...     session_ids=session_ids,
+        ...     modality_spec=modality_spec
+        ... )
+        >>>
+        >>> # Update cache at end of each validation/test batch
+        >>> stitch_evaluator.update(
+        ...     timestamps=batch_timestamps,     # FloatTensor, [B, N]
+        ...     preds=batch_predictions,         # Tensor, [B, N, D]
+        ...     targets=batch_targets,           # Tensor, [B, N, D]
+        ...     eval_masks=batch_masks,          # BoolTensor, [B, N]
+        ...     session_ids=batch_session_ids,   # List[str], length=B
+        ...     absolute_starts=batch_starts,    # FloatTensor, [B]
+        ... )
+        >>>
+        >>> # Compute metrics at end of validation/test epoch
+        >>> metric_dict = stitch_evaluator.compute()
+        >>> stitch_evaluator.reset()  # Reset cache for next epoch
     """
 
     def __init__(
