@@ -50,7 +50,8 @@ class TrainWrapper(L.LightningModule):
         self.save_hyperparameters(OmegaConf.to_container(cfg))
 
     def configure_optimizers(self):
-        max_lr = self.cfg.optim.base_lr * self.cfg.batch_size  # linear scaling rule
+        # max_lr = self.cfg.optim.base_lr * self.cfg.batch_size  # linear scaling rule
+        max_lr = self.cfg.optim.base_lr * 128
 
         optimizer = Lamb(
             self.model.parameters(),
