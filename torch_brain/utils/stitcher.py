@@ -75,18 +75,6 @@ def stitch(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
     return averages
 
 
-@dataclass
-class DataForDecodingStitchEvaluator:
-    r"""A batch's worth of data for :class:`DecodingStitchEvaluator`"""
-
-    timestamps: torch.FloatTensor  # B x T_max
-    preds: torch.FloatTensor  # B x T_max x D_output
-    targets: torch.FloatTensor  # B x T_max x D_output
-    eval_masks: torch.BoolTensor  # B x T_max
-    session_ids: List[str]  # A list of session ID strings, 1 for each sample in batch
-    absolute_starts: torch.Tensor  # Batch
-
-
 class DecodingStitchEvaluator:
     r"""A convenient stitching and evaluation framework to use when:
      1. Your model outputs have associated timestamps

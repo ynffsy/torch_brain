@@ -23,10 +23,7 @@ from torch_brain.registry import MODALITIY_REGISTRY, ModalitySpec
 from torch_brain.models.poyo import POYO, poyo_mp
 from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
-from torch_brain.utils.stitcher import (
-    DecodingStitchEvaluator,
-    DataForDecodingStitchEvaluator,
-)
+from torch_brain.utils.stitcher import DecodingStitchEvaluator
 from torch_brain.data import Dataset, collate
 from torch_brain.nn import compute_loss_or_metric
 from torch_brain.data.sampler import (
@@ -171,8 +168,6 @@ class TrainWrapper(L.LightningModule):
                     logger.experiment.log(
                         {f"{prefix}_metrics": wandb.Table(dataframe=metric_df)}
                     )
-
-            logging.info("f")
 
 
 class DataModule(L.LightningDataModule):
@@ -331,6 +326,7 @@ def main(cfg: DictConfig):
     data_module = DataModule(cfg=cfg)
     data_module.setup_dataset_and_link_model(model)
 
+    # setup the stitching evaluator
     stitch_evaluator = DecodingStitchEvaluator(
         session_ids=data_module.get_session_ids(),
         modality_spec=readout_spec,
