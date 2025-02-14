@@ -28,7 +28,10 @@ from torch_brain.registry import MODALITIY_REGISTRY
 from torch_brain.transforms import Compose
 from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
-from torch_brain.utils.stitcher import MultiTaskDecodingStitchEvaluator
+from torch_brain.utils.stitcher import (
+    MultiTaskDecodingStitchEvaluator,
+    DataForMultiTaskDecodingStitchEvaluator,
+)
 
 
 # higher speed on machines with tensor cores
@@ -131,22 +134,23 @@ class TrainWrapper(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        target_values = batch.pop("target_values")
-        batch.pop("target_weights")
-        absolute_starts = batch.pop("absolute_start")
-        session_ids = batch.pop("session_id")
-        eval_mask = batch.pop("eval_mask")
 
         # forward pass
         output_values = self.model(**batch["model_inputs"], unpack_output=True)
 
-        # add removed elements back to batch
-        batch["target_values"] = target_values
-        batch["absolute_start"] = absolute_starts
-        batch["session_id"] = session_ids
-        batch["eval_mask"] = eval_mask
+        # prepare data for evaluator
+        # (goes to MultiTaskDecodingStitchEvaluator.on_validation_batch_end)
+        data_for_eval = DataForMultiTaskDecodingStitchEvaluator(
+            timestamps=batch["model_inputs"]["output_timestamps"],
+            preds=output_values,
+            targets=batch["target_values"],
+            eval_masks=batch["eval_mask"],
+            session_ids=batch["session_id"],
+            absolute_starts=batch["absolute_start"],
+            decoder_indices=batch["model_inputs"]["output_decoder_index"],
+        )
 
-        return output_values
+        return data_for_eval
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)

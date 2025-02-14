@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import logging
 from collections import defaultdict
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, List, Optional
 
 import hydra
 import numpy as np
@@ -83,7 +83,7 @@ class DataForDecodingStitchEvaluator:
     preds: torch.FloatTensor  # B x T_max x D_output
     targets: torch.FloatTensor  # B x T_max x D_output
     eval_masks: torch.BoolTensor  # B x T_max
-    session_ids: list  # A list of session ID strings, 1 for each batch
+    session_ids: List[str]  # A list of session ID strings, 1 for each sample in batch
     absolute_starts: torch.Tensor  # Batch
 
 
@@ -243,6 +243,19 @@ class DecodingStitchEvaluator(L.Callback):
 
     def on_test_epoch_end(self, *args, **kwargs):
         self.on_validation_epoch_end(*args, **kwargs, prefix="test")
+
+
+@dataclass
+class DataForMultiTaskDecodingStitchEvaluator:
+    r"""A batch's worth of data for :class:`DecodingStitchEvaluator`"""
+
+    timestamps: torch.FloatTensor  # B x T_max
+    preds: torch.FloatTensor  # B x T_max x D_output
+    targets: torch.FloatTensor  # B x T_max x D_output
+    eval_masks: torch.BoolTensor  # B x T_max
+    session_ids: List[str]  # A list of session ID strings, 1 for each sample in batch
+    absolute_starts: torch.Tensor  # Batch
+    decoder_indices: torch.LongTensor  # B x T_max
 
 
 class MultiTaskDecodingStitchEvaluator(L.Callback):
