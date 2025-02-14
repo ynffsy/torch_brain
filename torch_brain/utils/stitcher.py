@@ -140,7 +140,7 @@ class DecodingStitchEvaluator:
 
     def _init_cache(self):
         # Cache to store the predictions, targets, and timestamps for each
-        # validation step. this will be coalesced at the end of the validation,
+        # validation step. This will be coalesced at the end of the validation,
         # using the stitch function.
         self.cache = defaultdict(
             lambda: {
