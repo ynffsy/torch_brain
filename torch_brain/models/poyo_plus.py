@@ -48,10 +48,15 @@ class POYOPlus(nn.Module):
         to the appropriate output dimension required by each task.
 
     Args:
+        sequence_length: Maximum duration of the input spike sequence (in seconds)
+        readout_specs: Specifications for each prediction task. This is a dictionary
+            with strings as keys (task names), and :class:`torch_brain.registry.ModalitySpec`
+            as values. One key-value pair for each prediction task.
+        latent_step: Timestep of the latent grid (in seconds)
+        num_latents_per_step: Number of unique latent tokens (repeated at every latent step)
         dim: Dimension of all embeddings
-        dim_head: Dimension of each attention head
-        num_latents_per_step: Number of unique latent tokens
         depth: Number of processing layers
+        dim_head: Dimension of each attention head
         cross_heads: Number of attention heads used in a cross-attention layer
         self_heads: Number of attention heads used in a self-attention layer
         ffn_dropout: Dropout rate for feed-forward networks
@@ -60,9 +65,6 @@ class POYOPlus(nn.Module):
         emb_init_scale: Scale for embedding initialization
         t_min: Minimum timestamp resolution for rotary embeddings
         t_max: Maximum timestamp resolution for rotary embeddings
-        readout_specs: Specifications for each prediction task. This is a dictionary
-            with strings as keys (task names), and :class:`torch_brain.registry.ModalitySpec`
-            as values. One key-value pair for each prediction task.
     """
 
     def __init__(
