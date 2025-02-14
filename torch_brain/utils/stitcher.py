@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import logging
 from collections import defaultdict
-from typing import Callable, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 
 import hydra
 import numpy as np
@@ -247,15 +247,18 @@ class DecodingStitchEvaluator(L.Callback):
 
 @dataclass
 class DataForMultiTaskDecodingStitchEvaluator:
-    r"""A batch's worth of data for :class:`DecodingStitchEvaluator`"""
+    r"""A batch's worth of data for :class:`MultiTaskDecodingStitchEvaluator`"""
 
     timestamps: torch.FloatTensor  # B x T_max
-    preds: torch.FloatTensor  # B x T_max x D_output
-    targets: torch.FloatTensor  # B x T_max x D_output
-    eval_masks: torch.BoolTensor  # B x T_max
+    preds: List[Dict[str, torch.Tensor]]  # B-long list, Dict keys are task names
+    targets: List[Dict[str, torch.Tensor]]  #  B-long list, Dict keys are task names
+    decoder_indices: torch.LongTensor  # B x T_max
+    # eval_masks: Keyed by task names, each tensor is mask that can be applied to a
+    # task-concatenated tensor of predictions (look at output format of
+    # `torch_brain.nn.multitask_readout.MultitaskReadout`)
+    eval_masks: Dict[str, torch.BoolTensor]
     session_ids: List[str]  # A list of session ID strings, 1 for each sample in batch
     absolute_starts: torch.Tensor  # Batch
-    decoder_indices: torch.LongTensor  # B x T_max
 
 
 class MultiTaskDecodingStitchEvaluator(L.Callback):
@@ -284,22 +287,21 @@ class MultiTaskDecodingStitchEvaluator(L.Callback):
             self.sequence_index, return_counts=True
         )
 
-    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-        target_values = batch.pop("target_values")
-        absolute_starts = batch.pop("absolute_start")
-        session_ids = batch.pop("session_id")
-        eval_masks = batch.pop("eval_mask")
-
-        # forward pass
-        output_values = outputs  # pl_module.model(**batch, unpack_output=True)
-
+    def on_validation_batch_end(
+        self,
+        trainer: L.Trainer,
+        pl_module: L.LightningModule,
+        data: DataForMultiTaskDecodingStitchEvaluator,
+        *args,
+        **kwargs,
+    ):
         # update the cache with the predictions and targets
-        for readout_index in torch.unique(batch["output_decoder_index"]):
+        for readout_index in torch.unique(data.decoder_indices):
             if readout_index.item() == 0:
                 # skip the padding token
                 continue
 
-            mask = batch["output_decoder_index"] == readout_index
+            mask = data.decoder_indices == readout_index
             readout_id = torch_brain.get_modality_by_id(readout_index.item())
 
             token_sample_idx = torch.where(mask)[0]
@@ -307,13 +309,13 @@ class MultiTaskDecodingStitchEvaluator(L.Callback):
             curr_sample_ptr = self.sample_ptr
 
             for i in torch.unique(token_sample_idx):
-                pred = output_values[i][readout_id]
-                target = target_values[readout_id][token_sample_idx == i]
+                pred = data.preds[i][readout_id]
+                target = data.targets[readout_id][token_sample_idx == i]
                 timestamps = (
-                    batch["output_timestamps"][mask][token_sample_idx == i]
-                    + absolute_starts[i]
+                    data.timestamps[mask][token_sample_idx == i]
+                    + data.absolute_starts[i]
                 )
-                eval_mask = eval_masks[readout_id][token_sample_idx == i]
+                eval_mask = data.eval_masks[readout_id][token_sample_idx == i]
 
                 timestamps = timestamps[eval_mask]
                 pred = pred[eval_mask]
@@ -332,13 +334,13 @@ class MultiTaskDecodingStitchEvaluator(L.Callback):
                 curr_sample_ptr += 1
 
         # update counter then check if the cache should be flushed
-        for i in range(len(output_values)):
+        for i in range(len(data.preds)):
             j = self.sequence_index[self.sample_ptr]
             self.counter[j] += 1
             self.sample_ptr += 1
 
             if self.counter[j] >= self.cache_flush_threshold[j]:
-                self.flush_cache(j, session_id=session_ids[i])
+                self.flush_cache(j, session_id=data.session_ids[i])
 
     def flush_cache(self, i, session_id):
         for task_name in self.cache[i]["pred"].keys():

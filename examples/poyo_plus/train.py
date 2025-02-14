@@ -144,10 +144,10 @@ class TrainWrapper(L.LightningModule):
             timestamps=batch["model_inputs"]["output_timestamps"],
             preds=output_values,
             targets=batch["target_values"],
+            decoder_indices=batch["model_inputs"]["output_decoder_index"],
             eval_masks=batch["eval_mask"],
             session_ids=batch["session_id"],
             absolute_starts=batch["absolute_start"],
-            decoder_indices=batch["model_inputs"]["output_decoder_index"],
         )
 
         return data_for_eval
