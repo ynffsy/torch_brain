@@ -141,7 +141,7 @@ class TrainWrapper(L.LightningModule):
     def test_step(self, batch, batch_idx):
         self.validation_step(batch, batch_idx)
 
-    def on_test_epoch_end(self, batch, batch_idx):
+    def on_test_epoch_end(self):
         self.on_validation_epoch_end(log_prefix="test")
 
     def _log_metric_dict(self, metric_dict: Dict[str, float], prefix: str = "val"):
