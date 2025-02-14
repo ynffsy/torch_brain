@@ -172,7 +172,7 @@ def test_poyo_plus_tokenizer(task_specs, model):
     )
 
 
-def test_poyo_plus_tokenizer_to_model(task_specs, model):
+def test_poyo_plus_tokenizer_to_model(model):
     # Create dummy data similar to test_dataset_sim.py
     data = Data(
         spikes=IrregularTimeSeries(
