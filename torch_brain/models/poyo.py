@@ -45,13 +45,13 @@ class POYO(nn.Module):
         to the appropriate output dimension.
 
     Args:
-        dim: Hidden dimension of the model
-        dim_out: Dimension of the output
-        dim_head: Dimension of each attention head
-        sequence_length: Maximum duration of the input sequence (in seconds)
+        sequence_length: Maximum duration of the input spike sequence (in seconds)
+        readout_spec: A :class:`torch_brain.registry.ModalitySpec` specifying readout properties
         latent_step: Timestep of the latent grid (in seconds)
         num_latents_per_step: Number of unique latent tokens (repeated at every latent step)
+        dim: Hidden dimension of the model
         depth: Number of processing layers (self-attentions in the latent space)
+        dim_head: Dimension of each attention head
         cross_heads: Number of attention heads used in a cross-attention layer
         self_heads: Number of attention heads used in a self-attention layer
         ffn_dropout: Dropout rate for feed-forward networks
@@ -60,7 +60,6 @@ class POYO(nn.Module):
         emb_init_scale: Scale for embedding initialization
         t_min: Minimum timestamp resolution for rotary embeddings
         t_max: Maximum timestamp resolution for rotary embeddings
-        dim_out: Dimension of the output
     """
 
     def __init__(
@@ -68,9 +67,9 @@ class POYO(nn.Module):
         *,
         sequence_length: float,
         readout_spec: ModalitySpec,
-        dim: int = 512,
         latent_step: float,
         num_latents_per_step: int = 64,
+        dim: int = 512,
         depth: int = 2,
         dim_head: int = 64,
         cross_heads: int = 1,
