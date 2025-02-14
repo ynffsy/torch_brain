@@ -102,21 +102,15 @@ class DecodingStitchEvaluator(L.Callback):
     Since the stitching is done only on tensors on the same GPU, sequences that are
     split across multiple GPUs will not be stitched together. In this case, it is
     recommended to use a stitching-aware sampler like
-    `DistributedStitchingFixedWindowSampler` which ensures that the sequences are
-    split across GPUs in a way that allows for correct stitching.
+    :class:`~torch_brain.data.sampler.DistributedStitchingFixedWindowSampler`
+    which ensures that the sequences are split across GPUs in a way that allows for
+    correct stitching.
 
-    This callback is called _after_ the validation_step, and has two main inputs:
-    - The output of the validation_step function, which is expected to be the
-      model predictions. These should be a :class:`~torch.Tensor` of shape (B, N, ...),
-      where B is the batch size, N is the number of timestamps.
-    - The batch dictionary that should have atleast the following keys:
-        - "target_values": :class:`~torch.Tensor` of shape (B, N, ...)
-        - "output_timestamps": :class:`~torch.Tensor` of shape (B, N) and dtype float
-        - "output_mask": :class:`~torch.Tensor` of shape (B, N) and dtype bool
-        - "session_id": A list of session IDs for each sample in the batch
-        - "absolute_start": :class:`~torch.Tensor` of shape (B) and dtype float
+    This callback is called _after_ the validation_step, and expects you to return a
+    :class:`~DataForDecodingStitchEvaluator` object from the validation_step lightning
+    module method.
     Please refer to the examples/poyo/train.py script for an example of how to write
-    a validation_step(...) function that outputs the required tensors.
+    such a validation_step(...) function.
 
     This callback operates by maintaining a cache of the predictions, targets, and
     timestamps for each session. This cache is updated at the end of each batch.
