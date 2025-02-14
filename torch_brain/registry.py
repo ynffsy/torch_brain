@@ -121,6 +121,15 @@ register_modality(
 )
 
 register_modality(
+    "target_position_2d",
+    dim=2,
+    type=DataType.CONTINUOUS,
+    timestamp_key="cursor.timestamps",
+    value_key="cursor.target_pos",
+    loss_fn="mse",
+)
+
+register_modality(
     "arm_velocity_2d",
     dim=2,
     type=DataType.CONTINUOUS,
