@@ -135,6 +135,7 @@ class TrainWrapper(L.LightningModule):
 
     def on_validation_epoch_end(self, log_prefix="val"):
         metric_dict = self.stitch_evaluator.compute()
+        metric_dict["average_metric"] = sum(metric_dict.values()) / len(metric_dict)
         self._log_metric_dict(metric_dict, prefix=log_prefix)
         self.stitch_evaluator.reset()
 

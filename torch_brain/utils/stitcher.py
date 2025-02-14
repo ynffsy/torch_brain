@@ -209,8 +209,10 @@ class DecodingStitchEvaluator:
             self.cache[session_id]["timestamps"].append(_timestamps.detach())
 
     def compute(self):
-        r"""Stitch/Coalesce the cache using :function:`stitch`, and compute the metrics
+        r"""Stitch/Coalesce the cache using :func:`stitch`, and compute the metrics
         based on the metric function provided.
+
+        Returns: A dictionary of computed metrics, with keys being recording IDs.
         """
         metric_dict = {}
         for session_id, metric_fn in self.metrics.items():
@@ -227,11 +229,10 @@ class DecodingStitchEvaluator:
             metric_dict[session_id] = metric_fn.compute().item()
             metric_fn.reset()
 
-        metric_dict[f"average_metric"] = sum(metric_dict.values()) / len(metric_dict)
         return metric_dict
 
     def reset(self):
-        r"""Reset the cache"""
+        r"""Reset the cache. Should be called at the end of validation epoch."""
         self._init_cache()
 
 
