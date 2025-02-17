@@ -303,26 +303,29 @@ class MultiTaskDecodingStitchEvaluator(L.Callback):
                 pred = pred[eval_mask]
                 target = target[eval_mask]
 
-                self.cache[self.sequence_index[curr_sample_ptr]]["pred"][
-                    readout_id
-                ].append(pred.detach().cpu())
-                self.cache[self.sequence_index[curr_sample_ptr]]["target"][
-                    readout_id
-                ].append(target.detach().cpu())
-                self.cache[self.sequence_index[curr_sample_ptr]]["timestamps"][
-                    readout_id
-                ].append(timestamps.detach().cpu())
+                if self.sequence_index[curr_sample_ptr] >= 0:
+
+                    self.cache[self.sequence_index[curr_sample_ptr]]["pred"][
+                        readout_id
+                    ].append(pred.detach().cpu())
+                    self.cache[self.sequence_index[curr_sample_ptr]]["target"][
+                        readout_id
+                    ].append(target.detach().cpu())
+                    self.cache[self.sequence_index[curr_sample_ptr]]["timestamps"][
+                        readout_id
+                    ].append(timestamps.detach().cpu())
 
                 curr_sample_ptr += 1
 
         # update counter then check if the cache should be flushed
         for i in range(len(data.preds)):
             j = self.sequence_index[self.sample_ptr]
-            self.counter[j] += 1
-            self.sample_ptr += 1
+            if j >= 0:
+                self.counter[j] += 1
+                self.sample_ptr += 1
 
-            if self.counter[j] >= self.cache_flush_threshold[j]:
-                self.flush_cache(j, session_id=data.session_ids[i])
+                if self.counter[j] >= self.cache_flush_threshold[j]:
+                    self.flush_cache(j, session_id=data.session_ids[i])
 
     def flush_cache(self, i, session_id):
         for task_name in self.cache[i]["pred"].keys():
@@ -426,5 +429,5 @@ class MultiTaskDecodingStitchEvaluator(L.Callback):
         # set the target of the couter based on unique in sequence_index
         # use torch.unique to get the count
         _, self.cache_flush_threshold = torch.unique(
-            self.sequence_index, return_counts=True
+            self.sequence_index[self.sequence_index >= 0], return_counts=True
         )
