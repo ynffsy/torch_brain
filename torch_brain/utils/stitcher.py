@@ -189,14 +189,21 @@ class DecodingStitchEvaluator(L.Callback):
         metrics = {}
         for session_id, metric_fn in self.metrics.items():
             cache = self.cache[session_id]
-            pred = torch.cat(cache["pred"])
-            target = torch.cat(cache["target"])
-            timestamps = torch.cat(cache["timestamps"])
+            if len(cache["pred"]) > 0:
+                pred = torch.cat(cache["pred"])
+                target = torch.cat(cache["target"])
+                timestamps = torch.cat(cache["timestamps"])
 
-            stitched_pred = stitch(timestamps, pred)
-            stitched_target = stitch(timestamps, target)
+                stitched_pred = stitch(timestamps, pred)
+                stitched_target = stitch(timestamps, target)
 
-            metric_fn.to(pl_module.device).update(stitched_pred, stitched_target)
+                metric_fn.to(pl_module.device).update(stitched_pred, stitched_target)
+            else:
+                metric_fn.to(pl_module.device).update(
+                    torch.tensor([], device=pl_module.device),
+                    torch.tensor([], device=pl_module.device),
+                )
+
             metrics[session_id] = metric_fn.compute()
             metric_fn.reset()
 
