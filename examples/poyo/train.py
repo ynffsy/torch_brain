@@ -41,15 +41,14 @@ class TrainWrapper(L.LightningModule):
     def __init__(
         self,
         cfg: DictConfig,
-        model: nn.Module,
-        modality_spec: ModalitySpec,
+        model: POYO,
         stitch_evaluator: DecodingStitchEvaluator,
     ):
         super().__init__()
 
         self.cfg = cfg
         self.model = model
-        self.modality_spec = modality_spec
+        self.modality_spec = model.readout_spec
         self.stitch_evaluator = stitch_evaluator
         self.save_hyperparameters(OmegaConf.to_container(cfg))
 
@@ -111,6 +110,23 @@ class TrainWrapper(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
+        self._eval_step(batch, batch_idx)
+
+    def on_validation_epoch_end(self):
+        metric_dict = self.stitch_evaluator.compute()
+        self.stitch_evaluator.reset()
+        self._log_metric_dict(metric_dict, prefix="val")
+
+    def test_step(self, batch, batch_idx):
+        self._eval_step(batch, batch_idx)
+        self.validation_step(batch, batch_idx)
+
+    def on_test_epoch_end(self):
+        metric_dict = self.stitch_evaluator.compute()
+        self.stitch_evaluator.reset()
+        self._log_metric_dict(metric_dict, prefix="test")
+
+    def _eval_step(self, batch, batch_idx):
 
         # forward pass
         output_values = self.model(**batch["model_inputs"])
@@ -125,19 +141,8 @@ class TrainWrapper(L.LightningModule):
             absolute_starts=batch["absolute_start"],
         )
 
-    def on_validation_epoch_end(self, log_prefix="val"):
-        metric_dict = self.stitch_evaluator.compute()
+    def _log_metric_dict(self, metric_dict: Dict[str, float], prefix: str):
         metric_dict["average_metric"] = sum(metric_dict.values()) / len(metric_dict)
-        self._log_metric_dict(metric_dict, prefix=log_prefix)
-        self.stitch_evaluator.reset()
-
-    def test_step(self, batch, batch_idx):
-        self.validation_step(batch, batch_idx)
-
-    def on_test_epoch_end(self):
-        self.on_validation_epoch_end(log_prefix="test")
-
-    def _log_metric_dict(self, metric_dict: Dict[str, float], prefix: str = "val"):
         metric_dict_with_prefix = {f"{prefix}/{k}": v for k, v in metric_dict.items()}
         self.log_dict(metric_dict_with_prefix)
 
@@ -328,12 +333,7 @@ def main(cfg: DictConfig):
     )
 
     # Lightning train wrapper
-    wrapper = TrainWrapper(
-        cfg=cfg,
-        model=model,
-        modality_spec=readout_spec,
-        stitch_evaluator=stitch_evaluator,
-    )
+    wrapper = TrainWrapper(cfg=cfg, model=model, stitch_evaluator=stitch_evaluator)
 
     callbacks = [
         ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
