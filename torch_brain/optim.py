@@ -30,13 +30,6 @@ class SparseLamb(Optimizer):
         debias: debias adam by (1 - beta**step) (default: False)
         sparse: only update the parameters that have non-zero gradients (default: False)
 
-    Example:
-        >>> from torch_brain.optim import SparseLamb
-        >>> optimizer = SparseLamb(model.parameters(), lr=0.1, sparse=True)
-        >>> optimizer.zero_grad()
-        >>> loss_fn(model(input), target).backward()
-        >>> optimizer.step()
-
     __ https://arxiv.org/abs/1904.00962
 
     Note:
