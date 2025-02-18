@@ -101,7 +101,7 @@ class DecodingStitchEvaluator:
         >>> from torch_brain.registry import MODALITIY_REGISTRY
         >>>
         >>> B = 16   # batch size
-        >>> N = 100  # tokens per batch
+        >>> N = 100  # tokens per sample
         >>> D = 2    # prediction dimension
         >>> num_epochs = 3
         >>> num_steps_per_epoch = 10
