@@ -362,8 +362,6 @@ class MultiTaskDecodingStitchEvaluator:
                     self.metrics[recording_id][task_name][metric_name].reset()
                     self.metrics[recording_id][task_name][metric_name].to("cpu")
 
-        # compute the average metric
-        metric_dict[f"average_metric"] = sum(metric_dict.values()) / len(metric_dict)
         return metric_dict
 
     def reset(self):

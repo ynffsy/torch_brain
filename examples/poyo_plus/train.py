@@ -157,6 +157,7 @@ class TrainWrapper(L.LightningModule):
         )
 
     def _log_metric_dict(self, metric_dict: Dict[str, float], prefix: str = "val"):
+        metric_dict["average_metric"] = sum(metric_dict.values()) / len(metric_dict)
         metric_dict_with_prefix = {f"{prefix}/{k}": v for k, v in metric_dict.items()}
         self.log_dict(metric_dict_with_prefix)
 
