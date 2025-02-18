@@ -149,7 +149,6 @@ class DecodingStitchEvaluator:
         session_ids: Iterable[str],
         modality_spec: Optional[ModalitySpec] = None,
         metric_factory: Optional[Callable[[int], ModalitySpec]] = None,
-        quiet=False,
     ):
         r"""
         Args:
@@ -158,9 +157,7 @@ class DecodingStitchEvaluator:
                 or metric_factory must be provided.
             metric_factory: (Optional) A callable that returns an instance of the metric to be used.
                 If not provided, the metric is inferred based on the modality_spec.
-            quiet: If True, disables the logging of the metrics to the console.
         """
-        self.quiet = quiet
 
         if metric_factory is not None:
             pass
