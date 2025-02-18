@@ -308,7 +308,7 @@ class MultiTaskDecodingStitchEvaluator:
 
             token_sample_idx = torch.where(mask)[0]
 
-            curr_sample_ptr = self.sample_ptr
+            curr_sample_ptr = self._sample_ptr
 
             for i in torch.unique(token_sample_idx):
                 _eval_mask = eval_masks[readout_id][token_sample_idx == i]
@@ -319,13 +319,13 @@ class MultiTaskDecodingStitchEvaluator:
                     + absolute_starts[i]
                 )
 
-                self.cache[self.sequence_index[curr_sample_ptr]]["pred"][
+                self._cache[self.sequence_index[curr_sample_ptr]]["pred"][
                     readout_id
                 ].append(_pred.detach().cpu())
-                self.cache[self.sequence_index[curr_sample_ptr]]["target"][
+                self._cache[self.sequence_index[curr_sample_ptr]]["target"][
                     readout_id
                 ].append(_target.detach().cpu())
-                self.cache[self.sequence_index[curr_sample_ptr]]["timestamps"][
+                self._cache[self.sequence_index[curr_sample_ptr]]["timestamps"][
                     readout_id
                 ].append(_timestamps.detach().cpu())
 
@@ -333,16 +333,16 @@ class MultiTaskDecodingStitchEvaluator:
 
         # update counter then check if the cache should be flushed
         for i in range(len(preds)):
-            j = self.sequence_index[self.sample_ptr]
-            self.counter[j] += 1
-            self.sample_ptr += 1
+            j = self.sequence_index[self._sample_ptr]
+            self._counter[j] += 1
+            self._sample_ptr += 1
 
-            if self.counter[j] >= self.cache_flush_threshold[j]:
+            if self._counter[j] >= self._cache_flush_threshold[j]:
                 self._flush_cache(j, session_id=session_ids[i])
 
     def compute(self):
         # check that all caches have been flushed
-        for i, cache in enumerate(self.cache):
+        for i, cache in enumerate(self._cache):
             if cache is not None:
                 raise RuntimeError(
                     f"Cache at index {i} was not flushed before end of validation epoch. "
@@ -371,9 +371,9 @@ class MultiTaskDecodingStitchEvaluator:
 
     def _init_cache(self):
         num_sequences = self.sequence_index.max().item() + 1
-        self.sample_ptr = 0
+        self._sample_ptr = 0
 
-        self.cache = [
+        self._cache = [
             {
                 "target": defaultdict(list),
                 "pred": defaultdict(list),
@@ -382,18 +382,18 @@ class MultiTaskDecodingStitchEvaluator:
             for _ in range(num_sequences)
         ]
 
-        self.counter = [0] * num_sequences
+        self._counter = [0] * num_sequences
         # set the target of the couter based on unique in sequence_index
         # use torch.unique to get the count
-        _, self.cache_flush_threshold = torch.unique(
+        _, self._cache_flush_threshold = torch.unique(
             self.sequence_index, return_counts=True
         )
 
     def _flush_cache(self, i, session_id):
-        for task_name in self.cache[i]["pred"].keys():
-            pred = torch.cat(self.cache[i]["pred"][task_name])
-            timestamps = torch.cat(self.cache[i]["timestamps"][task_name])
-            target = torch.cat(self.cache[i]["target"][task_name])
+        for task_name in self._cache[i]["pred"].keys():
+            pred = torch.cat(self._cache[i]["pred"][task_name])
+            timestamps = torch.cat(self._cache[i]["timestamps"][task_name])
+            target = torch.cat(self._cache[i]["target"][task_name])
 
             # Pool data wherever timestamps overlap
             stitched_pred = stitch(timestamps, pred)
@@ -408,4 +408,4 @@ class MultiTaskDecodingStitchEvaluator:
                 )
 
         # delete the cache to free memory
-        self.cache[i] = None
+        self._cache[i] = None
