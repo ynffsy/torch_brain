@@ -180,7 +180,7 @@ class DecodingStitchEvaluator:
         # Cache to store the predictions, targets, and timestamps for each
         # validation step. This will be coalesced at the end of the validation,
         # using the stitch function.
-        self.cache = defaultdict(
+        self._cache = defaultdict(
             lambda: {
                 "pred": [],
                 "target": [],
@@ -221,9 +221,9 @@ class DecodingStitchEvaluator:
             _targets = targets[i][mask]
             _timestamps = timestamps[i][mask] + absolute_starts[i]
 
-            self.cache[session_id]["pred"].append(_preds.detach())
-            self.cache[session_id]["target"].append(_targets.detach())
-            self.cache[session_id]["timestamps"].append(_timestamps.detach())
+            self._cache[session_id]["pred"].append(_preds.detach())
+            self._cache[session_id]["target"].append(_targets.detach())
+            self._cache[session_id]["timestamps"].append(_timestamps.detach())
 
     def compute(self):
         r"""Stitch/Coalesce the cache using :func:`stitch`, and compute the metrics
@@ -233,7 +233,7 @@ class DecodingStitchEvaluator:
         """
         metric_dict = {}
         for session_id, metric_fn in self.metrics.items():
-            cache = self.cache[session_id]
+            cache = self._cache[session_id]
             pred = torch.cat(cache["pred"])
             target = torch.cat(cache["target"])
             timestamps = torch.cat(cache["timestamps"])
