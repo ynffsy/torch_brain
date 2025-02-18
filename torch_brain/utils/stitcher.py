@@ -106,25 +106,50 @@ class DecodingStitchEvaluator:
     the cache with :meth:`.reset`.
 
     Example:
+        >>> from torch_brain.registry import MODALITIY_REGISTRY
+        >>>
+        >>> B = 16   # batch size
+        >>> N = 100  # tokens per batch
+        >>> D = 2    # prediction dimension
+        >>> num_epochs = 3
+        >>> num_steps_per_epoch = 10
+        >>> session_ids = ["session1", "session2", "session3"]
+        >>> modality_spec =  MODALITIY_REGISTRY["cursor_velocity_2d"]
+        >>>
         >>> # Initialize evaluator
         >>> stitch_evaluator = DecodingStitchEvaluator(
         ...     session_ids=session_ids,
         ...     modality_spec=modality_spec
         ... )
         >>>
-        >>> # Update cache at end of each validation/test batch
-        >>> stitch_evaluator.update(
-        ...     timestamps=batch_timestamps,     # FloatTensor, [B, N]
-        ...     preds=batch_predictions,         # Tensor, [B, N, D]
-        ...     targets=batch_targets,           # Tensor, [B, N, D]
-        ...     eval_masks=batch_masks,          # BoolTensor, [B, N]
-        ...     session_ids=batch_session_ids,   # List[str], length=B
-        ...     absolute_starts=batch_starts,    # FloatTensor, [B]
-        ... )
-        >>>
-        >>> # Compute metrics at end of validation/test epoch
-        >>> metric_dict = stitch_evaluator.compute()
-        >>> stitch_evaluator.reset()  # Reset cache for next epoch
+        >>> # Train loop
+        >>> for epoch in range(num_epochs):
+        ...     # Training epoch
+        ...     # ...
+        ...
+        ...     # Vaidation epoch:
+        ...     for batch_idx in range(num_steps_per_epoch):
+        ...         # Dummy batch data
+        ...         batch_timestamps = torch.linspace(0, 1, N).repeat(B, 1)
+        ...         batch_predictions = torch.rand(B, N, D)
+        ...         batch_targets = torch.rand(B, N, D)
+        ...         batch_eval_masks = torch.rand(B, N) > 0.5
+        ...         batch_session_ids = [session_ids[idx] for idx in torch.randint(3, (B,))]
+        ...         batch_absolute_starts = torch.rand(B)
+        ...
+        ...         # Update cache at end of each validation/test batch
+        ...         stitch_evaluator.update(
+        ...             timestamps=batch_timestamps,           # FloatTensor, [B, N]
+        ...             preds=batch_predictions,               # Tensor, [B, N, D]
+        ...             targets=batch_targets,                 # Tensor, [B, N, *]
+        ...             eval_masks=batch_eval_masks,           # BoolTensor, [B, N]
+        ...             session_ids=batch_session_ids,         # List[str], length=B
+        ...             absolute_starts=batch_absolute_starts, # FloatTensor, [B]
+        ...         )
+        ...
+        ...     # Compute metrics at end of validation/test epoch
+        ...     metric_dict = stitch_evaluator.compute()
+        ...     stitch_evaluator.reset()  # Reset cache for next epoch
     """
 
     def __init__(
