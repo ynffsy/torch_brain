@@ -1,16 +1,8 @@
-from dataclasses import dataclass
-import logging
 from collections import defaultdict
 from typing import Callable, Dict, Iterable, List, Optional
 
-import hydra
-import numpy as np
-import pandas as pd
-from rich import print as rprint
 import torch
-import lightning as L
 import torchmetrics
-import wandb
 
 import torch_brain
 from torch_brain.registry import ModalitySpec, DataType
@@ -261,44 +253,57 @@ class DecodingStitchEvaluator:
         self._init_cache()
 
 
-@dataclass
-class DataForMultiTaskDecodingStitchEvaluator:
-    r"""A batch's worth of data for :class:`MultiTaskDecodingStitchEvaluator`"""
-
-    timestamps: torch.FloatTensor  # B x T_max
-    preds: List[Dict[str, torch.Tensor]]  # B-long list, Dict keys are task names
-    targets: List[Dict[str, torch.Tensor]]  #  B-long list, Dict keys are task names
-    decoder_indices: torch.LongTensor  # B x T_max
-    # eval_masks: Keyed by task names, each tensor is mask that can be applied to a
-    # task-concatenated tensor of predictions (look at output format of
-    # `torch_brain.nn.multitask_readout.MultitaskReadout`)
-    eval_masks: Dict[str, torch.BoolTensor]
-    session_ids: List[str]  # A list of session ID strings, 1 for each sample in batch
-    absolute_starts: torch.Tensor  # Batch
-
-
-class MultiTaskDecodingStitchEvaluator(L.Callback):
-    def __init__(self, metrics: dict):
-        self.metrics = metrics
-
-    def on_validation_epoch_start(self, trainer, pl_module):
-        self._setup_cache(trainer, mode="val")
-
-    def on_validation_batch_end(
+class MultiTaskDecodingStitchEvaluator:
+    def __init__(
         self,
-        trainer: L.Trainer,
-        pl_module: L.LightningModule,
-        data: DataForMultiTaskDecodingStitchEvaluator,
-        *args,
-        **kwargs,
+        metrics: dict,
+        sequence_index: torch.Tensor,
+        device=torch.device,
     ):
+        self.metrics = metrics
+        self.sequence_index = sequence_index
+        self._device = device
+        self._init_cache()
+
+    def update(
+        self,
+        timestamps: torch.Tensor,
+        preds: List[Dict[str, torch.Tensor]],
+        targets: List[Dict[str, torch.Tensor]],
+        decoder_indices: torch.LongTensor,
+        eval_masks: Dict[str, torch.BoolTensor],
+        session_ids: List[str],
+        absolute_starts: torch.Tensor,
+    ):
+        r"""
+        Args:
+            timestamps: A tensor of shape (batch_size, seq_len) containing timestamps
+                for each prediction
+            preds: A list of length batch_size, where each element is a dictionary.
+                The key for each dictionary is the task name, and the value is the corresponding
+                prediction tensor.
+                This is expected to be the output of
+                :class:`~torch_brain.nn.multitask_readout.MultitaskReadout`
+            targets: Same as preds, but for targets.
+                This is expected to be the "values" output of
+                :class:`~torch_brain.nn.multitask_readout.prepare_for_multitask_readout`
+            decoder_indices: Expected to be the readout_index output of
+                :function:`~torch_brain.nn.multitask_readout.prepare_for_multitask_readout`
+            eval_masks: Expected to be the eval_mask output of
+                :function:`~torch_brain.nn.multitask_readout.prepare_for_multitask_readout`
+            session_ids: A list of session ID strings, 1 for each sample in the batch
+            absolute_starts: A tensor of shape (batch_size,) containing the absolute start
+                time of each sequence (since timestamps are expected to be relative to
+                the sample start time)
+        """
+
         # update the cache with the predictions and targets
-        for readout_index in torch.unique(data.decoder_indices):
+        for readout_index in torch.unique(decoder_indices):
             if readout_index.item() == 0:
                 # skip the padding token
                 continue
 
-            mask = data.decoder_indices == readout_index
+            mask = decoder_indices == readout_index
             readout_id = torch_brain.get_modality_by_id(readout_index.item())
 
             token_sample_idx = torch.where(mask)[0]
@@ -306,40 +311,85 @@ class MultiTaskDecodingStitchEvaluator(L.Callback):
             curr_sample_ptr = self.sample_ptr
 
             for i in torch.unique(token_sample_idx):
-                pred = data.preds[i][readout_id]
-                target = data.targets[readout_id][token_sample_idx == i]
-                timestamps = (
-                    data.timestamps[mask][token_sample_idx == i]
-                    + data.absolute_starts[i]
+                _eval_mask = eval_masks[readout_id][token_sample_idx == i]
+                _pred = preds[i][readout_id][_eval_mask]
+                _target = targets[readout_id][token_sample_idx == i][_eval_mask]
+                _timestamps = (
+                    timestamps[mask][token_sample_idx == i][_eval_mask]
+                    + absolute_starts[i]
                 )
-                eval_mask = data.eval_masks[readout_id][token_sample_idx == i]
-
-                timestamps = timestamps[eval_mask]
-                pred = pred[eval_mask]
-                target = target[eval_mask]
 
                 self.cache[self.sequence_index[curr_sample_ptr]]["pred"][
                     readout_id
-                ].append(pred.detach().cpu())
+                ].append(_pred.detach().cpu())
                 self.cache[self.sequence_index[curr_sample_ptr]]["target"][
                     readout_id
-                ].append(target.detach().cpu())
+                ].append(_target.detach().cpu())
                 self.cache[self.sequence_index[curr_sample_ptr]]["timestamps"][
                     readout_id
-                ].append(timestamps.detach().cpu())
+                ].append(_timestamps.detach().cpu())
 
                 curr_sample_ptr += 1
 
         # update counter then check if the cache should be flushed
-        for i in range(len(data.preds)):
+        for i in range(len(preds)):
             j = self.sequence_index[self.sample_ptr]
             self.counter[j] += 1
             self.sample_ptr += 1
 
             if self.counter[j] >= self.cache_flush_threshold[j]:
-                self.flush_cache(j, session_id=data.session_ids[i])
+                self._flush_cache(j, session_id=session_ids[i])
 
-    def flush_cache(self, i, session_id):
+    def compute(self):
+        # check that all caches have been flushed
+        for i, cache in enumerate(self.cache):
+            if cache is not None:
+                raise RuntimeError(
+                    f"Cache at index {i} was not flushed before end of validation epoch. "
+                    "This likely indicates a bug in the cache flushing logic."
+                )
+
+        metric_dict = {}
+        for recording_id in self.metrics.keys():
+            for task_name in self.metrics[recording_id].keys():
+                for metric_name in self.metrics[recording_id][task_name].keys():
+                    metric_dict[f"{recording_id}/{task_name}/{metric_name}"] = (
+                        self.metrics[recording_id][task_name][metric_name]
+                        .to(self._device)
+                        .compute()
+                        .item()
+                    )
+                    self.metrics[recording_id][task_name][metric_name].reset()
+                    self.metrics[recording_id][task_name][metric_name].to("cpu")
+
+        # compute the average metric
+        metric_dict[f"average_metric"] = sum(metric_dict.values()) / len(metric_dict)
+        return metric_dict
+
+    def reset(self):
+        self._init_cache()
+
+    def _init_cache(self):
+        num_sequences = self.sequence_index.max().item() + 1
+        self.sample_ptr = 0
+
+        self.cache = [
+            {
+                "target": defaultdict(list),
+                "pred": defaultdict(list),
+                "timestamps": defaultdict(list),
+            }
+            for _ in range(num_sequences)
+        ]
+
+        self.counter = [0] * num_sequences
+        # set the target of the couter based on unique in sequence_index
+        # use torch.unique to get the count
+        _, self.cache_flush_threshold = torch.unique(
+            self.sequence_index, return_counts=True
+        )
+
+    def _flush_cache(self, i, session_id):
         for task_name in self.cache[i]["pred"].keys():
             pred = torch.cat(self.cache[i]["pred"][task_name])
             timestamps = torch.cat(self.cache[i]["timestamps"][task_name])
@@ -359,87 +409,3 @@ class MultiTaskDecodingStitchEvaluator(L.Callback):
 
         # delete the cache to free memory
         self.cache[i] = None
-
-    def on_validation_epoch_end(self, trainer, pl_module, prefix="val"):
-        # check that all caches have been flushed
-        for i, cache in enumerate(self.cache):
-            if cache is not None:
-                raise RuntimeError(
-                    f"Cache at index {i} was not flushed before end of validation epoch. "
-                    "This likely indicates a bug in the cache flushing logic."
-                )
-
-        metrics = {}
-        for recording_id in self.metrics.keys():
-            for task_name in self.metrics[recording_id].keys():
-                for metric_name in self.metrics[recording_id][task_name].keys():
-                    metrics[f"{recording_id}/{task_name}/{metric_name}/{prefix}"] = (
-                        self.metrics[recording_id][task_name][metric_name]
-                        .to(pl_module.device)
-                        .compute()
-                    )
-                    self.metrics[recording_id][task_name][metric_name].reset()
-                    self.metrics[recording_id][task_name][metric_name].to("cpu")
-
-        # compute the average metric
-        metrics[f"average_{prefix}_metric"] = torch.tensor(
-            list(metrics.values())
-        ).mean()
-
-        # log the metrics
-        self.log_dict(metrics)
-        logging.info(f"Logged {len(metrics)} {prefix} metrics.")
-
-        metrics_data = []
-        for metric_name, metric_value in metrics.items():
-            metrics_data.append({"metric": metric_name, "value": metric_value.item()})
-
-        metrics_df = pd.DataFrame(metrics_data)
-        rprint(metrics_df)
-
-        if trainer.is_global_zero:
-            for logger in trainer.loggers:
-                if isinstance(logger, L.pytorch.loggers.TensorBoardLogger):
-                    logger.experiment.add_text(
-                        f"{prefix}_metrics", metrics_df.to_markdown()
-                    )
-                if isinstance(logger, L.pytorch.loggers.WandbLogger):
-                    logger.experiment.log(
-                        {f"{prefix}_metrics": wandb.Table(dataframe=metrics_df)}
-                    )
-
-    def on_test_epoch_start(self, trainer, pl_module):
-        self._setup_cache(trainer, mode="test")
-
-    def on_test_batch_end(self, *args, **kwargs):
-        self.on_validation_batch_end(*args, **kwargs)
-
-    def on_test_epoch_end(self, *args, **kwargs):
-        self.on_validation_epoch_end(*args, **kwargs, prefix="test")
-
-    def _setup_cache(self, trainer, mode: str = "val"):
-        if mode == "val":
-            self.sequence_index = trainer.datamodule.val_sequence_index
-        elif mode == "test":
-            self.sequence_index = trainer.datamodule.test_sequence_index
-        else:
-            raise ValueError(f"Invalid mode: {mode}")
-
-        num_sequences = self.sequence_index.max().item() + 1
-        self.sample_ptr = 0
-
-        self.cache = [
-            {
-                "target": defaultdict(list),
-                "pred": defaultdict(list),
-                "timestamps": defaultdict(list),
-            }
-            for _ in range(num_sequences)
-        ]
-
-        self.counter = [0] * num_sequences
-        # set the target of the couter based on unique in sequence_index
-        # use torch.unique to get the count
-        _, self.cache_flush_threshold = torch.unique(
-            self.sequence_index, return_counts=True
-        )

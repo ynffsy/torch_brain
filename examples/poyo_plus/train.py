@@ -1,12 +1,14 @@
 import copy
 import logging
 from collections import defaultdict
-from typing import Callable, Dict
+from typing import Callable, Dict, Literal
 
 import hydra
+import pandas as pd
+from rich import print as rprint
+import wandb
 import lightning as L
 import torch
-import torch.nn as nn
 from lightning.pytorch.callbacks import (
     LearningRateMonitor,
     ModelCheckpoint,
@@ -27,10 +29,7 @@ from torch_brain.registry import MODALITIY_REGISTRY
 from torch_brain.transforms import Compose
 from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
-from torch_brain.utils.stitcher import (
-    MultiTaskDecodingStitchEvaluator,
-    DataForMultiTaskDecodingStitchEvaluator,
-)
+from torch_brain.utils.stitcher import MultiTaskDecodingStitchEvaluator
 
 
 # higher speed on machines with tensor cores
@@ -40,11 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 class TrainWrapper(L.LightningModule):
-    def __init__(
-        self,
-        model: POYOPlus,
-        cfg: DictConfig,
-    ):
+    def __init__(self, model: POYOPlus, cfg: DictConfig):
         super().__init__()
 
         self.model = model
@@ -131,13 +126,27 @@ class TrainWrapper(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
+        self._eval_step(batch, self.trainer.datamodule.val_evaluator)
 
+    def on_validation_epoch_end(self):
+        metric_dict = self.trainer.datamodule.val_evaluator.compute()
+        self.trainer.datamodule.val_evaluator.reset()
+        self._log_metric_dict(metric_dict, prefix="val")
+
+    def test_step(self, batch, batch_idx):
+        self._eval_step(batch, self.trainer.datamodule.test_evaluator)
+
+    def on_test_epoch_end(self):
+        metric_dict = self.trainer.datamodule.test_evaluator.compute()
+        self.trainer.datamodule.test_evaluator.reset()
+        self._log_metric_dict(metric_dict, prefix="test")
+
+    def _eval_step(self, batch: Dict, evaluator: MultiTaskDecodingStitchEvaluator):
         # forward pass
         output_values = self.model(**batch["model_inputs"], unpack_output=True)
 
-        # prepare data for evaluator
-        # (goes to MultiTaskDecodingStitchEvaluator.on_validation_batch_end)
-        data_for_eval = DataForMultiTaskDecodingStitchEvaluator(
+        # push data to evaluator
+        evaluator.update(
             timestamps=batch["model_inputs"]["output_timestamps"],
             preds=output_values,
             targets=batch["target_values"],
@@ -147,10 +156,30 @@ class TrainWrapper(L.LightningModule):
             absolute_starts=batch["absolute_start"],
         )
 
-        return data_for_eval
+    def _log_metric_dict(self, metric_dict: Dict[str, float], prefix: str = "val"):
+        metric_dict_with_prefix = {f"{prefix}/{k}": v for k, v in metric_dict.items()}
+        self.log_dict(metric_dict_with_prefix)
 
-    def test_step(self, batch, batch_idx):
-        return self.validation_step(batch, batch_idx)
+        metric_df = pd.DataFrame(
+            {
+                "metric": metric_dict_with_prefix.keys(),
+                "value": metric_dict_with_prefix.values(),
+            }
+        )
+
+        if self.trainer.is_global_zero:
+            logging.info(f"Logged {len(metric_dict_with_prefix)} {prefix} metrics.")
+            rprint(metric_df)
+
+            for logger in self.trainer.loggers:
+                if isinstance(logger, L.pytorch.loggers.TensorBoardLogger):
+                    logger.experiment.add_text(
+                        f"{prefix}_metrics", metric_df.to_markdown()
+                    )
+                if isinstance(logger, L.pytorch.loggers.WandbLogger):
+                    logger.experiment.log(
+                        {f"{prefix}_metrics": wandb.Table(dataframe=metric_df)}
+                    )
 
 
 class DataModule(L.LightningDataModule):
@@ -289,8 +318,13 @@ class DataModule(L.LightningDataModule):
             drop_last=False,
         )
 
+        self.val_evaluator = MultiTaskDecodingStitchEvaluator(
+            metrics=self.get_metrics(),
+            sequence_index=val_sampler.sequence_index,
+            device=self.trainer.model.device,  # self.trainer.model == TrainWrapper
+        )
+
         self.log.info(f"Expecting {len(val_sampler)} validation steps")
-        self.val_sequence_index = val_sampler.sequence_index
 
         return val_loader
 
@@ -315,8 +349,13 @@ class DataModule(L.LightningDataModule):
             num_workers=0,
         )
 
+        self.test_evaluator = MultiTaskDecodingStitchEvaluator(
+            metrics=self.get_metrics(),
+            sequence_index=test_sampler.sequence_index,
+            device=self.trainer.model.device,  # self.trainer.model == TrainWrapper
+        )
+
         self.log.info(f"Testing on {len(test_sampler)} samples")
-        self.test_sequence_index = test_sampler.sequence_index
 
         return test_loader
 
@@ -348,10 +387,7 @@ def main(cfg: DictConfig):
     # Lightning train wrapper
     wrapper = TrainWrapper(cfg=cfg, model=model)
 
-    evaluator = MultiTaskDecodingStitchEvaluator(metrics=data_module.get_metrics())
-
     callbacks = [
-        evaluator,
         ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
         ModelCheckpoint(
             save_last=True,
