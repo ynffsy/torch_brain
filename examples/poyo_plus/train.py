@@ -171,10 +171,6 @@ class TrainWrapper(L.LightningModule):
             rprint(metric_df)
 
             for logger in self.trainer.loggers:
-                if isinstance(logger, L.pytorch.loggers.TensorBoardLogger):
-                    logger.experiment.add_text(
-                        f"{prefix}_metrics", metric_df.to_markdown()
-                    )
                 if isinstance(logger, L.pytorch.loggers.WandbLogger):
                     logger.experiment.log(
                         {f"{prefix}_metrics": wandb.Table(dataframe=metric_df)}
