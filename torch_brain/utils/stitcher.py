@@ -288,7 +288,8 @@ class MultiTaskDecodingStitchEvaluator:
                 :function:`~torch_brain.nn.multitask_readout.prepare_for_multitask_readout`
             eval_masks: Expected to be the eval_mask output of
                 :function:`~torch_brain.nn.multitask_readout.prepare_for_multitask_readout`
-            session_ids: A list of session ID strings, 1 for each sample in the batch
+            session_ids: A list of session ID strings. The length of this list is equal
+                to batch_size, i.e. one element for each sample in the batch
             absolute_starts: A tensor of shape (batch_size,) containing the absolute start
                 time of each sequence (since timestamps are expected to be relative to
                 the sample start time)
