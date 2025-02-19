@@ -255,7 +255,7 @@ class MultiTaskDecodingStitchEvaluator:
         self,
         metrics: dict,
         sequence_index: torch.Tensor,
-        device=torch.device,
+        device: torch.device,
     ):
         self.metrics = metrics
         self.sequence_index = sequence_index
