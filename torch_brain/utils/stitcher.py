@@ -17,23 +17,40 @@ from torch_brain.registry import ModalitySpec, DataType
 
 
 def stitch(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
-    r"""This function performs pooling operations (mean or mode) on a tensor based on
-    unique timestamps and the datatype of the values.
+    r"""Pools values that share the same timestamp using mean or mode operations.
+
+    This function is useful when you have multiple predictions or values for the same
+    timestamp (e.g., from overlapping windows) and need to combine them into a single
+    value per timestamp.
 
     Args:
         timestamps (torch.Tensor): A 1D tensor containing timestamps.
-        values (torch.Tensor): A tensor of values that correspond to the timestamps. It
-            expects a tensor of shape (N, ...), where N is the number of timestamps.
+        values (torch.Tensor): A tensor of values corresponding to the timestamps.
+            Shape: (N, ...) where N matches the length of timestamps.
 
     Returns:
-        torch.Tensor: A tensor with the pooled values for each unique timestamp. If the
-          values are continuous, the function performs mean pooling, averaging the
-          values for each unique timestamp. If the values are categorical (labels),
-          the function returns the mode of the values for each unique timestamp.
+        torch.Tensor: A tensor containing the pooled values for each unique timestamp.
+            - For continuous data (float types): Uses mean pooling
+            - For categorical data (long type): Uses mode pooling
+
+    Examples:
+        >>> # Mean pooling for continuous values
+        >>> timestamps = torch.tensor([1, 1, 2, 3, 3])
+        >>> values = torch.tensor([0.1, 0.3, 0.2, 0.4, 0.6])
+        >>> stitch(timestamps, values)
+        tensor([0.2000, 0.2000, 0.5000])
+
+        >>> # Mode pooling for categorical values
+        >>> timestamps = torch.tensor([1, 1, 2, 3, 3, 3])
+        >>> values = torch.tensor([1, 1, 2, 3, 3, 1], dtype=torch.long)
+        >>> stitch(timestamps, values)
+        tensor([1, 2, 3])
 
     Note:
-        For mean pooling, this function leverages `torch.scatter_add_` to efficiently
-        aggregate values for each unique timestamp
+        - For continuous values (float types), uses efficient scatter_add_ operations
+        - For categorical values (long type), computes mode for each timestamp
+        - Timestamps must be 1-dimensional
+        - The first dimension of values must match the length of timestamps
     """
     # Find unique timestamps and their inverse indices
     unique_timestamps, indices = torch.unique(
@@ -41,38 +58,39 @@ def stitch(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
     )
 
     # Prepare a tensor for summing values for each unique timestamp
-    pooled_sum = torch.zeros(
-        (len(unique_timestamps), *values.shape[1:]),
-        device=values.device,
-        dtype=values.dtype,
-    )
+    pooled_sum = values.new_zeros((len(unique_timestamps), *values.shape[1:]))
 
-    # Use mode for integers
     if values.dtype == torch.long:
+        # Use mode for integers
         # NOT IDEAL, IT IS FASTER TO AVERAGE THE LOGITS THAN TO PERFORM A VOTE
         mode_values = torch.zeros_like(pooled_sum)
         for i, timestamp in enumerate(unique_timestamps):
-            mask = timestamps == timestamp
-            group_values = values[mask]
+            group_values = values[timestamp == timestamps]
             mode, _ = torch.mode(group_values, dim=0)
             mode_values[i] = mode
         return mode_values
 
-    # Count occurrences of each unique timestamp
-    counts = torch.zeros(
-        len(unique_timestamps), device=timestamps.device, dtype=values.dtype
-    )
-    counts = counts.scatter_add_(
-        0, indices, torch.ones_like(indices, dtype=values.dtype)
-    )
-    # Accumulate values for each unique timestamp
-    indices_expanded = indices.unsqueeze(-1).expand_as(values)
-    pooled_sum.scatter_add_(0, indices_expanded, values)
-    # Calculate the average
-    epsilon = 1e-8  # small constant to prevent division by zero
-    averages = torch.div(pooled_sum, counts.unsqueeze(-1) + epsilon)
+    elif values.dtype in (torch.float16, torch.float32, torch.float64, torch.bfloat16):
+        # Mean-pool for floating points
+        # Count occurrences of each unique timestamp
+        counts = torch.zeros_like(unique_timestamps, dtype=torch.long)
+        counts = counts.scatter_add_(0, indices, torch.ones_like(indices))
+        if values.dim() > 1:
+            indices = indices.unsqueeze(-1).expand_as(values)
+            counts = counts.unsqueeze(-1)
+        # Accumulate values for each unique timestamp
+        pooled_sum.scatter_add_(0, indices, values)
+        # Calculate the average
+        epsilon = 1e-8  # small constant to prevent division by zero
+        averages = torch.div(pooled_sum, counts + epsilon)
 
-    return averages
+        return averages
+
+    else:
+        raise TypeError(
+            f"Unsupported dtype {values.dtype} for stitching. "
+            "Only float and long dtypes are supported."
+        )
 
 
 @dataclass
