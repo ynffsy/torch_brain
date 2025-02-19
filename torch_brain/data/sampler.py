@@ -470,8 +470,8 @@ class DistributedStitchingFixedWindowSampler(torch.utils.data.DistributedSampler
         max_rank_size = max(rank_sizes)
 
         if len(indices) < max_rank_size:
-            indices.extend([indices[-1]] * (max_rank_size - len(indices)))
             sequence_index.extend([-1] * (max_rank_size - len(indices)))
+            indices.extend([indices[-1]] * (max_rank_size - len(indices)))
 
         sequence_index = torch.tensor(sequence_index)
         return indices, sequence_index
