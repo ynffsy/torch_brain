@@ -317,15 +317,10 @@ class MultiTaskDecodingStitchEvaluator:
                     + absolute_starts[i]
                 )
 
-                self._cache[self.sequence_index[curr_sample_ptr]]["pred"][
-                    readout_id
-                ].append(_pred.detach().cpu())
-                self._cache[self.sequence_index[curr_sample_ptr]]["target"][
-                    readout_id
-                ].append(_target.detach().cpu())
-                self._cache[self.sequence_index[curr_sample_ptr]]["timestamps"][
-                    readout_id
-                ].append(_timestamps.detach().cpu())
+                _cache = self._cache[self.sequence_index[curr_sample_ptr]]
+                _cache["pred"][readout_id].append(_pred.detach().cpu())
+                _cache["target"][readout_id].append(_target.detach().cpu())
+                _cache["timestamps"][readout_id].append(_timestamps.detach().cpu())
 
                 curr_sample_ptr += 1
 
@@ -385,7 +380,7 @@ class MultiTaskDecodingStitchEvaluator:
             self.sequence_index, return_counts=True
         )
 
-    def _flush_cache(self, i, session_id):
+    def _flush_cache(self, i: int, session_id: str):
         for task_name in self._cache[i]["pred"].keys():
             pred = torch.cat(self._cache[i]["pred"][task_name])
             timestamps = torch.cat(self._cache[i]["timestamps"][task_name])
