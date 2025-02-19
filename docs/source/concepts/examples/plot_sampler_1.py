@@ -1,21 +1,17 @@
+import os
+
+import numpy as np
 from bokeh.plotting import figure, show
-from bokeh.io import output_notebook
-import numpy as np
+
 from torch_brain.data import Dataset
-from torch_brain.data.sampler import RandomFixedWindowSampler
-from temporaldata import Interval
-import numpy as np
+
+
+root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
 dataset = Dataset(
-    "/Users/ma4766/Documents/Workspace/brainsets/processed",
+    os.path.join(root_dir, "_data"),
     recording_id="perich_miller_population_2018/c_20131003_center_out_reaching",
     split="train",
-)
-
-sampler = RandomFixedWindowSampler(
-    sampling_intervals=dataset.get_sampling_intervals(),
-    window_length=1.0,
-    generator=None,
 )
 
 sampling_intervals = dataset.get_sampling_intervals()[
@@ -54,5 +50,4 @@ p.x_range.end = sampling_intervals.end[-1] + 10
 # Remove y-axis ticks since they're not meaningful
 p.yaxis.visible = False
 
-# Show the plot
 show(p)

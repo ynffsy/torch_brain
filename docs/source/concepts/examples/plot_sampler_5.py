@@ -1,18 +1,15 @@
-from bokeh.plotting import figure, show
-from bokeh.io import output_notebook
+import os
+
 import numpy as np
+from bokeh.plotting import figure, show
+from bokeh.models import ColumnDataSource, Button, Div
+from bokeh.models.callbacks import CustomJS
+from bokeh.layouts import layout
+from omegaconf import OmegaConf
+
 from torch_brain.data import Dataset
 from torch_brain.data.sampler import RandomFixedWindowSampler
-from temporaldata import Interval
-import numpy as np
-from bokeh.models import ColumnDataSource
-from bokeh.layouts import column
-from bokeh.io import curdoc
-from bokeh.models import Button, RangeSlider, Div
-from bokeh.models.callbacks import CustomJS
-from bokeh.layouts import layout, row
 
-from omegaconf import OmegaConf
 
 config_str = """
 - selection:
@@ -25,9 +22,10 @@ config_str = """
 
 config = OmegaConf.create(config_str)
 
+root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
 dataset = Dataset(
-    "/Users/ma4766/Documents/Workspace/brainsets/processed",
+    os.path.join(root_dir, "_data"),
     config=config,
     split="train",
 )
