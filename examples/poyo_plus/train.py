@@ -23,7 +23,6 @@ from torch_brain.data.sampler import (
     RandomFixedWindowSampler,
 )
 from torch_brain.models import POYOPlus
-from torch_brain.nn import compute_loss_or_metric
 from torch_brain.registry import MODALITIY_REGISTRY
 from torch_brain.transforms import Compose
 from torch_brain.utils import callbacks as tbrain_callbacks
@@ -98,9 +97,7 @@ class TrainWrapper(L.LightningModule):
             if readout_id in target_weights and target_weights[readout_id] is not None:
                 weights = target_weights[readout_id]
 
-            taskwise_loss[readout_id] = compute_loss_or_metric(
-                spec.loss_fn, spec.type, output, target, weights
-            )
+            taskwise_loss[readout_id] = spec.loss_fn(output, target, weights)
 
             # count the number of sequences in the batch that have the current task
             num_sequences_with_current_task = torch.any(
@@ -184,12 +181,14 @@ class DataModule(L.LightningDataModule):
 
         self._init_model_vocab(model)
 
+        eval_transforms = hydra.utils.instantiate(self.cfg.eval_transforms)
+
         # validation and test datasets require a tokenizer that is in eval mode
         self.val_dataset = Dataset(
             root=self.cfg.data_root,
             config=self.cfg.dataset,
             split="valid",
-            transform=model.tokenize,
+            transform=Compose([*eval_transforms, model.tokenize]),
         )
         self.val_dataset.disable_data_leakage_check()
 
@@ -197,7 +196,7 @@ class DataModule(L.LightningDataModule):
             root=self.cfg.data_root,
             config=self.cfg.dataset,
             split="test",
-            transform=model.tokenize,
+            transform=Compose([*eval_transforms, model.tokenize]),
         )
         self.test_dataset.disable_data_leakage_check()
 
@@ -247,7 +246,7 @@ class DataModule(L.LightningDataModule):
 
     def train_dataloader(self):
         train_sampler = RandomFixedWindowSampler(
-            interval_dict=self.train_dataset.get_sampling_intervals(),
+            sampling_intervals=self.train_dataset.get_sampling_intervals(),
             window_length=self.sequence_length,
             generator=torch.Generator().manual_seed(self.cfg.seed + 1),
         )
@@ -274,7 +273,7 @@ class DataModule(L.LightningDataModule):
         batch_size = self.cfg.eval_batch_size or self.cfg.batch_size
 
         val_sampler = DistributedStitchingFixedWindowSampler(
-            interval_dict=self.val_dataset.get_sampling_intervals(),
+            sampling_intervals=self.val_dataset.get_sampling_intervals(),
             window_length=self.sequence_length,
             step=self.sequence_length / 2,
             batch_size=batch_size,
@@ -301,7 +300,7 @@ class DataModule(L.LightningDataModule):
         batch_size = self.cfg.eval_batch_size or self.cfg.batch_size
 
         test_sampler = DistributedStitchingFixedWindowSampler(
-            interval_dict=self.test_dataset.get_sampling_intervals(),
+            sampling_intervals=self.test_dataset.get_sampling_intervals(),
             window_length=self.sequence_length,
             step=self.sequence_length / 2,
             batch_size=batch_size,
@@ -383,8 +382,8 @@ def main(cfg: DictConfig):
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=cfg.gpus,
         num_nodes=cfg.nodes,
-        num_sanity_val_steps=cfg.num_sanity_val_steps,
         limit_val_batches=None,  # Ensure no limit on validation batches
+        num_sanity_val_steps=-1 if cfg.sanity_check_validation else 0,
     )
 
     log.info(
