@@ -15,7 +15,7 @@ def mock_session_ids():
     ]
 
 
-def test_initalization(mock_session_ids):
+def test_initialization(mock_session_ids):
 
     # Test for R2Score
     evaluator = DecodingStitchEvaluator(
@@ -113,7 +113,7 @@ def test_update(mock_session_ids):
 def test_end_to_end_r2(mock_session_ids):
     B = 16  # batch size
     N = 32  # tokens per sample
-    D = 2  # predictio dimension (for cursor velocity 2d)
+    D = 2  # prediction dimension (for cursor velocity 2d)
     num_sessions = len(mock_session_ids)
 
     evaluator = DecodingStitchEvaluator(
@@ -145,7 +145,7 @@ def test_end_to_end_r2(mock_session_ids):
 def test_end_to_end_accuracy(mock_session_ids):
     B = 9  # batch size
     N = 50  # tokens per sample
-    D = 8  # predictio dimension (for drifting gratings orientation)
+    D = 8  # prediction dimension (for drifting gratings orientation)
     num_sessions = len(mock_session_ids)
 
     evaluator = DecodingStitchEvaluator(
