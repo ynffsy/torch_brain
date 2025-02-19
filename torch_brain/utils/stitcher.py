@@ -253,13 +253,11 @@ class DecodingStitchEvaluator:
 class MultiTaskDecodingStitchEvaluator:
     def __init__(
         self,
-        metrics: dict,
+        metrics: Dict[str, torchmetrics.Metric],
         sequence_index: torch.Tensor,
-        device: torch.device,
     ):
         self.metrics = metrics
         self.sequence_index = sequence_index
-        self._device = device
         self._init_cache()
 
     def update(
@@ -294,6 +292,8 @@ class MultiTaskDecodingStitchEvaluator:
                 time of each sequence (since timestamps are expected to be relative to
                 the sample start time)
         """
+
+        self._device = timestamps.device
 
         # update the cache with the predictions and targets
         for readout_index in torch.unique(readout_indices):
