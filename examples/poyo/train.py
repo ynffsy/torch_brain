@@ -6,7 +6,6 @@ import lightning as L
 import pandas as pd
 from rich import print as rprint
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch_optimizer import Lamb
 from lightning.pytorch.callbacks import (
@@ -15,7 +14,6 @@ from lightning.pytorch.callbacks import (
     ModelSummary,
 )
 from omegaconf import DictConfig, OmegaConf
-from temporaldata import Data
 import wandb
 
 from torch_brain.registry import MODALITIY_REGISTRY, ModalitySpec

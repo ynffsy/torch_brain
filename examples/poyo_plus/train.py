@@ -1,7 +1,6 @@
-import copy
 import logging
 from collections import defaultdict
-from typing import Callable, Dict, Literal
+from typing import Dict
 
 import hydra
 import pandas as pd
@@ -15,7 +14,6 @@ from lightning.pytorch.callbacks import (
     ModelSummary,
 )
 from omegaconf import DictConfig, OmegaConf
-from temporaldata import Data
 from torch.utils.data import DataLoader
 from torch_optimizer import Lamb
 
