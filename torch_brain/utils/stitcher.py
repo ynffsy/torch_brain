@@ -75,7 +75,7 @@ def stitch(
             mode_values[i] = mode
         return unique_timestamps, mode_values
 
-    elif values.dtype in (torch.float16, torch.float32, torch.float64, torch.bfloat16):
+    elif torch.is_floating_point(values):
         # Mean-pool for floating points
         # Count occurrences of each unique timestamp
         counts = torch.zeros_like(unique_timestamps, dtype=torch.long)
