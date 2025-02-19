@@ -21,7 +21,8 @@ def mock_metrics():
 def test_initialization(mock_metrics):
     sequence_index = torch.tensor([0, 0, 1, 1, 1, 2])
     evaluator = MultiTaskDecodingStitchEvaluator(
-        metrics=mock_metrics, sequence_index=sequence_index, device=torch.device("cpu")
+        metrics=mock_metrics,
+        sequence_index=sequence_index,
     )
 
     assert evaluator.metrics is not None
