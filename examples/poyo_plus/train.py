@@ -24,7 +24,7 @@ from torch_brain.data.sampler import (
     RandomFixedWindowSampler,
 )
 from torch_brain.models import POYOPlus
-from torch_brain.registry import MODALITIY_REGISTRY
+from torch_brain.registry import MODALITY_REGISTRY
 from torch_brain.transforms import Compose
 from torch_brain.utils import callbacks as tbrain_callbacks
 from torch_brain.utils import seed_everything
@@ -96,7 +96,7 @@ class TrainWrapper(L.LightningModule):
             # count the number of sequences in the batch that have the current task
             num_sequences_with_current_task = torch.any(
                 batch["model_inputs"]["output_decoder_index"]
-                == MODALITIY_REGISTRY[readout_id].id,
+                == MODALITY_REGISTRY[readout_id].id,
                 dim=1,
             ).sum()
             loss = loss + taskwise_loss[readout_id] * num_sequences_with_current_task
@@ -253,12 +253,12 @@ class DataModule(L.LightningDataModule):
 
             for readout_config in multitask_readout:
                 readout_id = readout_config["readout_id"]
-                if readout_id not in MODALITIY_REGISTRY:
+                if readout_id not in MODALITY_REGISTRY:
                     raise ValueError(
                         f"Readout {readout_id} not found in modality registry, please register it "
                         "using torch_brain.register_modality()"
                     )
-                custum_readout_registry[readout_id] = MODALITIY_REGISTRY[readout_id]
+                custum_readout_registry[readout_id] = MODALITY_REGISTRY[readout_id]
         return custum_readout_registry
 
     @cached_property
@@ -381,7 +381,7 @@ def main(cfg: DictConfig):
 
     # make model and datamodule
     # TODO: resolve the readout_id from dataset, only build readouts needed
-    model = hydra.utils.instantiate(cfg.model, readout_specs=MODALITIY_REGISTRY)
+    model = hydra.utils.instantiate(cfg.model, readout_specs=MODALITY_REGISTRY)
     data_module = DataModule(cfg)
     data_module.setup_dataset_and_link_model(model)
 
