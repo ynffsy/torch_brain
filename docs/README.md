@@ -3,7 +3,7 @@
 
 Install requirements:
 ```bash
-pip install furo sphinx myst-parser sphinx-autodoc-typehints sphinx-inline-tabs sphinx-rtd-theme sphinx-tabs sphinx-design sphinx-gallery
+pip install furo sphinx myst-parser sphinx-autodoc-typehints sphinx-inline-tabs sphinx-rtd-theme sphinx-tabs bokeh==3.4.3
 ```
 
 

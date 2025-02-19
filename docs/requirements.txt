@@ -5,5 +5,4 @@ sphinx-autodoc-typehints
 sphinx-inline-tabs
 sphinx-rtd-theme
 sphinx-tabs
-sphinx-design
-sphinx-gallery
+bokeh==3.4.3
