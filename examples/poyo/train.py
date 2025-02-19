@@ -119,7 +119,6 @@ class TrainWrapper(L.LightningModule):
 
     def test_step(self, batch, batch_idx):
         self._eval_step(batch, batch_idx)
-        self.validation_step(batch, batch_idx)
 
     def on_test_epoch_end(self):
         metric_dict = self.stitch_evaluator.compute()
