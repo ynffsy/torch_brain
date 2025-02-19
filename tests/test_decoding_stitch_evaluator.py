@@ -2,7 +2,7 @@ import pytest
 import torch
 import torchmetrics
 
-from torch_brain.registry import MODALITIY_REGISTRY
+from torch_brain.registry import MODALITY_REGISTRY
 from torch_brain.utils.stitcher import DecodingStitchEvaluator
 
 
@@ -20,7 +20,7 @@ def test_initialization(mock_session_ids):
     # Test for R2Score
     evaluator = DecodingStitchEvaluator(
         session_ids=mock_session_ids,
-        modality_spec=MODALITIY_REGISTRY["cursor_velocity_2d"],
+        modality_spec=MODALITY_REGISTRY["cursor_velocity_2d"],
     )
     assert list(evaluator.metrics.keys()) == mock_session_ids
     for metric in evaluator.metrics.values():
@@ -29,7 +29,7 @@ def test_initialization(mock_session_ids):
     # Test for Accuracy
     evaluator = DecodingStitchEvaluator(
         session_ids=mock_session_ids,
-        modality_spec=MODALITIY_REGISTRY["drifting_gratings_orientation"],
+        modality_spec=MODALITY_REGISTRY["drifting_gratings_orientation"],
     )
     assert list(evaluator.metrics.keys()) == mock_session_ids
     for metric in evaluator.metrics.values():
@@ -49,7 +49,7 @@ def test_initialization(mock_session_ids):
 def test_update(mock_session_ids):
     evaluator = DecodingStitchEvaluator(
         session_ids=mock_session_ids,
-        modality_spec=MODALITIY_REGISTRY["cursor_velocity_2d"],
+        modality_spec=MODALITY_REGISTRY["cursor_velocity_2d"],
     )
 
     B = 3  # batch size
@@ -118,7 +118,7 @@ def test_end_to_end_r2(mock_session_ids):
 
     evaluator = DecodingStitchEvaluator(
         session_ids=mock_session_ids,
-        modality_spec=MODALITIY_REGISTRY["cursor_velocity_2d"],
+        modality_spec=MODALITY_REGISTRY["cursor_velocity_2d"],
     )
 
     for epoch in range(3):
@@ -150,7 +150,7 @@ def test_end_to_end_accuracy(mock_session_ids):
 
     evaluator = DecodingStitchEvaluator(
         session_ids=mock_session_ids,
-        modality_spec=MODALITIY_REGISTRY["drifting_gratings_orientation"],
+        modality_spec=MODALITY_REGISTRY["drifting_gratings_orientation"],
     )
 
     for epoch in range(3):

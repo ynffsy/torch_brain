@@ -98,7 +98,7 @@ class DecodingStitchEvaluator:
     the cache with :meth:`.reset`.
 
     Example:
-        >>> from torch_brain.registry import MODALITIY_REGISTRY
+        >>> from torch_brain.registry import MODALITY_REGISTRY
         >>>
         >>> B = 16   # batch size
         >>> N = 100  # tokens per sample
@@ -106,7 +106,7 @@ class DecodingStitchEvaluator:
         >>> num_epochs = 3
         >>> num_steps_per_epoch = 10
         >>> session_ids = ["session1", "session2", "session3"]
-        >>> modality_spec =  MODALITIY_REGISTRY["cursor_velocity_2d"]
+        >>> modality_spec =  MODALITY_REGISTRY["cursor_velocity_2d"]
         >>>
         >>> # Initialize evaluator
         >>> stitch_evaluator = DecodingStitchEvaluator(
