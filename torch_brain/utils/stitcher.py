@@ -267,7 +267,7 @@ class MultiTaskDecodingStitchEvaluator:
         timestamps: torch.Tensor,
         preds: List[Dict[str, torch.Tensor]],
         targets: List[Dict[str, torch.Tensor]],
-        decoder_indices: torch.LongTensor,
+        readout_indices: torch.LongTensor,
         eval_masks: Dict[str, torch.BoolTensor],
         session_ids: List[str],
         absolute_starts: torch.Tensor,
@@ -284,7 +284,7 @@ class MultiTaskDecodingStitchEvaluator:
             targets: Same as preds, but for targets.
                 This is expected to be the "values" output of
                 :class:`~torch_brain.nn.multitask_readout.prepare_for_multitask_readout`
-            decoder_indices: Expected to be the readout_index output of
+            readout_indices: Expected to be the "readout_index" output of
                 :function:`~torch_brain.nn.multitask_readout.prepare_for_multitask_readout`
             eval_masks: Expected to be the eval_mask output of
                 :function:`~torch_brain.nn.multitask_readout.prepare_for_multitask_readout`
@@ -296,12 +296,12 @@ class MultiTaskDecodingStitchEvaluator:
         """
 
         # update the cache with the predictions and targets
-        for readout_index in torch.unique(decoder_indices):
+        for readout_index in torch.unique(readout_indices):
             if readout_index.item() == 0:
                 # skip the padding token
                 continue
 
-            mask = decoder_indices == readout_index
+            mask = readout_indices == readout_index
             readout_id = torch_brain.get_modality_by_id(readout_index.item())
 
             token_sample_idx = torch.where(mask)[0]
