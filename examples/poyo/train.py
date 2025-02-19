@@ -108,7 +108,7 @@ class TrainWrapper(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        self._eval_step(batch, batch_idx)
+        self._eval_step(batch)
 
     def on_validation_epoch_end(self):
         metric_dict = self.stitch_evaluator.compute()
@@ -116,14 +116,14 @@ class TrainWrapper(L.LightningModule):
         self._log_metric_dict(metric_dict, prefix="val")
 
     def test_step(self, batch, batch_idx):
-        self._eval_step(batch, batch_idx)
+        self._eval_step(batch)
 
     def on_test_epoch_end(self):
         metric_dict = self.stitch_evaluator.compute()
         self.stitch_evaluator.reset()
         self._log_metric_dict(metric_dict, prefix="test")
 
-    def _eval_step(self, batch, batch_idx):
+    def _eval_step(self, batch: Dict):
 
         # forward pass
         output_values = self.model(**batch["model_inputs"])
