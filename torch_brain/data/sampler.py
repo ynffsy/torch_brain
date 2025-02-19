@@ -465,15 +465,15 @@ class DistributedStitchingFixedWindowSampler(torch.utils.data.DistributedSampler
         # shuffle indices for this rank
         indices_list = [indices_list[i] for i in torch.randperm(len(indices_list))]
         indices = [item for sublist in indices_list for item in sublist]
-        sequence_index = torch.tensor(
-            [i for i, sublist in enumerate(indices_list) for _ in sublist]
-        )
+        sequence_index = [i for i, sublist in enumerate(indices_list) for _ in sublist]
 
         max_rank_size = max(rank_sizes)
 
         if len(indices) < max_rank_size:
             indices.extend([indices[-1]] * (max_rank_size - len(indices)))
             sequence_index.extend([-1] * (max_rank_size - len(indices)))
+
+        sequence_index = torch.tensor(sequence_index)
         return indices, sequence_index
 
     def __iter__(self):
