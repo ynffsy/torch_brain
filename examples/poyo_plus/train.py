@@ -1,3 +1,4 @@
+from functools import cached_property
 import logging
 from collections import defaultdict
 from typing import Dict
@@ -260,7 +261,8 @@ class DataModule(L.LightningDataModule):
                 custum_readout_registry[readout_id] = MODALITIY_REGISTRY[readout_id]
         return custum_readout_registry
 
-    def get_metrics(self):
+    @cached_property
+    def metrics(self):
         dataset_config_dict = self.get_recording_config_dict()
         metrics = defaultdict(lambda: defaultdict(dict))
         # setup the metrics
@@ -320,9 +322,8 @@ class DataModule(L.LightningDataModule):
         )
 
         self.val_evaluator = MultiTaskDecodingStitchEvaluator(
-            metrics=self.get_metrics(),
+            metrics=self.metrics,
             sequence_index=val_sampler.sequence_index,
-            device=self.trainer.model.device,  # self.trainer.model == TrainWrapper
         )
 
         self.log.info(f"Expecting {len(val_sampler)} validation steps")
@@ -351,9 +352,8 @@ class DataModule(L.LightningDataModule):
         )
 
         self.test_evaluator = MultiTaskDecodingStitchEvaluator(
-            metrics=self.get_metrics(),
+            metrics=self.metrics,
             sequence_index=test_sampler.sequence_index,
-            device=self.trainer.model.device,  # self.trainer.model == TrainWrapper
         )
 
         self.log.info(f"Testing on {len(test_sampler)} samples")
