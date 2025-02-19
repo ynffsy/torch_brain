@@ -16,7 +16,10 @@ import torch_brain
 from torch_brain.registry import ModalitySpec, DataType
 
 
-def stitch(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
+def stitch(
+    timestamps: torch.Tensor,
+    values: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
     r"""Pools values that share the same timestamp using mean or mode operations.
 
     This function is useful when you have multiple predictions or values for the same
@@ -29,22 +32,24 @@ def stitch(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
             Shape: (N, ...) where N matches the length of timestamps.
 
     Returns:
-        torch.Tensor: A tensor containing the pooled values for each unique timestamp.
-            - For continuous data (float types): Uses mean pooling
-            - For categorical data (long type): Uses mode pooling
+        tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+            - unique_timestamps: A 1D tensor of sorted unique timestamps
+            - pooled_values: A tensor containing the pooled values for each unique timestamp
+                - For continuous data (float types): Uses mean pooling
+                - For categorical data (long type): Uses mode pooling
 
     Examples:
         >>> # Mean pooling for continuous values
         >>> timestamps = torch.tensor([1, 1, 2, 3, 3])
         >>> values = torch.tensor([0.1, 0.3, 0.2, 0.4, 0.6])
         >>> stitch(timestamps, values)
-        tensor([0.2000, 0.2000, 0.5000])
+        (tensor([1, 2, 3]), tensor([0.2000, 0.2000, 0.5000]))
 
         >>> # Mode pooling for categorical values
         >>> timestamps = torch.tensor([1, 1, 2, 3, 3, 3])
         >>> values = torch.tensor([1, 1, 2, 3, 3, 1], dtype=torch.long)
         >>> stitch(timestamps, values)
-        tensor([1, 2, 3])
+        (tensor([1, 2, 3]), tensor([1, 2, 3]))
 
     Note:
         - For continuous values (float types), uses efficient scatter_add_ operations
@@ -68,7 +73,7 @@ def stitch(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
             group_values = values[timestamp == timestamps]
             mode, _ = torch.mode(group_values, dim=0)
             mode_values[i] = mode
-        return mode_values
+        return unique_timestamps, mode_values
 
     elif values.dtype in (torch.float16, torch.float32, torch.float64, torch.bfloat16):
         # Mean-pool for floating points
@@ -84,7 +89,7 @@ def stitch(timestamps: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
         epsilon = 1e-8  # small constant to prevent division by zero
         averages = torch.div(pooled_sum, counts + epsilon)
 
-        return averages
+        return unique_timestamps, averages
 
     else:
         raise TypeError(
@@ -211,8 +216,8 @@ class DecodingStitchEvaluator(L.Callback):
             target = torch.cat(cache["target"])
             timestamps = torch.cat(cache["timestamps"])
 
-            stitched_pred = stitch(timestamps, pred)
-            stitched_target = stitch(timestamps, target)
+            stitched_pred = stitch(timestamps, pred)[1]
+            stitched_target = stitch(timestamps, target)[1]
 
             metric_fn.to(pl_module.device).update(stitched_pred, stitched_target)
             metrics[session_id] = metric_fn.compute()
@@ -342,8 +347,8 @@ class MultiTaskDecodingStitchEvaluator(L.Callback):
             target = torch.cat(self.cache[i]["target"][task_name])
 
             # Pool data wherever timestamps overlap
-            stitched_pred = stitch(timestamps, pred)
-            stitched_target = stitch(timestamps, target)
+            stitched_pred = stitch(timestamps, pred)[1]
+            stitched_target = stitch(timestamps, target)[1]
 
             if target.dtype == torch.long:
                 stitched_target = torch.round(stitched_target).long()
