@@ -49,7 +49,7 @@ jobs:
         cd brainsets_tmp
         git clone https://github.com/neuro-galaxy/brainsets.git
         cd brainsets
-        uv pip install -e .
+        pip install -e .
         cd ../../ 
     - name: Download sample dataset
       run: |
