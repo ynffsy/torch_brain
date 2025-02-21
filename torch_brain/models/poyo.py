@@ -66,7 +66,7 @@ class POYO(nn.Module):
         self,
         *,
         sequence_length: float,
-        readout_spec: ModalitySpec,
+        readout_spec: ModalitySpec | str,
         latent_step: float,
         num_latents_per_step: int = 64,
         dim: int = 512,
@@ -88,6 +88,10 @@ class POYO(nn.Module):
         self.sequence_length = sequence_length
         self.latent_step = latent_step
         self.num_latents_per_step = num_latents_per_step
+
+        if isinstance(readout_spec, str):
+            from torch_brain.registry import MODALITIY_REGISTRY
+            readout_spec = MODALITIY_REGISTRY[readout_spec]
         self.readout_spec = readout_spec
 
         # embeddings

@@ -12,6 +12,15 @@ def prepare_for_readout(
     data: Data,
     readout_spec: ModalitySpec,
 ):
+
+    if "readout" not in data.config:
+        timestamps = data.get_nested_attribute(readout_spec.timestamp_key).astype(np.float32)
+        values = data.get_nested_attribute(readout_spec.value_key).astype(np.float32)
+
+        weights = np.ones_like(timestamps, dtype=np.float32)
+        eval_mask = np.ones_like(timestamps, dtype=bool)
+        return timestamps, values, weights, eval_mask
+
     required_keys = ["readout_id"]
     optional_keys = [
         "weights",

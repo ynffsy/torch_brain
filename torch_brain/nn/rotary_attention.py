@@ -339,6 +339,47 @@ class RotarySelfAttention(nn.Module):
         out = self.to_out(out)
         return out
 
+from .feedforward import FeedForward
+
+class RotaryTransformerEncoderLayer(nn.Module):
+    def __init__(
+        self,
+        *,
+        dim: int,
+        heads: int = 8,
+        dim_head: int = 64,
+        ffn_mult: int = 4,
+        atn_dropout: float = 0.0,
+        ffn_dropout: float = 0.0,
+        lin_dropout: float = 0.0,
+        rotate_value: bool = False,
+    ):
+        super().__init__()
+
+        self.attn = RotarySelfAttention(
+            dim=dim,
+            heads=heads,
+            dim_head=dim_head,
+            dropout=atn_dropout,
+            rotate_value=rotate_value,
+        )
+
+        self.ffn = nn.Sequential(
+            nn.LayerNorm(dim),
+            FeedForward(dim=dim, mult=ffn_mult, dropout=ffn_dropout),
+        )
+
+        self.dropout = nn.Dropout(lin_dropout)
+    
+    def forward(
+        self,
+        x,
+        rotary_time_emb,
+        x_mask=None,
+    ):
+        y = x + self.dropout(self.attn(x=x, rotary_time_emb=rotary_time_emb, x_mask=x_mask))
+        y = y + self.dropout(self.ffn(y))
+        return y
 
 def rotary_attn_pytorch_func(
     *,

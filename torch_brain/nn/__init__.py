@@ -4,7 +4,7 @@ from .infinite_vocab_embedding import InfiniteVocabEmbedding
 
 # rotary attention-based models
 from .rotary_embedding import RotaryEmbedding, apply_rotary_pos_emb
-from .rotary_attention import RotaryCrossAttention, RotarySelfAttention
+from .rotary_attention import RotaryCrossAttention, RotarySelfAttention, RotaryTransformerEncoderLayer
 from .feedforward import FeedForward
 
 # readout layers
