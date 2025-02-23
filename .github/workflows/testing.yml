@@ -45,7 +45,7 @@ jobs:
     - name: Install brainsets
       run: |
         source venv/bin/activate
-        uv pip install git+https://github.com/neuro-galaxy/brainsets@vinam/run_from_pip
+        uv pip install git+https://github.com/neuro-galaxy/brainsets@vinam/cli2
     - name: Download sample dataset
       run: |
         source venv/bin/activate
