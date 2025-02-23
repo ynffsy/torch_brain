@@ -49,7 +49,7 @@ jobs:
     - name: Download sample dataset
       run: |
         source venv/bin/activate
-        brainsets config --raw data/raw --processed data/processed
+        brainsets config --raw-dir data/raw --processed-dir data/processed
         brainsets prepare pei_pandarinath_nlb_2021
     - name: Train a POYO model
       run: |
