@@ -94,6 +94,16 @@ def get_modality_by_id(modality_id: int) -> ModalitySpec:
     return _ID_TO_MODALITY[modality_id]
 
 
+
+register_modality(
+    "cursor_position_2d",
+    dim=2,
+    type=DataType.CONTINUOUS,
+    timestamp_key="cursor.timestamps",
+    value_key="cursor.pos",
+    loss_fn=torch_brain.nn.loss.MSELoss(),
+)
+
 register_modality(
     "cursor_velocity_2d",
     dim=2,
@@ -104,11 +114,29 @@ register_modality(
 )
 
 register_modality(
-    "cursor_position_2d",
+    "cursor_acceleration_2d",
     dim=2,
     type=DataType.CONTINUOUS,
     timestamp_key="cursor.timestamps",
-    value_key="cursor.pos",
+    value_key="cursor.acc",
+    loss_fn=torch_brain.nn.loss.MSELoss(),
+)
+
+register_modality(
+    "cursor_direction_to_target_2d",
+    dim=2,
+    type=DataType.CONTINUOUS,
+    timestamp_key="cursor.timestamps",
+    value_key="cursor.direction_to_target",
+    loss_fn=torch_brain.nn.loss.MSELoss(),
+)
+
+register_modality(
+    "target_position_2d",
+    dim=2,
+    type=DataType.CONTINUOUS,
+    timestamp_key="cursor.timestamps",
+    value_key="cursor.target_pos",
     loss_fn=torch_brain.nn.loss.MSELoss(),
 )
 
