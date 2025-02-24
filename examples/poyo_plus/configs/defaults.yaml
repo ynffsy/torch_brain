@@ -2,8 +2,8 @@
 # this file needs to be combined with a model config and a dataset config
 
 # Paths
-data_root: /home/ynffsy/Desktop/andersen_lab/data/poyo/processed
-log_dir: /home/ynffsy/Desktop/andersen_lab/results/poyo/logs
+data_root: /home/ynffsy/Desktop/andersen_lab/data/neurogalaxy/processed
+log_dir: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs
 
 # Transforms
 train_transforms: []
