@@ -1,9 +1,8 @@
 - selection:
-  - brainset: ALMG103CO_outward_assist0_20250221
-    sessions: ## CenterOut sessions
-
+  - brainset: ALMG103CO_OT_AL0.35
+    sessions:
     # - n1_20230818_CenterOut
-    # - n1_20230824_CenterOut 
+    # - n1_20230824_CenterOut
     # - n1_20230901_CenterOut
     # - n1_20230908_CenterOut
     # - n1_20230929_CenterOut
@@ -14,9 +13,9 @@
     # - n1_20240119_CenterOut # No assist 0 run
     # - n1_20240126_CenterOut # No assist 0 run
     # - n1_20240201_CenterOut # No assist 0 run
-    # - n1_20240202_CenterOut # No assist 0 run
+    # - n1_20240202_CenterOut 
     # - n1_20240208_CenterOut # No assist 0 run
-    # - n1_20240209_CenterOut # No assist 0 run
+    # - n1_20240209_CenterOut 
     # - n1_20240214_CenterOut # No assist 0 run
     # - n1_20240215_CenterOut # No assist 0 run
     # - n1_20240222_CenterOut # No assist 0 run
@@ -44,18 +43,17 @@
     # - n1_20240731_CenterOut # No assist 0 run
     # - n1_20240815_CenterOut # No assist 0 run
     # - n1_20240829_CenterOut 
-    # - n1_20240912_CenterOut # No assist 0 run
-    # - n1_20240918_CenterOut # No assist 0 run
-    # - n1_20240927_CenterOut 
+    # - n1_20240912_CenterOut 
+    # - n1_20240918_CenterOut 
+    # - n1_20240927_CenterOut
     # - n1_20241003_CenterOut # No assist 0 run
     # - n1_20241011_CenterOut # No assist 0 run
     # - n1_20241018_CenterOut
 
-
-    # - n2_20240118_CenterOut ## No assist 0 run
-    # - n2_20240123_CenterOut 
-    # - n2_20240126_CenterOut
-    # - n2_20240130_CenterOut
+    - n2_20240118_CenterOut # No assist 0 run
+    - n2_20240123_CenterOut
+    - n2_20240126_CenterOut
+    - n2_20240130_CenterOut
     - n2_20240201_CenterOut
     - n2_20240206_CenterOut
     - n2_20240208_CenterOut
@@ -75,20 +73,20 @@
     - n2_20240409_CenterOut
     - n2_20240411_CenterOut
     - n2_20240418_CenterOut
-    # - n2_20240430_CenterOut ## No assist 0 run
+    - n2_20240430_CenterOut # No assist 0 run
     - n2_20240502_CenterOut
-    # - n2_20240503_CenterOut ## No assist 0 run
+    - n2_20240503_CenterOut # No assist 0 run
     - n2_20240509_CenterOut
-    # - n2_20240510_CenterOut ## No assist 0 run
+    - n2_20240510_CenterOut # No assist 0 run
     - n2_20240516_CenterOut
     - n2_20240521_CenterOut
     - n2_20240530_CenterOut
     - n2_20240618_CenterOut
-    # - n2_20240625_CenterOut ## No assist 0 run
+    - n2_20240625_CenterOut # No assist 0 run
     - n2_20240702_CenterOut
     - n2_20240709_CenterOut
     - n2_20240716_CenterOut
-    # - n2_20240816_CenterOut ## No assist 0 run
+    - n2_20240816_CenterOut # No assist 0 run
     - n2_20240820_CenterOut
     - n2_20240827_CenterOut
     - n2_20240920_CenterOut
@@ -101,13 +99,12 @@
     - n2_20241113_CenterOut
     - n2_20241119_CenterOut
     - n2_20241211_CenterOut
-    # - n2_20241212_CenterOut ## No assist 0 run
-    # - n2_20241224_CenterOut ## No assist 0 run
+    - n2_20241212_CenterOut # No assist 0 run
+    - n2_20241224_CenterOut # No assist 0 run
     - n2_20250107_CenterOut
     - n2_20250114_CenterOut
-    # - n2_20250128_CenterOut ## No assist 0 run
-    # - n2_20250211_CenterOut ## No assist 0 run
-
+    - n2_20250128_CenterOut # No assist 0 run
+    - n2_20250211_CenterOut # No assist 0 run
 
   config:
     multitask_readout:
