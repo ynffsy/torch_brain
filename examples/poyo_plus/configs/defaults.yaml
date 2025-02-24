@@ -2,23 +2,23 @@
 # this file needs to be combined with a model config and a dataset config
 
 # Paths
-data_root: ./data/processed/
-log_dir: ./logs
+data_root: /home/ynffsy/Desktop/andersen_lab/data/poyo/processed
+log_dir: /home/ynffsy/Desktop/andersen_lab/results/poyo/logs
 
 # Transforms
 train_transforms: []
 eval_transforms: []
 
 # Training
-epochs: 1000
-batch_size: 128
+epochs: 100
+batch_size: 80
 eval_epochs: 1
 eval_batch_size: null  # if null, will use batch_size
 seed: 42  # use to set random seed
 sanity_check_validation: false  # if true, will start the run with validation 
 
 optim:
-  base_lr: 3.125e-5  # scaled linearly by batch size
+  base_lr: 6.25e-6  # scaled linearly by batch size
   weight_decay: 1e-4
   lr_decay_start: 0.5  # fraction of epochs before starting LR decay
 

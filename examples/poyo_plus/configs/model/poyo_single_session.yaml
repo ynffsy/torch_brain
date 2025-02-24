@@ -1,5 +1,5 @@
 _target_: torch_brain.models.POYOPlus
-sequence_length: 1.0
+sequence_length: 0.5
 latent_step: 0.125
 num_latents_per_step: 16
 dim: 64
