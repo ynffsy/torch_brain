@@ -3,6 +3,7 @@ import logging
 from collections import defaultdict
 from typing import Callable, Dict
 
+import numpy as np
 import hydra
 import lightning as L
 import torch
@@ -12,6 +13,7 @@ from lightning.pytorch.callbacks import (
     ModelCheckpoint,
     ModelSummary,
 )
+import torch.serialization
 from omegaconf import DictConfig, OmegaConf
 from temporaldata import Data
 from torch.utils.data import DataLoader
@@ -390,6 +392,12 @@ def main(cfg: DictConfig):
         f"Local rank/node rank/world size/num nodes: "
         f"{trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/{trainer.num_nodes}"
     )
+
+    torch.serialization.add_safe_globals([
+        np.core.multiarray.scalar,
+        np.dtype,
+        type(np.dtype("str")),
+    ])
 
     # Train
     trainer.fit(wrapper, data_module, ckpt_path=cfg.ckpt_path)
