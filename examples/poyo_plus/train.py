@@ -35,6 +35,7 @@ from torch_brain.utils.stitcher import (
 )
 
 
+
 # higher speed on machines with tensor cores
 torch.set_float32_matmul_precision("medium")
 

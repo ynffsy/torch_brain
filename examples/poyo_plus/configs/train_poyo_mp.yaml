@@ -2,8 +2,8 @@ defaults:
   - defaults.yaml
   - model: poyo_single_session.yaml
   # - dataset: perich_miller_population_2018.yaml
-  - dataset: ALMG103CO_OT_A0.yaml
-  # - dataset: ALMG103CO_OT_A0.35.yaml
+  # - dataset: ALMG103CO_OT_A0.yaml
+  - dataset: ALMG103CO_OT_AL0.35.yaml
   - _self_
 
 train_transforms:

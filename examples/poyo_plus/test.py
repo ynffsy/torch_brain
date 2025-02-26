@@ -27,13 +27,16 @@ from torch_brain.data.sampler import (
     DistributedStitchingFixedWindowSampler,
     RandomFixedWindowSampler,
 )
+
 from torch.utils.data import DataLoader
 from torch_brain.data import Dataset, collate
 from torch_brain.transforms import Compose
+
 from train import TrainWrapper, DataModule
 
 # higher speed on machines with tensor cores
 torch.set_float32_matmul_precision("medium")
+logger = logging.getLogger(__name__)
 
 
 class GradualUnfreezing(L.Callback):
@@ -100,15 +103,27 @@ class GradualUnfreezing(L.Callback):
             )
 
 
-class FinetuneDataModule(L.LightningDataModule):
+def load_model_from_ckpt(model: nn.Module, ckpt_path: str) -> None:
+    if ckpt_path is None:
+        raise ValueError("Must provide a checkpoint path to finetune the model.")
+
+    ckpt = torch.load(ckpt_path, map_location="cpu")
+    state_dict = ckpt["state_dict"]
+    state_dict = {
+        k.replace("model.", ""): v
+        for k, v in state_dict.items()
+        if k.startswith("model.")
+    }
+    model.load_state_dict(state_dict)
+
+
+class TestDataModule(L.LightningDataModule):
     def __init__(self, cfg: DictConfig, model):
         super().__init__()
         self.cfg = cfg
         self.log = logging.getLogger(__name__)
         
         # You might or might not need these
-        self.train_dataset = None
-        self.val_dataset = None
         self.test_dataset = None
         self.sequence_length = None
         self.model = model
@@ -121,92 +136,20 @@ class FinetuneDataModule(L.LightningDataModule):
         self.sequence_length = self.model.sequence_length
 
         # prepare transforms
-        train_transforms = hydra.utils.instantiate(self.cfg.train_transforms)
-        eval_transforms = hydra.utils.instantiate(self.cfg.eval_transforms)
+        transforms = hydra.utils.instantiate(self.cfg.eval_transforms)
 
         # compose transforms, tokenizer is always the last transform
-        train_transform = Compose([*train_transforms, self.model.tokenize])
-        eval_transform = Compose([*eval_transforms, self.model.tokenize])
+        test_transform = Compose([*transforms, self.model.tokenize])
 
-        self.train_dataset = Dataset(
-            root=self.cfg.data_root,
-            config=self.cfg.dataset,
-            split="train",
-            transform=train_transform,
-        )
-        self.train_dataset.disable_data_leakage_check()
-
-        self.val_dataset = Dataset(
-            root=self.cfg.data_root,
-            config=self.cfg.dataset,
-            split="valid",
-            transform=eval_transform,
-        )
-        self.val_dataset.disable_data_leakage_check()
-
-        # create the test dataset
+        # 3) Create the test dataset
         self.test_dataset = Dataset(
             root=self.cfg.data_root,
             config=self.cfg.dataset,
-            split="test",
-            transform=eval_transform,
+            split="test",  # or however you designate test set
+            transform=test_transform,
         )
         self.test_dataset.disable_data_leakage_check()
-
-
-    def train_dataloader(self):
-        train_sampler = RandomFixedWindowSampler(
-            sampling_intervals=self.train_dataset.get_sampling_intervals(),
-            window_length=self.sequence_length,
-            generator=torch.Generator().manual_seed(self.cfg.seed + 1),
-        )
-
-        train_loader = DataLoader(
-            self.train_dataset,
-            sampler=train_sampler,
-            collate_fn=collate,
-            batch_size=self.cfg.batch_size,
-            num_workers=self.cfg.num_workers,
-            drop_last=True,
-            pin_memory=True,
-            persistent_workers=True if self.cfg.num_workers > 0 else False,
-            prefetch_factor=2 if self.cfg.num_workers > 0 else None,
-        )
-
-        self.log.info(f"Training on {len(train_sampler)} samples")
-        self.log.info(f"Training on {len(self.train_dataset.get_unit_ids())} units")
-        self.log.info(f"Training on {len(self.get_session_ids())} sessions")
-
-        return train_loader
-
-
-    def val_dataloader(self):
-        batch_size = self.cfg.eval_batch_size or self.cfg.batch_size
-
-        val_sampler = DistributedStitchingFixedWindowSampler(
-            sampling_intervals=self.val_dataset.get_sampling_intervals(),
-            window_length=self.sequence_length,
-            step=self.sequence_length / 2,
-            batch_size=batch_size,
-            num_replicas=self.trainer.world_size,
-            rank=self.trainer.global_rank,
-        )
-
-        val_loader = DataLoader(
-            self.val_dataset,
-            sampler=val_sampler,
-            shuffle=False,
-            batch_size=batch_size,
-            collate_fn=collate,
-            num_workers=0,
-            drop_last=False,
-        )
-
-        self.log.info(f"Expecting {len(val_sampler)} validation steps")
-        self.val_sequence_index = val_sampler.sequence_index
-
-        return val_loader
-    
+            
 
     def test_dataloader(self):
         batch_size = self.cfg.eval_batch_size or self.cfg.batch_size
@@ -236,17 +179,14 @@ class FinetuneDataModule(L.LightningDataModule):
         return test_loader
 
     def get_unit_ids(self):
-        # return self.test_dataset.get_unit_ids()
-        return self.train_dataset.get_unit_ids()
+        return self.test_dataset.get_unit_ids()
 
     def get_session_ids(self):
-        # return self.test_dataset.get_session_ids()
-        return self.train_dataset.get_session_ids()
+        return self.test_dataset.get_session_ids()
 
     def get_recording_config_dict(self):
-        # return self.test_dataset.get_recording_config_dict()
-        return self.train_dataset.get_recording_config_dict()
-    
+        return self.test_dataset.get_recording_config_dict()
+
     # Optionally, if you need the same metrics approach:
     def get_metrics(self):
         from collections import defaultdict
@@ -261,24 +201,34 @@ class FinetuneDataModule(L.LightningDataModule):
         return metrics
 
 
-def load_model_from_ckpt(model: nn.Module, ckpt_path: str) -> None:
-    if ckpt_path is None:
-        raise ValueError("Must provide a checkpoint path to finetune the model.")
-
-    ckpt = torch.load(ckpt_path, map_location="cpu")
-    state_dict = ckpt["state_dict"]
-    state_dict = {
-        k.replace("model.", ""): v
-        for k, v in state_dict.items()
-        if k.startswith("model.")
-    }
-    model.load_state_dict(state_dict)
 
 
-@hydra.main(version_base="1.3", config_path="./configs", config_name="finetune_poyo_mp.yaml")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@hydra.main(version_base="1.3", config_path="./configs", config_name="test_poyo_mp.yaml")
 def main(cfg: DictConfig):
     # fix random seed, skipped if cfg.seed is None
     seed_everything(cfg.seed)
+
+    torch.serialization.add_safe_globals([
+        np.core.multiarray.scalar,
+        np.dtype,
+        type(np.dtype("str")),
+    ])
 
     # setup loggers
     log = logging.getLogger(__name__)
@@ -292,83 +242,115 @@ def main(cfg: DictConfig):
             log_model=cfg.wandb.log_model,
         )
 
-    torch.serialization.add_safe_globals([
-        np.core.multiarray.scalar,
-        np.dtype,
-        type(np.dtype("str")),
-    ])
-
     # make model
     model = hydra.utils.instantiate(cfg.model, readout_specs=MODALITY_REGISTRY)
     load_model_from_ckpt(model, cfg.ckpt_path)
     log.info(f"Loaded model weights from {cfg.ckpt_path}")
 
-    # setup data module
-    # data_module = DataModule(cfg)
-    # data_module.setup_dataset_and_link_model(model)
+    # 3) Build the TestDataModule
+    #    Notice that we pass `model.tokenize` so we can transform test data consistently
+    test_data_module = TestDataModule(cfg, model)
+    test_data_module.setup()
 
-    data_module = FinetuneDataModule(cfg, model)
-    data_module.setup()
-
-    # register units and sessions
-    unit_ids, session_ids = data_module.get_unit_ids(), data_module.get_session_ids()
+    # 4) Update model’s session/unit vocab from test data
+    unit_ids = test_data_module.get_unit_ids()
+    session_ids = test_data_module.get_session_ids()
     model.unit_emb.extend_vocab(unit_ids, exist_ok=True)
     model.unit_emb.subset_vocab(unit_ids)
     model.session_emb.extend_vocab(session_ids, exist_ok=True)
     model.session_emb.subset_vocab(session_ids)
 
-    # Lightning train wrapper
+    # 5) Build your TrainWrapper or whatever LightningModule you want to test
     wrapper = TrainWrapper(cfg=cfg, model=model)
 
-    evaluator = MultiTaskDecodingStitchEvaluator(metrics=data_module.get_metrics())
+    # 6) Build your evaluation callback (for metrics, etc.)
+    evaluator = MultiTaskDecodingStitchEvaluator(
+        metrics=test_data_module.get_metrics()
+    )
 
-    callbacks = [
-        evaluator,
-        ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
-        ModelCheckpoint(
-            save_last=True,
-            monitor="average_val_metric",
-            mode="max",
-            save_on_train_epoch_end=True,
-            every_n_epochs=cfg.eval_epochs,
-        ),
-        LearningRateMonitor(
-            logging_interval="step"
-        ),  # Create a callback to log the learning rate.
-        tbrain_callbacks.MemInfo(),
-        tbrain_callbacks.EpochTimeLogger(),
-        tbrain_callbacks.ModelWeightStatsLogger(),
-        GradualUnfreezing(cfg.freeze_perceiver_until_epoch),
-    ]
-
+    # 7) Build trainer
     trainer = L.Trainer(
         logger=wandb_logger,
-        default_root_dir=cfg.log_dir,
-        check_val_every_n_epoch=cfg.eval_epochs,
-        max_epochs=cfg.epochs,
-        log_every_n_steps=1,
-        strategy=(
-            "ddp_find_unused_parameters_true" if torch.cuda.is_available() else "auto"
-        ),
-        callbacks=callbacks,
-        precision=cfg.precision,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=cfg.gpus,
-        num_nodes=cfg.nodes,
-        num_sanity_val_steps=0,
-        limit_val_batches=None,  # Ensure no limit on validation batches
+        callbacks=[evaluator],  # keep it minimal
+        # any other trainer configs
     )
 
-    log.info(
-        f"Local rank/node rank/world size/num nodes: "
-        f"{trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/{trainer.num_nodes}"
-    )
+    # 8) Run test
+    trainer.test(wrapper, datamodule=test_data_module)
 
-    # Train
-    trainer.fit(wrapper, data_module)
 
-    # Test
-    trainer.test(wrapper, data_module, "best")
+
+
+
+
+
+
+
+
+
+
+    # setup data module
+    # data_module = DataModule(cfg)
+    # data_module.setup_dataset_and_link_model(model)
+
+    # # register units and sessions
+    # unit_ids, session_ids = data_module.get_unit_ids(), data_module.get_session_ids()
+    # model.unit_emb.extend_vocab(unit_ids, exist_ok=True)
+    # model.unit_emb.subset_vocab(unit_ids)
+    # model.session_emb.extend_vocab(session_ids, exist_ok=True)
+    # model.session_emb.subset_vocab(session_ids)
+
+    # # Lightning train wrapper
+    # wrapper = TrainWrapper(cfg=cfg, model=model)
+
+    # evaluator = MultiTaskDecodingStitchEvaluator(metrics=data_module.get_metrics())
+
+    # callbacks = [
+    #     evaluator,
+    #     ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
+    #     ModelCheckpoint(
+    #         save_last=True,
+    #         monitor="average_val_metric",
+    #         mode="max",
+    #         save_on_train_epoch_end=True,
+    #         every_n_epochs=cfg.eval_epochs,
+    #     ),
+    #     LearningRateMonitor(
+    #         logging_interval="step"
+    #     ),  # Create a callback to log the learning rate.
+    #     tbrain_callbacks.MemInfo(),
+    #     tbrain_callbacks.EpochTimeLogger(),
+    #     tbrain_callbacks.ModelWeightStatsLogger(),
+    #     GradualUnfreezing(cfg.freeze_perceiver_until_epoch),
+    # ]
+
+    # trainer = L.Trainer(
+    #     logger=wandb_logger,
+    #     default_root_dir=cfg.log_dir,
+    #     check_val_every_n_epoch=cfg.eval_epochs,
+    #     max_epochs=cfg.epochs,
+    #     log_every_n_steps=1,
+    #     strategy=(
+    #         "ddp_find_unused_parameters_true" if torch.cuda.is_available() else "auto"
+    #     ),
+    #     callbacks=callbacks,
+    #     precision=cfg.precision,
+    #     accelerator="gpu" if torch.cuda.is_available() else "cpu",
+    #     devices=cfg.gpus,
+    #     num_nodes=cfg.nodes,
+    #     num_sanity_val_steps=0,
+    #     limit_val_batches=None,  # Ensure no limit on validation batches
+    # )
+
+    # log.info(
+    #     f"Local rank/node rank/world size/num nodes: "
+    #     f"{trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/{trainer.num_nodes}"
+    # )
+
+    # # Test
+    # trainer.test(wrapper, data_module, "best")
 
 
 if __name__ == "__main__":

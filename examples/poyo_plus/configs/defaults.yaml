@@ -37,4 +37,5 @@ gpus: 1
 num_workers: 4
 
 # Checkpointing
-ckpt_path: null  # for resuming training, or loading a model during finetuning
+# ckpt_path: null  # for resuming training, or loading a model during finetuning
+ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/potucsqh/checkpoints/last.ckpt

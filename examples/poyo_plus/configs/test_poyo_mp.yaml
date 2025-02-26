@@ -14,11 +14,9 @@ train_transforms:
     peak: 4
 
 wandb:
-  run_name: poyo_mp_mini_finetune
+  run_name: poyo_mp_mini_test
 
 # ckpt_path: null  # Must specify path to model to finetune
-
-
 
 # ALMGCO103 OT A0 N2
 # ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/f3n49428/checkpoints/last.ckpt
