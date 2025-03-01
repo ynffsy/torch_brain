@@ -4,6 +4,8 @@ defaults:
   # - dataset: perich_miller_population_2018.yaml
   - dataset: ALMG103CO_OT_A0.yaml
   # - dataset: ALMG103CO_OT_AL0.35.yaml
+  # - dataset: ALMG103CO_OT_AX.yaml
+  # - dataset: ALMG103CO_OT_OL.yaml
   - _self_
 
 train_transforms:
@@ -18,11 +20,12 @@ wandb:
 
 # ckpt_path: null  # Must specify path to model to finetune
 
+
 # ALMGCO103 OT A0 N2
 # ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/f3n49428/checkpoints/last.ckpt
 
 # ALMGCO103 OT A0 N2 (excluding last 3)
-ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/2dng1oon/checkpoints/last.ckpt
+# ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/2dng1oon/checkpoints/last.ckpt
 
 # ALMGCO103 OT A0 N2 (excluding first 3)
 # ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/vo7pzhet/checkpoints/last.ckpt
@@ -34,11 +37,41 @@ ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/2dng1
 # ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/hka4expa/checkpoints/last.ckpt
 
 # ALMGCO103 OT AL0.35 N2 (excluding first 3)
+# ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/fre7cbdl/checkpoints/last.ckpt
+
+
+# ALMGCO103 OT A0 N1
+# ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/atc8pmc2/checkpoints/last.ckpt
+
+# ALMGCO103 OT A0 N1 (excluding last 3)
+# ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/wqrrb6yl/checkpoints/last.ckpt
+
+# ALMGCO103 OT A0 N1 (excluding first 3)
+# ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/7i8wxcj1/checkpoints/last.ckpt
+
+# ALMGCO103 OT AL0.35 N1
 # ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo//checkpoints/last.ckpt
 
-# Num of epochs to freeze perceiver network while finetuning
-# -1 => Keep frozen, i.e. perform Unit-identification
-#  0 => Train everything
-# >0 => Only train unit/session embeddings for first few epochs,
-#       and then train everything
-freeze_perceiver_until_epoch: 2
+# ALMGCO103 OT AL0.35 N1 (excluding last 3)
+# ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/e7rx0ph9/checkpoints/last.ckpt
+
+# ALMGCO103 OT AL0.35 N1 (excluding first 3)
+# ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/jcj6rjha/checkpoints/last.ckpt
+
+
+# ALMGCO103 OT noCAR N2 (excluding last 3)
+# ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/wxwtc67p/checkpoints/last.ckpt
+
+# ALMGCO103 OT noCAR N2 (excluding last 3) -> finetune on ALMGCO103 OT OL N2 (last 3)
+# ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/gmxi5516/checkpoints/last.ckpt
+
+# ALMGCO103 OT noCAR N2 (excluding last 3) -> finetune on ALMGCO103 OT OL N2 (first one of last 3)
+# ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/6os0p93w/checkpoints/last.ckpt
+
+# ALMGCO103 OT noCAR N2 (excluding last 3) -> finetune on ALMGCO103 OT AX N2 (last 3)
+ckpt_path: /home/ynffsy/Desktop/andersen_lab/results/neurogalaxy/logs/poyo/o5c7hq7l/checkpoints/last.ckpt
+
+
+
+
+

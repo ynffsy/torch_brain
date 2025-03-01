@@ -145,7 +145,7 @@ class TestDataModule(L.LightningDataModule):
         self.test_dataset = Dataset(
             root=self.cfg.data_root,
             config=self.cfg.dataset,
-            split="test",  # or however you designate test set
+            # split="test",  # or however you designate test set
             transform=test_transform,
         )
         self.test_dataset.disable_data_leakage_check()
@@ -199,23 +199,6 @@ class TestDataModule(L.LightningDataModule):
                     metric = hydra.utils.instantiate(metric_config["metric"])
                     metrics[recording_id][readout_id][str(metric)] = metric
         return metrics
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -280,77 +263,6 @@ def main(cfg: DictConfig):
     # 8) Run test
     trainer.test(wrapper, datamodule=test_data_module)
 
-
-
-
-
-
-
-
-
-
-
-
-    # setup data module
-    # data_module = DataModule(cfg)
-    # data_module.setup_dataset_and_link_model(model)
-
-    # # register units and sessions
-    # unit_ids, session_ids = data_module.get_unit_ids(), data_module.get_session_ids()
-    # model.unit_emb.extend_vocab(unit_ids, exist_ok=True)
-    # model.unit_emb.subset_vocab(unit_ids)
-    # model.session_emb.extend_vocab(session_ids, exist_ok=True)
-    # model.session_emb.subset_vocab(session_ids)
-
-    # # Lightning train wrapper
-    # wrapper = TrainWrapper(cfg=cfg, model=model)
-
-    # evaluator = MultiTaskDecodingStitchEvaluator(metrics=data_module.get_metrics())
-
-    # callbacks = [
-    #     evaluator,
-    #     ModelSummary(max_depth=2),  # Displays the number of parameters in the model.
-    #     ModelCheckpoint(
-    #         save_last=True,
-    #         monitor="average_val_metric",
-    #         mode="max",
-    #         save_on_train_epoch_end=True,
-    #         every_n_epochs=cfg.eval_epochs,
-    #     ),
-    #     LearningRateMonitor(
-    #         logging_interval="step"
-    #     ),  # Create a callback to log the learning rate.
-    #     tbrain_callbacks.MemInfo(),
-    #     tbrain_callbacks.EpochTimeLogger(),
-    #     tbrain_callbacks.ModelWeightStatsLogger(),
-    #     GradualUnfreezing(cfg.freeze_perceiver_until_epoch),
-    # ]
-
-    # trainer = L.Trainer(
-    #     logger=wandb_logger,
-    #     default_root_dir=cfg.log_dir,
-    #     check_val_every_n_epoch=cfg.eval_epochs,
-    #     max_epochs=cfg.epochs,
-    #     log_every_n_steps=1,
-    #     strategy=(
-    #         "ddp_find_unused_parameters_true" if torch.cuda.is_available() else "auto"
-    #     ),
-    #     callbacks=callbacks,
-    #     precision=cfg.precision,
-    #     accelerator="gpu" if torch.cuda.is_available() else "cpu",
-    #     devices=cfg.gpus,
-    #     num_nodes=cfg.nodes,
-    #     num_sanity_val_steps=0,
-    #     limit_val_batches=None,  # Ensure no limit on validation batches
-    # )
-
-    # log.info(
-    #     f"Local rank/node rank/world size/num nodes: "
-    #     f"{trainer.local_rank}/{trainer.node_rank}/{trainer.world_size}/{trainer.num_nodes}"
-    # )
-
-    # # Test
-    # trainer.test(wrapper, data_module, "best")
 
 
 if __name__ == "__main__":
