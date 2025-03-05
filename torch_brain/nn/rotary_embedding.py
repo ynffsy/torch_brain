@@ -21,7 +21,7 @@ class RotaryEmbedding(nn.Module):
         t_max (float, optional): Maximum period of the sinusoids.
     """
 
-    def __init__(self, dim, t_min=1e-4, t_max=4.0):
+    def __init__(self, dim, t_min=1e-5, t_max=4.0):
         super().__init__()
         omega = torch.zeros(dim // 2)
         omega[: dim // 4] = (

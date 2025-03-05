@@ -78,7 +78,7 @@ class POYO(nn.Module):
         lin_dropout: float = 0.4,
         atn_dropout: float = 0.0,
         emb_init_scale: float = 0.02,
-        t_min: float = 1e-4,
+        t_min: float = 1e-5,
         t_max: float = 4.0,
     ):
         super().__init__()
@@ -373,6 +373,6 @@ def poyo_mp(readout_spec: ModalitySpec, ckpt_path=None):
         lin_dropout=0.4,
         atn_dropout=0.2,
         emb_init_scale=0.02,
-        t_min=1e-4,
+        t_min=1e-5,
         t_max=4.0,
     )
