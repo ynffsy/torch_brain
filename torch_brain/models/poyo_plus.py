@@ -71,6 +71,7 @@ class POYOPlus(nn.Module):
         self,
         *,
         sequence_length: float,
+        sequence_start_threshold: float,
         readout_specs: Dict[str, ModalitySpec] = MODALITY_REGISTRY,
         latent_step: float,
         num_latents_per_step: int = 64,
@@ -83,7 +84,7 @@ class POYOPlus(nn.Module):
         lin_dropout: float = 0.4,
         atn_dropout: float = 0.0,
         emb_init_scale: float = 0.02,
-        t_min: float = 1e-4,
+        t_min: float = 1e-5,
         t_max: float = 4.0,
     ):
         super().__init__()
@@ -93,6 +94,7 @@ class POYOPlus(nn.Module):
         self.latent_step = latent_step
         self.num_latents_per_step = num_latents_per_step
         self.sequence_length = sequence_length
+        self.sequence_start_threshold = sequence_start_threshold
         self.readout_specs = readout_specs
 
         # embeddings
@@ -318,6 +320,22 @@ class POYOPlus(nn.Module):
             data,
             self.readout_specs,
         )
+
+        ## Filter out output that are too early in the time window
+        threshold = start + self.sequence_start_threshold * self.sequence_length
+        assert threshold < end, "sequence_start_threshold is too large"
+
+        keep_mask = (output_timestamps >= threshold).cpu().numpy()
+        output_timestamps = output_timestamps[keep_mask]
+        output_task_index = output_task_index[keep_mask]
+
+        # values, weights, and eval mask are dictionaries with one array per readout_id
+        for r_id in output_values:
+            output_values[r_id] = output_values[r_id][keep_mask]
+        for r_id in output_weights:
+            output_weights[r_id] = output_weights[r_id][keep_mask]
+        for r_id in output_eval_mask:
+            output_eval_mask[r_id] = output_eval_mask[r_id][keep_mask]
 
         session_index = np.repeat(session_index, len(output_timestamps))
 
