@@ -1,5 +1,5 @@
 - selection:
-  - brainset: ALMG103SSCO_OT_A0
+  - brainset: ALMG103CO_OT_ALL
     sessions:
     # - n1_20230818_CenterOut
     # - n1_20230824_CenterOut
@@ -21,16 +21,16 @@
     # - n1_20240927_CenterOut
     # - n1_20241018_CenterOut
 
-    # - n2_20240123_CenterOut
-    # - n2_20240126_CenterOut
-    # - n2_20240130_CenterOut
-    # - n2_20240201_CenterOut
-    # - n2_20240206_CenterOut
-    # - n2_20240208_CenterOut
-    # - n2_20240213_CenterOut
-    # - n2_20240215_CenterOut
-    # - n2_20240221_CenterOut
-    - n2_20240222_CenterOut
+    - n2_20240123_CenterOut
+    - n2_20240126_CenterOut
+    - n2_20240130_CenterOut
+    - n2_20240201_CenterOut
+    - n2_20240206_CenterOut
+    - n2_20240208_CenterOut
+    - n2_20240213_CenterOut
+    - n2_20240215_CenterOut
+    - n2_20240221_CenterOut
+    # - n2_20240222_CenterOut
     # - n2_20240228_CenterOut
     # - n2_20240229_CenterOut
     # - n2_20240306_CenterOut
@@ -69,16 +69,16 @@
 
   config:
     multitask_readout:
-      # - readout_id: cursor_velocity_2d
-      #   normalize_mean: 0.0
-      #   normalize_std: 0.55
-      #   weights:
-      #     # movement_phases.hold_period: 0.0
-      #     movement_phases.reach_period: 0.5
-      #   metrics:
-      #     - metric:
-      #         _target_: torchmetrics.R2Score
-      #   eval_interval: movement_phases.reach_period
+      - readout_id: cursor_velocity_2d
+        normalize_mean: 0.0
+        normalize_std: 0.55
+        weights:
+          # movement_phases.hold_period: 0.0
+          movement_phases.reach_period: 0.5
+        metrics:
+          - metric:
+              _target_: torchmetrics.R2Score
+        eval_interval: movement_phases.reach_period
 
       # - readout_id: cursor_position_2d
       #   normalize_mean: 0.0
@@ -102,16 +102,16 @@
       #         _target_: torchmetrics.R2Score
       #   eval_interval: movement_phases.reach_period
 
-      - readout_id: cursor_direction_to_target_2d
-        normalize_mean: 0.0
-        normalize_std: 0.18
-        weights:
-          # movement_phases.hold_period: 0.0
-          movement_phases.reach_period: 1.0
-        metrics:
-          - metric:
-              _target_: torchmetrics.R2Score
-        eval_interval: movement_phases.reach_period
+      # - readout_id: cursor_direction_to_target_2d
+      #   normalize_mean: 0.0
+      #   normalize_std: 0.18
+      #   weights:
+      #     # movement_phases.hold_period: 0.0
+      #     movement_phases.reach_period: 1.0
+      #   metrics:
+      #     - metric:
+      #         _target_: torchmetrics.R2Score
+      #   eval_interval: movement_phases.reach_period
       
       # - readout_id: target_position_2d
       #   normalize_mean: 0.0
