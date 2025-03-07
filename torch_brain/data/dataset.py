@@ -25,9 +25,16 @@ class DatasetIndex:
     end: float
 
 
-default_session_id_prefix_fn = lambda data: f"{data.brainset.id}/"
-default_unit_id_prefix_fn = lambda data: f"{data.brainset.id}/{data.session.id}/"
-default_subject_id_prefix_fn = lambda data: f"{data.brainset.id}/"
+# default_session_id_prefix_fn = lambda data: f"{data.brainset.id}/"
+# default_unit_id_prefix_fn = lambda data: f"{data.brainset.id}/{data.session.id}/"
+# default_subject_id_prefix_fn = lambda data: f"{data.brainset.id}/"
+
+# dataset_name = data.brainset.id.split('_')[0]
+
+default_session_id_prefix_fn = lambda data: f"{data.brainset.id.split('_')[0]}/"
+default_unit_id_prefix_fn = lambda data: f"{data.brainset.id.split('_')[0]}/{data.session.id}/"
+default_subject_id_prefix_fn = lambda data: f"{data.brainset.id.split('_')[0]}/"
+
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -272,8 +279,12 @@ class Dataset(torch.utils.data.Dataset):
                 # Now we get the session-level information
                 config = selection_list.get("config", {})
 
+                # import ipdb
+                # ipdb.set_trace()
+
                 for session_id in session_ids:
-                    recording_id = subselection["brainset"] + "/" + session_id
+                    filename = subselection["brainset"] + "/" + session_id
+                    recording_id = subselection["brainset"].split('_')[0] + "/" + session_id
 
                     if recording_id in recording_dict:
                         raise ValueError(
@@ -282,7 +293,7 @@ class Dataset(torch.utils.data.Dataset):
                         )
 
                     recording_dict[recording_id] = dict(
-                        filename=(Path(self.root) / (recording_id + ".h5")),
+                        filename=(Path(self.root) / (filename + ".h5")),
                         config=config,
                     )
 
