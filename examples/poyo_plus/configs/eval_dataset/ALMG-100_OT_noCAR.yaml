@@ -1,5 +1,5 @@
 - selection:
-  - brainset: ALMG103SSCO_OT_A0
+  - brainset: ALMG103CO_OT_noCAR
     sessions:
     # - n1_20230818_CenterOut
     # - n1_20230824_CenterOut
@@ -21,48 +21,48 @@
     # - n1_20240927_CenterOut
     # - n1_20241018_CenterOut
 
-    # - n2_20240123_CenterOut
-    # - n2_20240126_CenterOut
-    # - n2_20240130_CenterOut
-    # - n2_20240201_CenterOut
-    # - n2_20240206_CenterOut
-    # - n2_20240208_CenterOut
-    # - n2_20240213_CenterOut
-    # - n2_20240215_CenterOut
-    # - n2_20240221_CenterOut
+    - n2_20240123_CenterOut
+    - n2_20240126_CenterOut
+    - n2_20240130_CenterOut
+    - n2_20240201_CenterOut
+    - n2_20240206_CenterOut
+    - n2_20240208_CenterOut
+    - n2_20240213_CenterOut
+    - n2_20240215_CenterOut
+    - n2_20240221_CenterOut
     - n2_20240222_CenterOut
-    # - n2_20240228_CenterOut
-    # - n2_20240229_CenterOut
-    # - n2_20240306_CenterOut
-    # - n2_20240308_CenterOut
-    # - n2_20240312_CenterOut
-    # - n2_20240314_CenterOut
-    # - n2_20240319_CenterOut
-    # - n2_20240328_CenterOut
-    # - n2_20240402_CenterOut
-    # - n2_20240409_CenterOut
-    # - n2_20240411_CenterOut
-    # - n2_20240418_CenterOut
-    # - n2_20240502_CenterOut
-    # - n2_20240509_CenterOut
-    # - n2_20240516_CenterOut
-    # - n2_20240521_CenterOut
-    # - n2_20240530_CenterOut
-    # - n2_20240618_CenterOut
-    # - n2_20240702_CenterOut
-    # - n2_20240709_CenterOut
-    # - n2_20240716_CenterOut
-    # - n2_20240820_CenterOut
-    # - n2_20240827_CenterOut
-    # - n2_20240920_CenterOut
-    # - n2_20240924_CenterOut
-    # - n2_20241001_CenterOut
-    # - n2_20241015_CenterOut
-    # - n2_20241022_CenterOut
-    # - n2_20241105_CenterOut
-    # - n2_20241106_CenterOut
-    # - n2_20241113_CenterOut
-    # - n2_20241119_CenterOut
+    - n2_20240228_CenterOut
+    - n2_20240229_CenterOut
+    - n2_20240306_CenterOut
+    - n2_20240308_CenterOut
+    - n2_20240312_CenterOut
+    - n2_20240314_CenterOut
+    - n2_20240319_CenterOut
+    - n2_20240328_CenterOut
+    - n2_20240402_CenterOut
+    - n2_20240409_CenterOut
+    - n2_20240411_CenterOut
+    - n2_20240418_CenterOut
+    - n2_20240502_CenterOut
+    - n2_20240509_CenterOut
+    - n2_20240516_CenterOut
+    - n2_20240521_CenterOut
+    - n2_20240530_CenterOut
+    - n2_20240618_CenterOut
+    - n2_20240702_CenterOut
+    - n2_20240709_CenterOut
+    - n2_20240716_CenterOut
+    - n2_20240820_CenterOut
+    - n2_20240827_CenterOut
+    - n2_20240920_CenterOut
+    - n2_20240924_CenterOut
+    - n2_20241001_CenterOut
+    - n2_20241015_CenterOut
+    - n2_20241022_CenterOut
+    - n2_20241105_CenterOut
+    - n2_20241106_CenterOut
+    - n2_20241113_CenterOut
+    - n2_20241119_CenterOut
     # - n2_20241211_CenterOut
     # - n2_20250107_CenterOut
     # - n2_20250114_CenterOut

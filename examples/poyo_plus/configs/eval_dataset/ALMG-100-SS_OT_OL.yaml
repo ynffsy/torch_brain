@@ -1,0 +1,125 @@
+- selection:
+  - brainset: ALMG103SSCO_OT_OL
+    sessions:
+    # - n1_20230818_CenterOut
+    # - n1_20230824_CenterOut
+    # - n1_20230901_CenterOut
+    # - n1_20230908_CenterOut
+    # - n1_20230929_CenterOut
+    # - n1_20231208_CenterOut
+    # - n1_20240117_CenterOut 
+    # - n1_20240202_CenterOut 
+    # - n1_20240209_CenterOut 
+    # - n1_20240313_CenterOut 
+    # - n1_20240419_CenterOut 
+    # - n1_20240424_CenterOut 
+    # - n1_20240528_CenterOut 
+    # - n1_20240719_CenterOut 
+    # - n1_20240829_CenterOut 
+    # - n1_20240912_CenterOut 
+    # - n1_20240918_CenterOut 
+    # - n1_20240927_CenterOut
+    # - n1_20241018_CenterOut
+
+    # - n2_20240123_CenterOut
+    # - n2_20240126_CenterOut
+    # - n2_20240130_CenterOut
+    # - n2_20240201_CenterOut
+    # - n2_20240206_CenterOut
+    # - n2_20240208_CenterOut
+    # - n2_20240213_CenterOut
+    # - n2_20240215_CenterOut
+    # - n2_20240221_CenterOut
+    - n2_20240222_CenterOut
+    # - n2_20240228_CenterOut
+    # - n2_20240229_CenterOut
+    # - n2_20240306_CenterOut
+    # - n2_20240308_CenterOut
+    # - n2_20240312_CenterOut
+    # - n2_20240314_CenterOut
+    # - n2_20240319_CenterOut
+    # - n2_20240328_CenterOut
+    # - n2_20240402_CenterOut
+    # - n2_20240409_CenterOut
+    # - n2_20240411_CenterOut
+    # - n2_20240418_CenterOut
+    # - n2_20240502_CenterOut
+    # - n2_20240509_CenterOut
+    # - n2_20240516_CenterOut
+    # - n2_20240521_CenterOut
+    # - n2_20240530_CenterOut
+    # - n2_20240618_CenterOut
+    # - n2_20240702_CenterOut
+    # - n2_20240709_CenterOut
+    # - n2_20240716_CenterOut
+    # - n2_20240820_CenterOut
+    # - n2_20240827_CenterOut
+    # - n2_20240920_CenterOut
+    # - n2_20240924_CenterOut
+    # - n2_20241001_CenterOut
+    # - n2_20241015_CenterOut
+    # - n2_20241022_CenterOut
+    # - n2_20241105_CenterOut
+    # - n2_20241106_CenterOut
+    # - n2_20241113_CenterOut
+    # - n2_20241119_CenterOut
+    # - n2_20241211_CenterOut
+    # - n2_20250107_CenterOut
+    # - n2_20250114_CenterOut
+
+  config:
+    multitask_readout:
+      # - readout_id: cursor_velocity_2d
+      #   normalize_mean: 0.0
+      #   normalize_std: 0.55
+      #   weights:
+      #     # movement_phases.hold_period: 0.0
+      #     movement_phases.reach_period: 0.5
+      #   metrics:
+      #     - metric:
+      #         _target_: torchmetrics.R2Score
+      #   eval_interval: movement_phases.reach_period
+
+      # - readout_id: cursor_position_2d
+      #   normalize_mean: 0.0
+      #   normalize_std: 0.16
+      #   weights:
+      #     # movement_phases.hold_period: 0.0
+      #     movement_phases.reach_period: 0.1
+      #   metrics:
+      #     - metric:
+      #         _target_: torchmetrics.R2Score
+      #   eval_interval: movement_phases.reach_period
+
+      # - readout_id: cursor_acceleration_2d
+      #   normalize_mean: 0.0
+      #   normalize_std: 0.1
+      #   weights:
+      #     # movement_phases.hold_period: 0.0
+      #     movement_phases.reach_period: 0.2
+      #   metrics:
+      #     - metric:
+      #         _target_: torchmetrics.R2Score
+      #   eval_interval: movement_phases.reach_period
+
+      - readout_id: cursor_direction_to_target_2d
+        normalize_mean: 0.0
+        normalize_std: 0.18
+        weights:
+          # movement_phases.hold_period: 0.0
+          movement_phases.reach_period: 1.0
+        metrics:
+          - metric:
+              _target_: torchmetrics.R2Score
+        eval_interval: movement_phases.reach_period
+      
+      # - readout_id: target_position_2d
+      #   normalize_mean: 0.0
+      #   normalize_std: 0.2
+      #   weights:
+      #     # movement_phases.hold_period: 0.0
+      #     movement_phases.reach_period: 0.2
+      #   metrics:
+      #     - metric:
+      #         _target_: torchmetrics.R2Score
+      #   eval_interval: movement_phases.reach_period

@@ -1,5 +1,5 @@
 - selection:
-  - brainset: ALMG103CO_OT_A0_ET
+  - brainset: ALMG103CO_OT_CAR
     sessions:
     # - n1_20230818_CenterOut
     # - n1_20230824_CenterOut
@@ -21,15 +21,15 @@
     # - n1_20240927_CenterOut
     # - n1_20241018_CenterOut
 
-    - n2_20240123_CenterOut
-    - n2_20240126_CenterOut
-    - n2_20240130_CenterOut
-    - n2_20240201_CenterOut
-    - n2_20240206_CenterOut
-    - n2_20240208_CenterOut
-    - n2_20240213_CenterOut
-    - n2_20240215_CenterOut
-    - n2_20240221_CenterOut
+    # - n2_20240123_CenterOut
+    # - n2_20240126_CenterOut
+    # - n2_20240130_CenterOut
+    # - n2_20240201_CenterOut
+    # - n2_20240206_CenterOut
+    # - n2_20240208_CenterOut
+    # - n2_20240213_CenterOut
+    # - n2_20240215_CenterOut
+    # - n2_20240221_CenterOut
     - n2_20240222_CenterOut
     # - n2_20240228_CenterOut
     # - n2_20240229_CenterOut
