@@ -138,7 +138,7 @@ class FinetuneDataModule(L.LightningDataModule):
 
         self.val_dataset = Dataset(
             root=self.cfg.data_root,
-            config=self.cfg.dataset,
+            config=self.cfg.eval_dataset,
             split="valid",
             transform=eval_transform,
         )
@@ -147,7 +147,7 @@ class FinetuneDataModule(L.LightningDataModule):
         # create the test dataset
         self.test_dataset = Dataset(
             root=self.cfg.data_root,
-            config=self.cfg.dataset,
+            config=self.cfg.eval_dataset,
             split="test",
             transform=eval_transform,
         )
@@ -244,8 +244,8 @@ class FinetuneDataModule(L.LightningDataModule):
         return self.train_dataset.get_session_ids()
 
     def get_recording_config_dict(self):
-        # return self.test_dataset.get_recording_config_dict()
-        return self.train_dataset.get_recording_config_dict()
+        return self.test_dataset.get_recording_config_dict()
+        # return self.train_dataset.get_recording_config_dict()
     
     # Optionally, if you need the same metrics approach:
     def get_metrics(self):
@@ -311,11 +311,24 @@ def main(cfg: DictConfig):
     data_module.setup()
 
     # register units and sessions
-    unit_ids, session_ids = data_module.get_unit_ids(), data_module.get_session_ids()
-    model.unit_emb.extend_vocab(unit_ids, exist_ok=True)
-    model.unit_emb.subset_vocab(unit_ids)
-    model.session_emb.extend_vocab(session_ids, exist_ok=True)
-    model.session_emb.subset_vocab(session_ids)
+    # gather all unit IDs
+    train_unit_ids = data_module.train_dataset.get_unit_ids()
+    val_unit_ids   = data_module.val_dataset.get_unit_ids()
+    test_unit_ids  = data_module.test_dataset.get_unit_ids()
+
+    all_unit_ids = list(set(train_unit_ids + val_unit_ids + test_unit_ids))
+    model.unit_emb.extend_vocab(all_unit_ids, exist_ok=True)
+    model.unit_emb.subset_vocab(all_unit_ids)
+
+    # do the same for session IDs
+    train_session_ids = data_module.train_dataset.get_session_ids()
+    val_session_ids   = data_module.val_dataset.get_session_ids()
+    test_session_ids  = data_module.test_dataset.get_session_ids()
+
+    all_session_ids = list(set(train_session_ids + val_session_ids + test_session_ids))
+    model.session_emb.extend_vocab(all_session_ids, exist_ok=True)
+    model.session_emb.subset_vocab(all_session_ids)
+
 
     # Lightning train wrapper
     wrapper = TrainWrapper(cfg=cfg, model=model)
