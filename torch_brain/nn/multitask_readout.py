@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torchtyping import TensorType
-from temporaldata import Data
+from temporaldata import Data, Interval
 
 import torch_brain
 from torch_brain.data.collate import collate, chain, track_batch
@@ -155,6 +155,41 @@ class MultitaskReadout(nn.Module):
         return outputs
 
 
+def bin_assist(value: float) -> int:
+    """
+    Maps a single assist value to an integer 0..5:
+      bin 0: [0,   0.1)
+      bin 1: [0.1, 0.3)
+      bin 2: [0.3, 0.5)
+      bin 3: [0.5, 0.7]
+      bin 4: (0.7, 1]
+      bin 5:  -1   (special case)
+    """
+    # Handle special sentinel
+    if value == -1:
+        return 5
+
+    # Otherwise, assume value is in [0,1].
+    # Adjust these bounds to match open/closed intervals exactly as you defined:
+    if 0 <= value < 0.1:
+        return 0
+    elif value < 0.3:
+        return 1
+    elif value < 0.5:
+        return 2
+    elif value <= 0.7:  # includes 0.7
+        return 3
+    else:               # > 0.7 up to 1
+        return 4
+
+def bin_assist_array(values: np.ndarray) -> np.ndarray:
+    """
+    Vectorized version for a NumPy array of assist values.
+    """
+    # You can do this with list comprehension, map, or a vectorized approach.
+    return np.array([bin_assist(v) for v in values])
+
+
 def prepare_for_multitask_readout(
     data: Data,
     readout_registry: Dict[str, "ModalitySpec"],
@@ -175,6 +210,8 @@ def prepare_for_multitask_readout(
     values = dict()
     weights = dict()
     eval_mask = dict()
+    assist_levels = list()
+
 
     for readout_config in data.config["multitask_readout"]:
         # check that the readout config contains all required keys
@@ -239,6 +276,36 @@ def prepare_for_multitask_readout(
             eval_interval = data.get_nested_attribute(eval_interval_key)
             eval_mask[key] = isin_interval(timestamps, eval_interval)
 
+        # Ensure all timestamps are within the correct range
+        for i_time, t in enumerate(timestamps[-1]):
+            i_trial = np.where((data.trials.start <= t) & (t < data.trials.end))[0]
+            if not len(i_trial):
+                eval_mask[key][i_time] = False
+
+    if hasattr(data.trials, "assist_level"):
+        trial_assist = data.trials.assist_level      # e.g. a list or some container
+        trial_starts = data.trials.start            # array-like start times
+        trial_ends   = data.trials.end              # array-like end times
+
+        # Example: for each timestamp, find which trial it belongs to
+        # and fetch the corresponding assist level
+        for t in timestamps[-1]:
+            # find the trial index i where start[i] <= t < end[i]
+            # (or do something more robust if intervals can overlap)
+            i = np.where((trial_starts <= t) & (t < trial_ends))[0]
+            if len(i) > 0:
+                # If there's a match, pick the first or handle as needed
+                i = i[0]
+                assist_levels.append(trial_assist[i])
+            else:
+                # If no matching trial, maybe assign NaN or 0
+                assist_levels.append(np.nan)
+
+        assist_levels = np.array(assist_levels, dtype=np.float32)
+
+        # Bin assist levels into 6 categories
+        assist_levels = bin_assist_array(assist_levels)
+
     # chain
     timestamps, batch = collate(
         [
@@ -248,4 +315,4 @@ def prepare_for_multitask_readout(
     )
     readout_index = torch.tensor(readout_index)[batch]
 
-    return timestamps, values, readout_index, weights, eval_mask
+    return timestamps, values, readout_index, weights, eval_mask, assist_levels

@@ -75,7 +75,9 @@ class POYOPlus(nn.Module):
         readout_specs: Dict[str, ModalitySpec] = MODALITY_REGISTRY,
         latent_step: float,
         num_latents_per_step: int = 64,
-        dim: int = 512,
+        dim_enc: int = 512,
+        dim_mid: int = 512,
+        dim_dec: int = 512,
         depth: int = 2,
         dim_head: int = 64,
         cross_heads: int = 1,
@@ -98,12 +100,13 @@ class POYOPlus(nn.Module):
         self.readout_specs = readout_specs
 
         # embeddings
-        self.unit_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
-        self.session_emb = InfiniteVocabEmbedding(dim, init_scale=emb_init_scale)
-        self.token_type_emb = Embedding(4, dim, init_scale=emb_init_scale)
-        self.task_emb = Embedding(len(readout_specs), dim, init_scale=emb_init_scale)
+        self.unit_emb = InfiniteVocabEmbedding(dim_enc, init_scale=emb_init_scale)
+        self.token_type_emb = Embedding(4, dim_enc, init_scale=emb_init_scale)
+        self.session_emb = InfiniteVocabEmbedding(dim_dec, init_scale=emb_init_scale)
+        self.task_emb = Embedding(len(readout_specs), dim_dec, init_scale=emb_init_scale)
+        self.assist_emb = Embedding(num_embeddings=6, embedding_dim=dim_dec, init_scale=emb_init_scale)
         self.latent_emb = Embedding(
-            num_latents_per_step, dim, init_scale=emb_init_scale
+            num_latents_per_step, dim_enc, init_scale=emb_init_scale
         )
         self.rotary_emb = RotaryEmbedding(dim_head, t_min, t_max)
 
@@ -111,15 +114,17 @@ class POYOPlus(nn.Module):
 
         # encoder layer
         self.enc_atn = RotaryCrossAttention(
-            dim=dim,
+            dim=dim_enc,
             heads=cross_heads,
             dropout=atn_dropout,
             dim_head=dim_head,
             rotate_value=True,
         )
         self.enc_ffn = nn.Sequential(
-            nn.LayerNorm(dim), FeedForward(dim=dim, dropout=ffn_dropout)
+            nn.LayerNorm(dim_enc), FeedForward(dim=dim_enc, dropout=ffn_dropout)
         )
+
+        self.encoder_proj = nn.Linear(dim_enc, dim_mid)
 
         # process layers
         self.proc_layers = nn.ModuleList([])
@@ -127,38 +132,42 @@ class POYOPlus(nn.Module):
             self.proc_layers.append(
                 nn.Sequential(
                     RotarySelfAttention(
-                        dim=dim,
+                        dim=dim_mid,
                         heads=self_heads,
                         dropout=atn_dropout,
                         dim_head=dim_head,
                         rotate_value=True,
                     ),
                     nn.Sequential(
-                        nn.LayerNorm(dim),
-                        FeedForward(dim=dim, dropout=ffn_dropout),
+                        nn.LayerNorm(dim_mid),
+                        FeedForward(dim=dim_mid, dropout=ffn_dropout),
                     ),
                 )
             )
 
+        self.decoder_proj = nn.Linear(dim_mid, dim_dec)
+
         # decoder layer
         self.dec_atn = RotaryCrossAttention(
-            dim=dim,
+            dim=dim_dec,
             heads=cross_heads,
             dropout=atn_dropout,
             dim_head=dim_head,
             rotate_value=False,
         )
         self.dec_ffn = nn.Sequential(
-            nn.LayerNorm(dim), FeedForward(dim=dim, dropout=ffn_dropout)
+            nn.LayerNorm(dim_dec), FeedForward(dim=dim_dec, dropout=ffn_dropout)
         )
 
         # Output projections + loss
         self.readout = MultitaskReadout(
-            dim=dim,
+            dim=dim_dec,
             readout_specs=readout_specs,
         )
 
-        self.dim = dim
+        self.dim_enc = dim_enc
+        self.dim_mid = dim_mid
+        self.dim_dec = dim_dec
 
     def forward(
         self,
@@ -175,6 +184,7 @@ class POYOPlus(nn.Module):
         output_session_index: TensorType["batch", "n_out", int],
         output_timestamps: TensorType["batch", "n_out", float],
         output_decoder_index: TensorType["batch", "n_out", int],
+        assist_level_index: Optional[TensorType["batch", "n_out", int]] = None,
         unpack_output: bool = False,
     ) -> Tuple[List[Dict[str, TensorType["*nqueries", "*nchannelsout"]]]]:
         """Forward pass of the POYO+ model.
@@ -228,6 +238,11 @@ class POYOPlus(nn.Module):
         output_queries = self.session_emb(output_session_index) + self.task_emb(
             output_decoder_index
         )
+
+        if assist_level_index is not None:
+            assist_embs = self.assist_emb(assist_level_index.long())
+            output_queries += assist_embs
+
         output_timestamp_emb = self.rotary_emb(output_timestamps)
 
         # encode
@@ -240,10 +255,18 @@ class POYOPlus(nn.Module):
         )
         latents = latents + self.enc_ffn(latents)
 
+        # project to processor space
+        if self.dim_enc != self.dim_mid:
+            latents = self.encoder_proj(latents)
+
         # process
         for self_attn, self_ff in self.proc_layers:
             latents = latents + self.dropout(self_attn(latents, latent_timestamp_emb))
             latents = latents + self.dropout(self_ff(latents))
+
+        # project to decoder space
+        if self.dim_mid != self.dim_dec:
+            latents = self.decoder_proj(latents)
 
         # decode
         output_queries = output_queries + self.dec_atn(
@@ -316,6 +339,7 @@ class POYOPlus(nn.Module):
             output_task_index,
             output_weights,
             output_eval_mask,
+            assist_level,
         ) = prepare_for_multitask_readout(
             data,
             self.readout_specs,
@@ -328,6 +352,7 @@ class POYOPlus(nn.Module):
         keep_mask = (output_timestamps >= threshold).cpu().numpy()
         output_timestamps = output_timestamps[keep_mask]
         output_task_index = output_task_index[keep_mask]
+        assist_level = assist_level[keep_mask]
 
         # values, weights, and eval mask are dictionaries with one array per readout_id
         for r_id in output_values:
@@ -353,6 +378,7 @@ class POYOPlus(nn.Module):
                 "output_session_index": pad8(session_index),
                 "output_timestamps": pad8(output_timestamps),
                 "output_decoder_index": pad8(output_task_index),
+                "assist_level_index": pad8(assist_level),
             },
             # ground truth targets
             "target_values": chain(output_values, allow_missing_keys=True),
