@@ -1,5 +1,5 @@
 - selection:
-  - brainset: ALMG-100_OT_noCAR
+  - brainset: ALMG-100-SS_OT_ALL
     sessions:
     # - n1_20230818_CenterOut
     # - n1_20230824_CenterOut
@@ -21,11 +21,11 @@
     # - n1_20240927_CenterOut
     # - n1_20241018_CenterOut
 
+    - n2_20240118_CenterOut ## No assist 0 run
     - n2_20240123_CenterOut
     - n2_20240126_CenterOut
     - n2_20240130_CenterOut
     - n2_20240201_CenterOut
-    - n2_20240206_CenterOut
     - n2_20240208_CenterOut
     - n2_20240213_CenterOut
     - n2_20240215_CenterOut
@@ -43,12 +43,16 @@
     - n2_20240409_CenterOut
     - n2_20240411_CenterOut
     - n2_20240418_CenterOut
+    - n2_20240430_CenterOut ## No assist 0 run
     - n2_20240502_CenterOut
+    - n2_20240503_CenterOut ## No assist 0 run
     - n2_20240509_CenterOut
+    - n2_20240510_CenterOut ## No assist 0 run
     - n2_20240516_CenterOut
     - n2_20240521_CenterOut
     - n2_20240530_CenterOut
     - n2_20240618_CenterOut
+    - n2_20240625_CenterOut ## No assist 0 run
     - n2_20240702_CenterOut
     - n2_20240709_CenterOut
     - n2_20240716_CenterOut
@@ -63,9 +67,15 @@
     - n2_20241106_CenterOut
     - n2_20241113_CenterOut
     - n2_20241119_CenterOut
-    # - n2_20241211_CenterOut
+    - n2_20241211_CenterOut
+    - n2_20241212_CenterOut ## No assist 0 run or <0.35
+    - n2_20241224_CenterOut ## No assist 0 run or <0.35
     # - n2_20250107_CenterOut
     # - n2_20250114_CenterOut
+    # - n2_20250128_CenterOut ## No assist 0 run
+    # - n2_20250211_CenterOut ## No assist 0 run
+    # - n2_20250218_CenterOut ## No assist 0 run
+    # - n2_20250225_CenterOut ## No assist 0 run
 
   config:
     multitask_readout:
