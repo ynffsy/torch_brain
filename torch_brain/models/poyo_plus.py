@@ -350,17 +350,26 @@ class POYOPlus(nn.Module):
         assert threshold < end, "sequence_start_threshold is too large"
 
         keep_mask = (output_timestamps >= threshold).cpu().numpy()
+
+        n_metrics = len(data.config["multitask_readout"])
+        n_data_per_metric = len(output_timestamps) // n_metrics
+        keep_mask_per_metric = keep_mask[:n_data_per_metric]
+
         output_timestamps = output_timestamps[keep_mask]
         output_task_index = output_task_index[keep_mask]
+
+        assist_level = np.repeat(assist_level, n_metrics)
         assist_level = assist_level[keep_mask]
+
+        # import ipdb; ipdb.set_trace()
 
         # values, weights, and eval mask are dictionaries with one array per readout_id
         for r_id in output_values:
-            output_values[r_id] = output_values[r_id][keep_mask]
+            output_values[r_id] = output_values[r_id][keep_mask_per_metric]
         for r_id in output_weights:
-            output_weights[r_id] = output_weights[r_id][keep_mask]
+            output_weights[r_id] = output_weights[r_id][keep_mask_per_metric]
         for r_id in output_eval_mask:
-            output_eval_mask[r_id] = output_eval_mask[r_id][keep_mask]
+            output_eval_mask[r_id] = output_eval_mask[r_id][keep_mask_per_metric]
 
         session_index = np.repeat(session_index, len(output_timestamps))
 
