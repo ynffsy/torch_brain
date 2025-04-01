@@ -7,6 +7,7 @@ import lightning as L
 import torch
 import torch.nn as nn
 from lightning.pytorch.callbacks import (
+    Callback,
     LearningRateMonitor,
     ModelCheckpoint,
     ModelSummary,
@@ -32,7 +33,9 @@ from torch.utils.data import DataLoader
 from torch_brain.data import Dataset, collate
 from torch_brain.transforms import Compose
 
-from train import TrainWrapper, DataModule
+from train import TrainWrapper
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 import ipdb
 
@@ -85,7 +88,7 @@ class TestDataModule(L.LightningDataModule):
         # 3) Create the test dataset
         self.test_dataset = Dataset(
             root=self.cfg.data_root,
-            config=self.cfg.dataset,
+            config=self.cfg.eval_dataset,
             # split="test",  # or however you designate test set
             transform=test_transform,
         )
@@ -143,6 +146,226 @@ class TestDataModule(L.LightningDataModule):
 
 
 
+class AttentionCaptureCallback(L.Callback):
+    def __init__(self):
+        super().__init__()
+        self.captured_attn = {}      # dict of {layer_name: [list_of_tensors_per_batch]}
+        self.captured_batches = []   # store the actual batch data if needed
+        self.captured_outputs = []  # store the actual outputs if needed
+
+
+    def setup(self, trainer, pl_module, stage):
+        """Attach forward hooks, etc., just like before."""
+        ## Add all attention modules
+        attn_modules = []
+        for i, layer in enumerate(pl_module.model.proc_layers):
+            attn_modules.append(layer[0])  # e.g. RotarySelfAttention
+
+
+        def make_hook(layer_name):
+            def hook_fn(module, inputs, outputs):
+                # If your module returns (out, attn_weights):
+                if isinstance(outputs, tuple) and len(outputs) == 2:
+                    out, attn_weights = outputs
+                else:
+                    # Or if module.last_attn_weights is set:
+                    attn_weights = getattr(module, "last_attn_weights", None)
+
+                if attn_weights is not None:
+                    # store the attn in a list
+                    self.captured_attn.setdefault(layer_name, []).append(attn_weights.detach().cpu())
+            return hook_fn
+
+        for i, layer in enumerate(attn_modules):
+            layer_name = f"attention_layer_{i}"
+            layer.register_forward_hook(make_hook(layer_name))
+
+
+    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
+        """
+        We'll store the 'batch' here so we can reference it later for visualization.
+        'batch' might be a dict or a tuple depending on your DataLoader.
+        """
+        self.captured_batches.append(batch)
+        self.captured_outputs.append(outputs)
+
+
+    def on_test_end(self, trainer, pl_module):
+        """
+        Called after all test batches are done.
+        We'll create a single animation over 'n_frames' = the number of test batches.
+        For each batch:
+          - We plot the concatenated predictions vs. targets for 'cursor_direction_to_target_2d'.
+          - We display attention maps for each layer & head (just picking sample=0 in the batch).
+        """
+
+        ## Sanity check: do we have data?
+        if not len(self.captured_outputs):
+            print("No outputs captured.")
+            return
+        if not len(self.captured_attn):
+            print("No attention weights captured.")
+            return
+
+        layer_names = list(self.captured_attn.keys())
+        n_layers = len(layer_names)
+        # e.g. shape => [batch_size, n_heads, seq_len, seq_len]
+        first_attn = self.captured_attn[layer_names[0]][0]
+        batch_size, n_heads, seq_len, _ = first_attn.shape
+
+        # The number of frames in our animation = number of test batches we captured
+        n_frames = len(self.captured_outputs)  # or len(self.captured_attn[layer_names[0]])
+        
+        ## Create the figure and axes grid
+        rows = n_layers + 1  # row0 for preds, row1..n_layers for attention
+        cols = n_heads       # each column is a different head
+        fig, axes = plt.subplots(rows, cols, figsize=(cols*4, rows*4))
+
+        # If there's only 1 layer or 1 head, sometimes axes is not 2D.
+        # Let's ensure it's always a 2D list.
+        if rows == 1 and cols == 1:
+            axes = [[axes]]
+        elif rows == 1:
+            axes = [axes]
+        elif cols == 1:
+            # Then each row is just one axis
+            axes = [[ax] for ax in axes]
+        
+        ## predictions vs. targets plots
+        pred_ax_x = axes[0][0]
+        pred_ax_y = axes[0][1]
+
+        pred_ax_x.set_title("Pred vs. Target (x)")
+        pred_ax_y.set_title("Pred vs. Target (y)")
+
+        # We'll create 4 line objects: pred_x, targ_x, pred_y, targ_y
+        line_pred_x, = pred_ax_x.plot([], [], label="Pred X", color="blue")
+        line_targ_x, = pred_ax_x.plot([], [], label="Targ X", color="cyan")
+
+        line_pred_y, = pred_ax_y.plot([], [], label="Pred Y", color="red")
+        line_targ_y, = pred_ax_y.plot([], [], label="Targ Y", color="orange")
+
+        pred_ax_x.legend()
+        pred_ax_y.legend()
+
+
+        # Hide other columns in row=0 (if n_heads>1)
+        for c in range(2, cols):
+            axes[0][c].axis("off")
+
+        ## Rows=1..n_layers: attention maps
+        # We'll store an imshow handle for each layer & head
+        attn_images = []
+        for layer_i in range(n_layers):
+            row_i = layer_i + 1  # 1-based offset
+            row_handles = []
+            for head_j in range(n_heads):
+                im = axes[row_i][head_j].imshow(torch.zeros(seq_len, seq_len),
+                                                aspect='auto', cmap='viridis', vmin=0, vmax=1)
+                axes[row_i][head_j].set_title(f"{layer_names[layer_i]} head {head_j}")
+                axes[row_i][head_j].axis("off")
+                row_handles.append(im)
+            attn_images.append(row_handles)
+
+        plt.tight_layout(pad=3)
+
+        ## Define the update function for animation
+        def update(frame_idx):
+            """
+            Called for each test batch (frame_idx).
+              1) Retrieve predictions from self.captured_outputs[frame_idx], 
+                 handle the case of zero-length or missing predictions.
+              2) Update the pred-vs-target lines on pred_ax_x/pred_ax_y
+              3) Update attention for each layer/head
+            """
+
+            out_obj = self.captured_outputs[frame_idx]
+            preds_list = out_obj.preds  # list of sub-window dicts
+
+            ## Gather & concatenate predictions
+            cat_preds_list = []
+            for window_dict in preds_list:
+                # If there's no "cursor_direction_to_target_2d" in this sub-window, skip it
+                if "cursor_direction_to_target_2d" in window_dict:
+                    cat_preds_list.append(window_dict["cursor_direction_to_target_2d"])
+
+            # If either we have no sub-windows or the aggregator's target is empty, handle it
+            target_tensor = out_obj.targets["cursor_direction_to_target_2d"]  # shape e.g. [N, 2] or [0, 2]
+
+            # Check if we actually have any predictions or if targets are empty
+            has_events = (len(cat_preds_list) > 0) and (target_tensor.shape[0] > 0)
+
+            if has_events:
+                # Concatenate partial predictions
+                concat_preds = torch.cat(cat_preds_list, dim=0)  # e.g. shape [N,2]
+                N = concat_preds.shape[0]
+
+                xs = range(N)
+                px = concat_preds[:, 0].cpu().numpy()
+                py = concat_preds[:, 1].cpu().numpy()
+
+                tx = target_tensor[:, 0].cpu().numpy()
+                ty = target_tensor[:, 1].cpu().numpy()
+
+                # Update lines for X
+                line_pred_x.set_data(xs, px)
+                line_targ_x.set_data(xs, tx)
+                pred_ax_x.relim()
+                pred_ax_x.autoscale_view()
+                pred_ax_x.set_title(f"Pred vs. Target X (batch={frame_idx})")
+
+                # Update lines for Y
+                line_pred_y.set_data(xs, py)
+                line_targ_y.set_data(xs, ty)
+                pred_ax_y.relim()
+                pred_ax_y.autoscale_view()
+                pred_ax_y.set_title(f"Pred vs. Target Y (batch={frame_idx})")
+
+            else:
+                # No valid events => clear the lines
+                line_pred_x.set_data([], [])
+                line_targ_x.set_data([], [])
+                line_pred_y.set_data([], [])
+                line_targ_y.set_data([], [])
+
+                pred_ax_x.set_title(f"No events in batch={frame_idx}")
+                pred_ax_y.set_title(f"No events in batch={frame_idx}")
+
+                # It's fine to keep re-lim and autoscale (they won't change anything).
+                pred_ax_x.relim()
+                pred_ax_x.autoscale_view()
+                pred_ax_y.relim()
+                pred_ax_y.autoscale_view()
+
+            ## Update attention maps
+            for layer_i, layer_name in enumerate(layer_names):
+                # shape => [batch_size, heads, seq_len, seq_len]
+                attn_for_batch = self.captured_attn[layer_name][frame_idx]
+                # pick the first sample in that batch
+                attn_for_sample = attn_for_batch[0]
+
+                for head_j in range(n_heads):
+                    attn_map = attn_for_sample[head_j].cpu().numpy()
+                    attn_images[layer_i][head_j].set_data(attn_map)
+                    attn_images[layer_i][head_j].autoscale()
+
+            return []
+
+        ## Build the animation
+        ani = animation.FuncAnimation(
+            fig,
+            update,
+            frames=n_frames,   # go through each test batch
+            interval=1000,     # ms between frames (1 FPS)
+            blit=False,
+            repeat=False
+        )
+
+        plt.show()
+        # ani.save("pred_attn_animation.gif", writer="imagemagick", fps=1)
+
+
+
 @hydra.main(version_base="1.3", config_path="./configs", config_name="test_poyo_mp.yaml")
 def main(cfg: DictConfig):
     # fix random seed, skipped if cfg.seed is None
@@ -191,13 +414,14 @@ def main(cfg: DictConfig):
     evaluator = MultiTaskDecodingStitchEvaluator(
         metrics=test_data_module.get_metrics()
     )
+    attn_callback = AttentionCaptureCallback()
 
     # 7) Build trainer
     trainer = L.Trainer(
         logger=wandb_logger,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=cfg.gpus,
-        callbacks=[evaluator],  # keep it minimal
+        callbacks=[evaluator, attn_callback],  # keep it minimal
         # any other trainer configs
     )
 
