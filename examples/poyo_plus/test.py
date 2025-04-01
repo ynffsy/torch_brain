@@ -34,73 +34,14 @@ from torch_brain.transforms import Compose
 
 from train import TrainWrapper, DataModule
 
+import ipdb
+
+
+
 # higher speed on machines with tensor cores
 torch.set_float32_matmul_precision("medium")
 logger = logging.getLogger(__name__)
 
-
-class GradualUnfreezing(L.Callback):
-    r"""A Lightning callback to handle freezing and unfreezing of the model for the
-    purpose of finetuning the model to new sessions. If this callback is used,
-    most of the model weights will be frozen initially.
-    The only parts of the model that will be left unforzen are the unit, and session embeddings.
-    One we reach the specified epoch (`unfreeze_at_epoch`), the entire model will be unfrozen.
-    """
-
-    _has_been_frozen: bool = False
-    frozen_params: Optional[List[nn.Parameter]] = None
-
-    def __init__(self, unfreeze_at_epoch: int):
-        self.enabled = unfreeze_at_epoch != 0
-        self.unfreeze_at_epoch = unfreeze_at_epoch
-        self.cli_log = logging.getLogger(__name__)
-
-    @classmethod
-    def freeze(cls, model):
-        r"""Freeze the model weights, except for the unit and session embeddings, and
-        return the list of frozen parameters.
-        """
-        layers_to_freeze = [
-            model.enc_atn,
-            model.enc_ffn,
-            model.proc_layers,
-            model.dec_atn,
-            model.dec_ffn,
-            model.readout,
-            model.token_type_emb,
-            model.task_emb,
-        ]
-
-        frozen_params = []
-        for layer in layers_to_freeze:
-            for param in layer.parameters():
-                if param.requires_grad:
-                    param.requires_grad = False
-                    frozen_params.append(param)
-
-        return frozen_params
-
-    def on_train_start(self, trainer, pl_module):
-        if self.enabled:
-            self.frozen_params = self.freeze(pl_module.model)
-            self._has_been_frozen = True
-            self.cli_log.info(
-                f"POYO+ Perceiver frozen at epoch 0. "
-                f"Will stay frozen until epoch {self.unfreeze_at_epoch}."
-            )
-
-    def on_train_epoch_start(self, trainer, pl_module):
-        if self.enabled and (trainer.current_epoch == self.unfreeze_at_epoch):
-            if not self._has_been_frozen:
-                raise RuntimeError("Model has not been frozen yet.")
-
-            for param in self.frozen_params:
-                param.requires_grad = True
-
-            self.frozen_params = None
-            self.cli_log.info(
-                f"POYO+ Perceiver unfrozen at epoch {trainer.current_epoch}"
-            )
 
 
 def load_model_from_ckpt(model: nn.Module, ckpt_path: str) -> None:
