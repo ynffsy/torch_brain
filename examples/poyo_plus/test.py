@@ -147,222 +147,307 @@ class TestDataModule(L.LightningDataModule):
 
 
 class AttentionCaptureCallback(L.Callback):
-    def __init__(self):
+    def __init__(self, fps=10, n_batches_vis=10):
+        """
+        Args:
+            fps: frames per second for the final animation
+        """
         super().__init__()
-        self.captured_attn = {}      # dict of {layer_name: [list_of_tensors_per_batch]}
-        self.captured_batches = []   # store the actual batch data if needed
-        self.captured_outputs = []  # store the actual outputs if needed
+        self.captured_attn = {}     # { layer_name: [attention tensor per batch] }
+        self.captured_batches = []  # raw batch data if needed
+        self.captured_outputs = []  # aggregator outputs for each batch
+        self.fps = fps
+        self.n_batches_vis = n_batches_vis
 
+        self.sample_size_per_batch = []
+
+        # We'll store references to highlight patches
+        self.highlight_patch_x = None
+        self.highlight_patch_y = None
 
     def setup(self, trainer, pl_module, stage):
-        """Attach forward hooks, etc., just like before."""
-        ## Add all attention modules
+        """
+        Attach forward hooks to:
+          - encoder cross-attn (enc_atn) => "encoder_cross_attn"
+          - decoder cross-attn (dec_atn) => "decoder_cross_attn"
+          - each process layer's self-attn => "process_layer_{i}"
+        """
         attn_modules = []
-        for i, layer in enumerate(pl_module.model.proc_layers):
-            attn_modules.append(layer[0])  # e.g. RotarySelfAttention
 
+        # If model has enc_atn/dec_atn
+        if hasattr(pl_module.model, "enc_atn"):
+            attn_modules.append((pl_module.model.enc_atn, "encoder_cross_attn"))
+        if hasattr(pl_module.model, "dec_atn"):
+            attn_modules.append((pl_module.model.dec_atn, "decoder_cross_attn"))
+
+        # Add each process layer
+        if hasattr(pl_module.model, "proc_layers"):
+            for i, layer in enumerate(pl_module.model.proc_layers):
+                # layer[0] is your RotarySelfAttention
+                attn_modules.append((layer[0], f"process_layer_{i}"))
 
         def make_hook(layer_name):
             def hook_fn(module, inputs, outputs):
-                # If your module returns (out, attn_weights):
+                # If forward returns (out, attn_weights)
                 if isinstance(outputs, tuple) and len(outputs) == 2:
-                    out, attn_weights = outputs
+                    _, attn_weights = outputs
                 else:
-                    # Or if module.last_attn_weights is set:
                     attn_weights = getattr(module, "last_attn_weights", None)
 
                 if attn_weights is not None:
-                    # store the attn in a list
-                    self.captured_attn.setdefault(layer_name, []).append(attn_weights.detach().cpu())
+                    self.captured_attn.setdefault(layer_name, []).append(
+                        attn_weights.detach().cpu()
+                    )
             return hook_fn
 
-        for i, layer in enumerate(attn_modules):
-            layer_name = f"attention_layer_{i}"
-            layer.register_forward_hook(make_hook(layer_name))
-
+        # Register hooks
+        for (module, name) in attn_modules:
+            module.register_forward_hook(make_hook(name))
 
     def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
-        """
-        We'll store the 'batch' here so we can reference it later for visualization.
-        'batch' might be a dict or a tuple depending on your DataLoader.
-        """
-        self.captured_batches.append(batch)
+        # Store aggregator outputs + raw batch
         self.captured_outputs.append(outputs)
-
+        self.captured_batches.append(batch)
 
     def on_test_end(self, trainer, pl_module):
         """
-        Called after all test batches are done.
-        We'll create a single animation over 'n_frames' = the number of test batches.
-        For each batch:
-          - We plot the concatenated predictions vs. targets for 'cursor_direction_to_target_2d'.
-          - We display attention maps for each layer & head (just picking sample=0 in the batch).
+        Build one animation where:
+          - total_frames = num_batches * batch_size
+          - frame = (batch_idx, sample_idx)
+          - update attention for that sample
+          - only update the pred-vs-target lines when sample_idx == 0
         """
-
-        ## Sanity check: do we have data?
-        if not len(self.captured_outputs):
+        if not self.captured_outputs:
             print("No outputs captured.")
             return
-        if not len(self.captured_attn):
+        if not self.captured_attn:
             print("No attention weights captured.")
             return
 
-        layer_names = list(self.captured_attn.keys())
-        n_layers = len(layer_names)
-        # e.g. shape => [batch_size, n_heads, seq_len, seq_len]
-        first_attn = self.captured_attn[layer_names[0]][0]
-        batch_size, n_heads, seq_len, _ = first_attn.shape
+        # 1) Decide layer order and how many heads each layer has
+        all_layers = list(self.captured_attn.keys())
+        # e.g. "encoder_cross_attn", "process_layer_0", "decoder_cross_attn"
+        encoder_layers = [n for n in all_layers if n == "encoder_cross_attn"]
+        decoder_layers = [n for n in all_layers if n == "decoder_cross_attn"]
+        proc_layers = sorted([n for n in all_layers if n.startswith("process_layer_")])
+        layer_names = encoder_layers + proc_layers + decoder_layers
 
-        # The number of frames in our animation = number of test batches we captured
-        n_frames = len(self.captured_outputs)  # or len(self.captured_attn[layer_names[0]])
-        
-        ## Create the figure and axes grid
-        rows = n_layers + 1  # row0 for preds, row1..n_layers for attention
-        cols = n_heads       # each column is a different head
-        fig, axes = plt.subplots(rows, cols, figsize=(cols*4, rows*4))
+        # figure out heads for each layer
+        layer_to_num_heads = {}
+        for name in layer_names:
+            # shape => (batch_size, heads, q_len, k_len)
+            first_tensor = self.captured_attn[name][0]
+            _, heads, _, _ = first_tensor.shape
+            layer_to_num_heads[name] = heads
 
-        # If there's only 1 layer or 1 head, sometimes axes is not 2D.
-        # Let's ensure it's always a 2D list.
+        max_heads = max(layer_to_num_heads.values())
+
+        # 2) Make subplots
+        # row=0 => pred vs target
+        # rows=1.. => each layer
+        rows = len(layer_names) + 1
+        cols = max_heads
+        fig, axes = plt.subplots(rows, cols, figsize=(cols*3, rows*3))
         if rows == 1 and cols == 1:
             axes = [[axes]]
         elif rows == 1:
             axes = [axes]
         elif cols == 1:
-            # Then each row is just one axis
             axes = [[ax] for ax in axes]
-        
-        ## predictions vs. targets plots
+
+        # (A) row=0: predictions vs. target
         pred_ax_x = axes[0][0]
-        pred_ax_y = axes[0][1]
-
-        pred_ax_x.set_title("Pred vs. Target (x)")
-        pred_ax_y.set_title("Pred vs. Target (y)")
-
-        # We'll create 4 line objects: pred_x, targ_x, pred_y, targ_y
-        line_pred_x, = pred_ax_x.plot([], [], label="Pred X", color="blue")
-        line_targ_x, = pred_ax_x.plot([], [], label="Targ X", color="cyan")
-
-        line_pred_y, = pred_ax_y.plot([], [], label="Pred Y", color="red")
-        line_targ_y, = pred_ax_y.plot([], [], label="Targ Y", color="orange")
-
+        line_pred_x, = pred_ax_x.plot([], [], label="Pred X", color="blue", alpha=0.5)
+        line_targ_x, = pred_ax_x.plot([], [], label="Targ X", color="cyan", alpha=0.5)
         pred_ax_x.legend()
-        pred_ax_y.legend()
 
+        line_pred_y = None
+        line_targ_y = None
+        pred_ax_y = None
+        if cols > 1:
+            pred_ax_y = axes[0][1]
+            line_pred_y, = pred_ax_y.plot([], [], label="Pred Y", color="red",    alpha=0.5)
+            line_targ_y, = pred_ax_y.plot([], [], label="Targ Y", color="orange", alpha=0.5)
+            pred_ax_y.legend()
 
-        # Hide other columns in row=0 (if n_heads>1)
+        # Hide leftover columns in row=0
         for c in range(2, cols):
             axes[0][c].axis("off")
 
-        ## Rows=1..n_layers: attention maps
-        # We'll store an imshow handle for each layer & head
+        # (B) row=1.. => each layer
         attn_images = []
-        for layer_i in range(n_layers):
-            row_i = layer_i + 1  # 1-based offset
+        for i, layer_name in enumerate(layer_names):
+            row_idx = i + 1
+            heads_i = layer_to_num_heads[layer_name]
+
+            first_attn_tensor = self.captured_attn[layer_name][0]  # shape (b, heads_i, q_len, k_len)
+            _, _, q_len_i, k_len_i = first_attn_tensor.shape
+
             row_handles = []
-            for head_j in range(n_heads):
-                im = axes[row_i][head_j].imshow(torch.zeros(seq_len, seq_len),
-                                                aspect='auto', cmap='viridis', vmin=0, vmax=1)
-                axes[row_i][head_j].set_title(f"{layer_names[layer_i]} head {head_j}")
-                axes[row_i][head_j].axis("off")
-                row_handles.append(im)
+            for col_j in range(cols):
+                if col_j < heads_i:
+                    im = axes[row_idx][col_j].imshow(
+                        torch.zeros(q_len_i, k_len_i),
+                        aspect='auto', cmap='viridis', vmin=0, vmax=1
+                    )
+                    axes[row_idx][col_j].axis("off")
+                    axes[row_idx][col_j].set_title(f"{layer_name}, head={col_j}")
+                    row_handles.append(im)
+                else:
+                    axes[row_idx][col_j].axis("off")
+                    row_handles.append(None)
             attn_images.append(row_handles)
 
-        plt.tight_layout(pad=3)
+        plt.tight_layout()
 
-        ## Define the update function for animation
-        def update(frame_idx):
+        # 3) total_frames = num_batches * batch_size
+        n_batches = len(self.captured_outputs)
+        # find batch_size from first layer
+        first_layer_first_batch = self.captured_attn[layer_names[0]][0]  # shape => (b, heads, q_len, k_len)
+        bsize, _, _, _ = first_layer_first_batch.shape
+        total_frames = min(n_batches, self.n_batches_vis) * bsize
+
+        ## Compute number of samples per batch
+        n_total_samples = 0
+        for captured_output in self.captured_outputs:
+            n_total_samples += len(captured_output.preds)
+        
+        total_frames = min(n_total_samples, total_frames)
+
+
+        def remove_highlight_patches():
+            """Remove existing highlight patches if present."""
+            if self.highlight_patch_x is not None:
+                self.highlight_patch_x.remove()
+                self.highlight_patch_x = None
+            if self.highlight_patch_y is not None:
+                self.highlight_patch_y.remove()
+                self.highlight_patch_y = None
+
+
+        def update(global_frame_idx):
             """
-            Called for each test batch (frame_idx).
-              1) Retrieve predictions from self.captured_outputs[frame_idx], 
-                 handle the case of zero-length or missing predictions.
-              2) Update the pred-vs-target lines on pred_ax_x/pred_ax_y
-              3) Update attention for each layer/head
+            (batch_idx, sample_idx) = (global_frame_idx // bsize, global_frame_idx % bsize)
+            - if sample_idx == 0 => update aggregator line plots
+            - always update attention for the given sample
             """
+            batch_idx = global_frame_idx // bsize
+            sample_idx = global_frame_idx % bsize
 
-            out_obj = self.captured_outputs[frame_idx]
-            preds_list = out_obj.preds  # list of sub-window dicts
+            out_obj = self.captured_outputs[batch_idx]
 
-            ## Gather & concatenate predictions
-            cat_preds_list = []
-            for window_dict in preds_list:
-                # If there's no "cursor_direction_to_target_2d" in this sub-window, skip it
-                if "cursor_direction_to_target_2d" in window_dict:
-                    cat_preds_list.append(window_dict["cursor_direction_to_target_2d"])
+            # If sample_idx==0, update aggregator-based line plots for that batch
+            if sample_idx == 0:
+                preds_list = out_obj.preds
+                cat_preds_list = []
+                readout_key = "cursor_velocity_2d"
+                if readout_key not in out_obj.targets:
+                    readout_key = "cursor_direction_to_target_2d"
 
-            # If either we have no sub-windows or the aggregator's target is empty, handle it
-            target_tensor = out_obj.targets["cursor_direction_to_target_2d"]  # shape e.g. [N, 2] or [0, 2]
+                for wd in preds_list:
+                    if readout_key in wd:
+                        cat_preds_list.append(wd[readout_key])
 
-            # Check if we actually have any predictions or if targets are empty
-            has_events = (len(cat_preds_list) > 0) and (target_tensor.shape[0] > 0)
+                self.sample_size_per_batch = []
+                for i_sample in range(len(preds_list)):
+                    try:
+                        self.sample_size_per_batch.append(preds_list[i_sample][readout_key].shape[0])
+                    except:
+                        self.sample_size_per_batch.append(0)
 
-            if has_events:
-                # Concatenate partial predictions
-                concat_preds = torch.cat(cat_preds_list, dim=0)  # e.g. shape [N,2]
-                N = concat_preds.shape[0]
+                target_tensor = out_obj.targets.get(readout_key, torch.zeros(0,2))
+                has_events = (len(cat_preds_list) > 0) and (target_tensor.shape[0] > 0)
 
-                xs = range(N)
-                px = concat_preds[:, 0].cpu().numpy()
-                py = concat_preds[:, 1].cpu().numpy()
+                if has_events:
+                    concat_preds = torch.cat(cat_preds_list, dim=0)  # shape [N,2]
+                    N = concat_preds.shape[0]
+                    xs = range(N)
+                    px = concat_preds[:, 0].cpu().numpy()
+                    py = concat_preds[:, 1].cpu().numpy()
 
-                tx = target_tensor[:, 0].cpu().numpy()
-                ty = target_tensor[:, 1].cpu().numpy()
+                    tx = target_tensor[:, 0].cpu().numpy()
+                    ty = target_tensor[:, 1].cpu().numpy()
 
-                # Update lines for X
-                line_pred_x.set_data(xs, px)
-                line_targ_x.set_data(xs, tx)
-                pred_ax_x.relim()
-                pred_ax_x.autoscale_view()
-                pred_ax_x.set_title(f"Pred vs. Target X (batch={frame_idx})")
+                    # X lines
+                    line_pred_x.set_data(xs, px)
+                    line_targ_x.set_data(xs, tx)
+                    pred_ax_x.relim()
+                    pred_ax_x.autoscale_view()
+                    pred_ax_x.set_title(f"Batch={batch_idx} Pred vs. Target X")
 
-                # Update lines for Y
-                line_pred_y.set_data(xs, py)
-                line_targ_y.set_data(xs, ty)
-                pred_ax_y.relim()
-                pred_ax_y.autoscale_view()
-                pred_ax_y.set_title(f"Pred vs. Target Y (batch={frame_idx})")
+                    # Y lines
+                    if line_pred_y is not None and line_targ_y is not None:
+                        line_pred_y.set_data(xs, py)
+                        line_targ_y.set_data(xs, ty)
+                        pred_ax_y.relim()
+                        pred_ax_y.autoscale_view()
+                        pred_ax_y.set_title(f"Batch={batch_idx} Pred vs. Target Y")
+                else:
+                    # no events => clear lines
+                    line_pred_x.set_data([], [])
+                    line_targ_x.set_data([], [])
+                    pred_ax_x.set_title(f"No aggregator events: batch={batch_idx}")
+                    pred_ax_x.relim()
+                    pred_ax_x.autoscale_view()
 
-            else:
-                # No valid events => clear the lines
-                line_pred_x.set_data([], [])
-                line_targ_x.set_data([], [])
-                line_pred_y.set_data([], [])
-                line_targ_y.set_data([], [])
+                    if line_pred_y is not None and line_targ_y is not None:
+                        line_pred_y.set_data([], [])
+                        line_targ_y.set_data([], [])
+                        pred_ax_y.set_title(f"No aggregator events: batch={batch_idx}")
+                        pred_ax_y.relim()
+                        pred_ax_y.autoscale_view()
 
-                pred_ax_x.set_title(f"No events in batch={frame_idx}")
-                pred_ax_y.set_title(f"No events in batch={frame_idx}")
+            # Highlight the current samples
+            start = np.sum(self.sample_size_per_batch[:sample_idx])
+            end = start + self.sample_size_per_batch[sample_idx]
 
-                # It's fine to keep re-lim and autoscale (they won't change anything).
-                pred_ax_x.relim()
-                pred_ax_x.autoscale_view()
-                pred_ax_y.relim()
-                pred_ax_y.autoscale_view()
+            # remove old patches
+            remove_highlight_patches()
 
-            ## Update attention maps
-            for layer_i, layer_name in enumerate(layer_names):
-                # shape => [batch_size, heads, seq_len, seq_len]
-                attn_for_batch = self.captured_attn[layer_name][frame_idx]
-                # pick the first sample in that batch
-                attn_for_sample = attn_for_batch[0]
+            # add new patches
+            # highlight X:
+            self.highlight_patch_x = pred_ax_x.axvspan(start, end, color='gray', alpha=0.2)
 
-                for head_j in range(n_heads):
-                    attn_map = attn_for_sample[head_j].cpu().numpy()
-                    attn_images[layer_i][head_j].set_data(attn_map)
-                    attn_images[layer_i][head_j].autoscale()
+            # highlight Y if we have a second axis
+            if pred_ax_y is not None:
+                self.highlight_patch_y = pred_ax_y.axvspan(start, end, color='gray', alpha=0.2)
+
+
+            # (C) ALWAYS update attention for that sample
+            for row_i, layer_name in enumerate(layer_names):
+                row_idx = row_i + 1
+                attn_for_that_batch = self.captured_attn[layer_name][batch_idx]
+                # shape => (bsize, heads, q_len, k_len)
+                attn_for_sample = attn_for_that_batch[sample_idx]  # shape => (heads, q_len, k_len)
+
+                heads_i = layer_to_num_heads[layer_name]
+                for col_j in range(cols):
+                    if col_j < heads_i:
+                        attn_map = attn_for_sample[col_j].numpy()
+                        attn_images[row_i][col_j].set_data(attn_map)
+                        attn_images[row_i][col_j].autoscale()
 
             return []
 
-        ## Build the animation
         ani = animation.FuncAnimation(
             fig,
             update,
-            frames=n_frames,   # go through each test batch
-            interval=1000,     # ms between frames (1 FPS)
+            frames=total_frames,
+            interval=1000/self.fps,  # e.g. fps=2 => 500ms
             blit=False,
             repeat=False
         )
 
-        plt.show()
-        # ani.save("pred_attn_animation.gif", writer="imagemagick", fps=1)
+        my_writer = animation.FFMpegWriter(
+            fps=self.fps,
+            codec="h264",
+            bitrate=-1,        # Or some chosen bitrate
+            extra_args=["-threads", "24"]  # <--- forces ffmpeg to use 8 threads
+        )
+
+        # plt.show()
+        # or:
+        ani.save("pred_vs_target_plus_all_samples_attn.mp4", writer=my_writer, dpi=100)
 
 
 
@@ -421,6 +506,7 @@ def main(cfg: DictConfig):
         logger=wandb_logger,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=cfg.gpus,
+        # callbacks=[evaluator],  # keep it minimal
         callbacks=[evaluator, attn_callback],  # keep it minimal
         # any other trainer configs
     )
